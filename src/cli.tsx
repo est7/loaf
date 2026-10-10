@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { bootstrapCommandTokens } from "./cli/argv-bootstrap.js";
+import { createCommandProgram, createPolicyCommandProgram } from "./cli/command-program.js";
+import { evaluateCommandPreparse, renderHookEvents } from "./cli/command-policy.js";
 import { scanArgv } from "./core/argv-scanner.js";
-import { diagnostic, diagnosticVariant, type DiagnosticContext } from "./core/error-catalog.js";
+import { diagnostic } from "./core/error-catalog.js";
 import { writeDiagnosticFailure } from "./cli/diagnostic-failure.js";
 
 // loaf CLI — audit r1 Blocker #7 (MVP).
@@ -18,53 +19,27 @@ import { writeDiagnosticFailure } from "./cli/diagnostic-failure.js";
 // build entry payload → mutate → format output. They are scaffolded as
 // follow-up work in a companion PR per the audit r1 punch list.
 
-import { Command, CommanderError } from "commander";
+import { CommanderError } from "commander";
 import os from "node:os";
 import packageJson from "../package.json" with { type: "json" };
 
 import { UNEXPECTED_ERROR, writeCrashLog } from "./core/crash-log.js";
-import {
-  createCommandContext,
-  parsePresentation,
-  FORMAT_MODES,
-  FORMAT_MODES_HUMAN,
-  type I18nVars,
-} from "./cli/command-context.js";
+import { createCommandContext, parsePresentation, FORMAT_MODES } from "./cli/command-context.js";
 import { buildTraceEntry, defaultAppendTraceLine, type TraceEntry } from "./cli/trace-writer.js";
-import { defaultRenderTui, type RenderTui } from "./cli/tui/render.js";
-import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "./core/hook-events.js";
+import { type RenderTui } from "./cli/tui/render.js";
 import { readUserConfig } from "./core/user-config.js";
 import { BUILTIN_BUNDLES, createI18n, resolveLocale } from "./cli/i18n.js";
-import { runEditor as defaultRunEditor, type RunEditor } from "./cli/run-editor.js";
+import { type RunEditor } from "./cli/run-editor.js";
 import { buildReportUrl } from "./cli/url-prefill.js";
 import { defaultReadStdin, defaultIsStdinTty } from "./cli/stdin.js";
 import { createJsonInputIngestor } from "./cli/input-ingestion.js";
 
-import { LOAF_DOCS_URL, LOAF_ISSUE_URL, helpFooter, loadSession } from "./core/cli-runtime.js";
+import { LOAF_DOCS_URL, LOAF_ISSUE_URL, loadSession } from "./core/cli-runtime.js";
 import { type MutateContext } from "./core/journal-mutate.js";
 import { createCommandMutator } from "./cli/command-mutator.js";
 import { loadProjections } from "./core/projection-loader.js";
 
-import { registerLifecycle } from "./cli/commands/lifecycle.js";
-import { registerGate } from "./cli/commands/gate.js";
-import { registerTerminalExecute } from "./cli/commands/terminal-execute.js";
-import { registerProfileConfig } from "./cli/commands/profile-config.js";
-import { registerTasks } from "./cli/commands/tasks.js";
-import { registerTerminalSettle } from "./cli/commands/terminal-settle.js";
-import { registerPending } from "./cli/commands/pending.js";
-import { registerEvidence } from "./cli/commands/evidence.js";
-import { registerJournal } from "./cli/commands/journal.js";
-import { registerLessons } from "./cli/commands/lessons.js";
-import { registerIntegrations } from "./cli/commands/integrations.js";
-import { registerFinding } from "./cli/commands/finding.js";
-import { registerSpec } from "./cli/commands/spec.js";
-import { registerState } from "./cli/commands/state.js";
-import { registerBoard } from "./cli/commands/board.js";
-import { registerPrune } from "./cli/commands/prune.js";
-import { defaultRegistryDir } from "./core/registry-writer.js";
-import { defaultRuntimeDir } from "./core/session-runtime.js";
 import { releaseFeatureWriteLeasesForSignalSync } from "./core/feature-write-lease.js";
-import { collectPresentSelectors } from "./cli/selectors.js";
 import type { OpenUrl } from "./cli/board/open-url.js";
 
 // Phase 16 SC-2 — SIGINT handler (protocol §10.9 exit 130).
@@ -235,290 +210,19 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     }
   }
 
-  // Phase 16 SC-9b — `sessions list` selector misuse pre-parse.
-  //
-  // Runs BEFORE the SC-8 dispatch USAGE block so `sessions list --feature-dir`
-  // gets the right diagnostic ("sessions list does not accept selectors")
-  // instead of SC-8's generic "requires --feature" message (codex r292
-  // ordering fix).
-  //
-  // `sessions list` walks the whole registry — passing dispatch selectors
-  // is contract misuse. Detect any of:
-  //   --session / --feature / --feature-dir (any argv position)
-  //   $LOAF_SESSION / $LOAF_FEATURE (env)
-  // and emit typed USAGE with `detail.conflicting` listing ONLY the
-  // actually-present selectors (codex r290 nit).
   if (!wantsHelpOrVersion) {
-    const cmdTokens = bootstrapCommandTokens(argv, 2);
-    const isSessionsList = cmdTokens[0] === "sessions" && cmdTokens[1] === "list";
-    if (isSessionsList) {
-      const presentSelectors = collectPresentSelectors(argv, process.env);
-      if (presentSelectors.length > 0) {
-        const renderAsJson = detectRenderAsJson(argv);
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.sessions_list.selector_conflict", {
-            ...{ conflicting: presentSelectors.join(" / ") },
-            ...{ conflicting: presentSelectors },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
+    const policy = evaluateCommandPreparse(createPolicyCommandProgram(), argv, process.env);
+    if (policy.kind === "failure") {
+      writeDiagnosticFailure(policy.diagnostic, {
+        format: detectRenderAsJson(argv) ? "json" : "text",
+        i18n: preparseI18nFromEnv(process.env),
+        writeStderr: (line) => process.stderr.write(line),
+      });
+      return 2;
     }
-
-    // Phase 16 SC-14 — `tui` selector + --format misuse pre-parse.
-    //
-    // `loaf tui` walks the registry like `sessions list`. Selectors are
-    // contract misuse; --format is meaningless for an interactive UI
-    // (use `sessions list --format json` for scriptable output). Mirrors
-    // SC-9b ordering — fires BEFORE SC-8 dispatch guard.
-    const isTui = cmdTokens[0] === "tui";
-    if (isTui) {
-      const presentSelectors = collectPresentSelectors(argv, process.env);
-      const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
-      const renderAsJson = detectRenderAsJson(argv);
-      if (presentSelectors.length > 0) {
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.tui.selector_conflict", {
-            ...{ conflicting: presentSelectors.join(" / ") },
-            ...{ conflicting: presentSelectors },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
-      if (hasFormat) {
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.tui.interactive_only", {
-            ...{},
-            ...{ reason: "tui-interactive-only" },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
-    }
-
-    // Phase 16 SC-15a — `loaf hook <event>` pre-parse (codex r363 P1 / r364 P1):
-    //   1. `--list-events` FIRST (cmdTokens[1] would be undefined when
-    //      only --list-events is given; ordering matters)
-    //   2. Bare `loaf hook` (no event) → USAGE listing enum
-    //   3. Unknown event → USAGE + did-you-mean
-    //   Known event passes through to Commander; SC-15a action returns
-    //   HOOK_EVENT_NOT_IMPLEMENTED for all 4. SC-15b/c wire real handlers.
-    if (cmdTokens[0] === "hook") {
-      const renderAsJson = detectRenderAsJson(argv);
-      // (1) --list-events takes precedence
-      if (argv.includes("--list-events")) {
-        if (renderAsJson) {
-          process.stdout.write(
-            JSON.stringify({
-              ok: true,
-              count: HOOK_EVENTS.length,
-              events: HOOK_EVENTS.map((e) => ({
-                event: e,
-                claude_code: HOOK_EVENT_TO_CLAUDE_CODE[e],
-              })),
-            }) + "\n",
-          );
-        } else {
-          for (const e of HOOK_EVENTS) {
-            process.stdout.write(`${e}\t${HOOK_EVENT_TO_CLAUDE_CODE[e]}\n`);
-          }
-        }
-        return 0;
-      }
-      // (2) Bare `loaf hook` → USAGE listing enum
-      if (cmdTokens[1] === undefined) {
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.hook.missing_event", {
-            ...{ events: HOOK_EVENTS.join(", ") },
-            ...{ events: HOOK_EVENTS },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
-      // (3) Unknown event → USAGE + did-you-mean
-      if (!(HOOK_EVENTS as readonly string[]).includes(cmdTokens[1]!)) {
-        const got = cmdTokens[1]!;
-        const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.hook.unknown_event", {
-            ...{ event: got, allowed: HOOK_EVENTS.join(", "), suggestion },
-            ...{ event: got, allowed: HOOK_EVENTS, suggestion },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
-    }
-
-    // Phase 16 SC-9c — `check <path>` selector misuse pre-parse.
-    //
-    // `loaf check <path>` is feature-agnostic schema validation (CI tool).
-    // Passing dispatch selectors is contract misuse — emit typed USAGE
-    // BEFORE SC-8's "requires --feature" / "--feature-dir requires --feature"
-    // generic messages would fire. Mirrors SC-9b sessions-list ordering.
-    const isCheck = cmdTokens[0] === "check";
-    if (isCheck) {
-      const presentSelectors = collectPresentSelectors(argv, process.env);
-      if (presentSelectors.length > 0) {
-        const renderAsJson = detectRenderAsJson(argv);
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.check.selector_conflict", {
-            ...{ conflicting: presentSelectors.join(" / ") },
-            ...{ conflicting: presentSelectors },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
-    }
-
-    // Phase 16 SC-10 — `--schema` modifier + `<kind> schema` subs both
-    // reject feature/session dispatch selectors pre-parse. Two patterns:
-    //
-    //   Pattern 1 (mutator --schema): cmd is a schema-emitting mutator
-    //     mutators AND argv includes `--schema`.
-    //   Pattern 2 (artifact schema sub): cmd is `<kind> schema` where
-    //     kind ∈ {spec, tasks, evidence, finding, state}.
-    //
-    // Both reject the same 5 selectors as SC-9b/SC-9c (--session /
-    // --feature / --feature-dir / $LOAF_SESSION / $LOAF_FEATURE).
-    const MUTATOR_SCHEMA_LABELS = new Map<string, string>([
-      ["spec/add-req", "spec add-req --schema"],
-      ["spec/add-scenario", "spec add-scenario --schema"],
-      ["spec/add-visual", "spec add-visual --schema"],
-      ["tasks/submit", "tasks submit --schema"],
-      ["tasks/add", "tasks add --schema"],
-      ["evidence/add", "evidence add --schema"],
-    ]);
-    const ARTIFACT_KINDS = new Set(["spec", "tasks", "evidence", "finding", "state"]);
-    const isArtifactSchema =
-      cmdTokens[1] === "schema" && cmdTokens[0] !== undefined && ARTIFACT_KINDS.has(cmdTokens[0]);
-    const mutatorSchemaLabel =
-      cmdTokens[0] !== undefined && cmdTokens[1] !== undefined && argv.includes("--schema")
-        ? MUTATOR_SCHEMA_LABELS.get(`${cmdTokens[0]}/${cmdTokens[1]}`)
-        : undefined;
-    if (isArtifactSchema || mutatorSchemaLabel !== undefined) {
-      const presentSelectors = collectPresentSelectors(argv, process.env);
-      if (presentSelectors.length > 0) {
-        const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
-        const renderAsJson = detectRenderAsJson(argv);
-        writeDiagnosticFailure(
-          diagnosticVariant("failure.schema.selector_conflict", {
-            ...{ subject: subj, conflicting: presentSelectors.join(" / ") },
-            ...{ conflicting: presentSelectors },
-          }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
-    }
-  }
-
-  // Phase 16 SC-8 — dispatch USAGE pre-parse.
-  //
-  // Two cases caught BEFORE Commander parses argv:
-  //   (a) `--session + --feature-dir` (and env variants) — mutex
-  //       (session identity comes from registry; manual featureDir
-  //       is contradictory).
-  //   (b) Bare global `--feature-dir` with no feature source. If
-  //       passed at the per-command position Commander accepts it
-  //       and ctx.resolveDispatch catches the conflict at action time;
-  //       at the global position Commander rejects with its own
-  //       "unknown option" error first, so we need the pre-parse
-  //       to catch it with the typed SC-8 USAGE diagnostic instead.
-  //
-  // `loaf start <feature> --feature-dir <path>` is exempt because
-  // start's positional `<feature>` IS the feature source. We detect
-  // this by checking whether argv[2] === "start" (subcommand position).
-  //
-  // Render shape mirrors the presentation guard: JSON envelope when
-  // any `--format json` / `--format=json` appears, else text-mode
-  // `error: USAGE — <message>` (codex r287 P1).
-  if (!wantsHelpOrVersion) {
-    const tokens = scanArgv(argv);
-    const hasSession = tokens.some((token) => token.kind === "option" && token.flag === "--session");
-    const hasFeatureDir = tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir");
-    const hasFeature = tokens.some((token) => token.kind === "option" && token.flag === "--feature");
-    const hasLoafSession =
-      process.env["LOAF_SESSION"] !== undefined && process.env["LOAF_SESSION"].length > 0;
-    const hasLoafFeature =
-      process.env["LOAF_FEATURE"] !== undefined && process.env["LOAF_FEATURE"].length > 0;
-    // Detect the subcommand: walk argv[2:] and pick the first non-flag
-    // (and non-flag-value) token. Global flags like `--dry-run`,
-    // `--debug`, `--no-input`, `--quiet` can appear BEFORE the
-    // subcommand (`loaf --dry-run start auth-refresh`), so we can't
-    // simply use argv[2]. Track flags that take values so we skip
-    // their value too.
-    const subcommand = bootstrapCommandTokens(argv, 1)[0];
-    const isStartCommand = subcommand === "start";
-
-    if (hasFeatureDir && !isStartCommand) {
-      const sessionConflict: string[] = [];
-      if (hasSession) sessionConflict.push("--session");
-      if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
-
-      let conflictingList: readonly string[] = [];
-      let usageKey: Extract<DiagnosticContext, `failure.dispatch.${string}`> | null = null;
-      let usageVars: I18nVars = {};
-
-      if (sessionConflict.length > 0) {
-        usageKey = "failure.dispatch.session_feature_dir_conflict";
-        usageVars = { conflicting: sessionConflict.join(" + ") };
-        conflictingList = [...sessionConflict, "--feature-dir"];
-      } else if (!hasFeature && !hasLoafFeature) {
-        usageKey = "failure.dispatch.feature_dir_requires_feature";
-        usageVars = {};
-        conflictingList = ["--feature-dir"];
-      }
-
-      if (usageKey !== null) {
-        // Render shape per protocol §10.2: text vs JSON based on
-        // --format. Reuse the parsePresentation result that already
-        // resolved the output mode (safe because the presentation
-        // guard above bailed for INVALID_FORMAT etc.).
-        const renderAsJson = detectRenderAsJson(argv);
-        writeDiagnosticFailure(
-          diagnosticVariant(usageKey, { ...usageVars, ...{ conflicting: conflictingList } }),
-          {
-            format: renderAsJson ? "json" : "text",
-            i18n: preparseI18nFromEnv(process.env),
-            writeStderr: (line) => process.stderr.write(line),
-          },
-        );
-        return 2;
-      }
+    if (policy.kind === "hook-events") {
+      process.stdout.write(renderHookEvents(detectRenderAsJson(argv)));
+      return 0;
     }
   }
 
@@ -575,62 +279,6 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     }
     process.stdout.write(s);
   };
-  const program = new Command();
-
-  program
-    .name("loaf")
-    .description("Spec-driven development protocol CLI")
-    .version(packageJson.version)
-    .option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`)
-    // SC-5b2 presentation flags. Registered globally so they parse on
-    // any subcommand; advisory routing per protocol §10.12.
-    .option("--plain", "Alias for --format text (clig.dev convention)")
-    .option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)")
-    .option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)")
-    .option(
-      "-v, --verbose",
-      "Increase advisory detail; counter — repeat for more (-v, -vv)",
-      (_v: string, prior: number | undefined): number => (prior ?? 0) + 1,
-      0,
-    )
-    // SC-6a — non-interactive mode declaration. Required for skill / hook /
-    // CI runners on a TTY: forces actor resolver to refuse the git-config
-    // fallback (`isInteractiveHuman` AND-folded with !ctx.noInput). Future
-    // prompt entry points must short-circuit to exit 2 when set.
-    .option(
-      "--no-input",
-      "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)",
-    )
-    // SC-6b — debug observability. Writes one `kind:"cli"` row to
-    // `.loaf/<feature>/trace.jsonl` at invocation end. Orthogonal to
-    // `-v/--verbose` (which owns stderr advisory density). Env equivalents
-    // `LOAF_DEBUG` / `DEBUG` (any non-empty value); flag wins.
-    .option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)")
-    // SC-6c — dry-run. Mutating commands validate (preflight + reducer +
-    // gate + integrity) without writing journal / sidecars / projections;
-    // read-only commands reject with DRY_RUN_NOT_APPLICABLE. Orthogonal
-    // to all other flags. Per §10.7 invariant: dry-run persists NO state.
-    .option(
-      "-n, --dry-run",
-      "Validate without writing (mutating commands only); read-only commands exit 2",
-    )
-    // SC-8 — session dispatch. Resolves a registry-tracked session by
-    // UUID or ≥8-char prefix. Per protocol §10.3, precedence is
-    // --session > --feature > $LOAF_SESSION > $LOAF_FEATURE > auto-pick.
-    // Combined with --feature-dir → USAGE (enforced pre-parse — see
-    // `enforceDispatchUsagePreParse` below). --feature / --feature-dir
-    // stay per-command registrations because making them global
-    // conflicts with the per-command opts during Commander parse.
-    .option(
-      "--session <uuid-or-prefix>",
-      "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)",
-    )
-    .addHelpText("after", helpFooter())
-    // Commander errors/help-on-error are translated once by the catalog boundary.
-    // Explicit --help/help and --version still use Commander stdout.
-    .configureOutput({ writeErr: () => {} })
-    .exitOverride();
-
   // SC-5a: actor init now lives BELOW the pre-parse guard (r243 P2) —
   // an invalid `--format` must reject before any env reads.
   const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
@@ -697,78 +345,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
     registryWriter: registryWriterDeps,
   });
 
-  // ── Phase W8 P1 — per-family command registrations ──────────────────
-  // Verbatim block move: inline registrations extracted to per-family
-  // files under src/cli/commands/. Registration order preserved exactly
-  // (Commander shows commands in registration order in --help; any
-  // reorder is a behavioral regression caught by the golden gate).
-
-  registerLifecycle(
-    program,
-    ctx,
-    mutator,
-    actor,
-    deps.runtimeDir ?? defaultRuntimeDir(os.homedir()),
-    deps.now ?? (() => new Date()),
-    deps.executeClosureHooks,
-  );
-  registerGate(program, ctx, mutator, actor);
-  registerTerminalExecute(program, ctx, mutator, actor);
-  registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
-
-  const { tasksCmd } = registerTasks(program, ctx, mutator, actor, input);
-  registerTerminalSettle(program, ctx, mutator, actor);
-  registerPending(program, ctx, mutator, actor);
-  const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, input);
-  registerJournal(program, ctx);
-  registerLessons(program, ctx, mutator, actor);
-
-  const renderTuiImpl: RenderTui = deps.renderTui ?? defaultRenderTui;
-  const isStdoutTty = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
-  registerIntegrations(
-    program,
-    ctx,
-    mutator,
-    actor,
-    i18n,
-    isStdinTty,
-    renderTuiImpl,
-    isStdoutTty,
-    deps.registryDir,
-    deps.now,
-    deps.runtimeDir ?? defaultRuntimeDir(os.homedir()),
-    deps.now ?? (() => new Date()),
-  );
-  registerBoard(program, ctx, {
-    i18n,
-    now,
-    ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
-    ...(deps.openUrl !== undefined && { openUrl: deps.openUrl }),
-    ...(deps.boardKeepAlive !== undefined && {
-      boardKeepAlive: deps.boardKeepAlive,
-    }),
-  });
-  registerPrune(program, ctx, {
-    registryDir: deps.registryDir ?? defaultRegistryDir(),
-    now,
-    actor,
-  });
-
-  const { findingCmd } = registerFinding(program, ctx, mutator, actor);
-
-  const runEditorImpl: RunEditor = deps.runEditor ?? defaultRunEditor;
-  const { specCmd } = registerSpec(
-    program,
-    ctx,
-    mutator,
-    actor,
-    isStdinTty,
-    isStdoutTty,
-    input,
-    runEditorImpl,
-  );
-
-  registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
+  const program = createCommandProgram(ctx, mutator, input, i18n, actor, deps, isStdinTty, now);
 
   // SC-6b — monotonic clock for `wall_ms`. Captured before parseAsync
   // so a Commander-internal throw + the unhandled-error branch both

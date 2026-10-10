@@ -71,6 +71,7 @@ describe("docs/runtime boundary", () => {
 
   test("freshness claims remain bound to live source and executable evidence", () => {
     const cli = readFileSync(path.join(REPO_ROOT, "src", "cli.tsx"), "utf8");
+    const program = readFileSync(path.join(REPO_ROOT, "src", "cli", "command-program.ts"), "utf8");
     const replay = readFileSync(path.join(REPO_ROOT, "tests", "core", "replay.test.ts"), "utf8");
     const transition = readFileSync(
       path.join(REPO_ROOT, "tests", "core", "transition.test.ts"),
@@ -85,8 +86,10 @@ describe("docs/runtime boundary", () => {
       "utf8",
     );
 
-    expect(cli).toContain('from "./cli/commands/lifecycle.js"');
-    expect(cli).toContain("registerLifecycle(");
+    expect(cli).toContain('from "./cli/command-program.js"');
+    expect(cli).toContain("createCommandProgram(");
+    expect(program).toContain('from "./commands/lifecycle.js"');
+    expect(program).toContain("registerLifecycle(");
     expect(replay).toContain("duplicate seq");
     expect(transition).toContain("SPEC.design → EXECUTE.plan rejected when spec_locked=false");
     expect(tuiStatus).toContain("classifySessionStatus");

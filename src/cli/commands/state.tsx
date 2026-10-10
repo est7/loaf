@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import {
@@ -35,21 +36,23 @@ export function registerState(
     state: stateCmd,
   };
   for (const kind of ARTIFACT_SCHEMA_KINDS) {
-    ARTIFACT_PARENTS[kind]
-      .command("schema")
-      .description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`)
-      .action(async () => {
-        // no-feature — schema dump is feature-agnostic. Literal label
-        // per kind so the SC-6c static guard finds ctx.rejectIfDryRun("<kind> schema").
-        let rejected = false;
-        if (kind === "spec") rejected = ctx.rejectIfDryRun("spec schema");
-        else if (kind === "tasks") rejected = ctx.rejectIfDryRun("tasks schema");
-        else if (kind === "evidence") rejected = ctx.rejectIfDryRun("evidence schema");
-        else if (kind === "finding") rejected = ctx.rejectIfDryRun("finding schema");
-        else rejected = ctx.rejectIfDryRun("state schema");
-        if (rejected) return;
-        const schema = emitArtifactSchema(kind) as Record<string, unknown>;
-        ctx.success(schema, () => formatSchema(schema));
-      });
+    declareCommandPolicy(
+      ARTIFACT_PARENTS[kind]
+        .command("schema")
+        .description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`),
+      { selectors: "forbidden", dryRun: "read-only", schema: { kind: "artifact", key: kind } },
+    ).action(async () => {
+      // no-feature — schema dump is feature-agnostic. Literal label
+      // per kind so the SC-6c static guard finds ctx.rejectIfDryRun("<kind> schema").
+      let rejected = false;
+      if (kind === "spec") rejected = ctx.rejectIfDryRun("spec schema");
+      else if (kind === "tasks") rejected = ctx.rejectIfDryRun("tasks schema");
+      else if (kind === "evidence") rejected = ctx.rejectIfDryRun("evidence schema");
+      else if (kind === "finding") rejected = ctx.rejectIfDryRun("finding schema");
+      else rejected = ctx.rejectIfDryRun("state schema");
+      if (rejected) return;
+      const schema = emitArtifactSchema(kind) as Record<string, unknown>;
+      ctx.success(schema, () => formatSchema(schema));
+    });
   }
 }

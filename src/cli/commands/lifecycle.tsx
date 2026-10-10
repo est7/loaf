@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import { runtimeStoreDiagnostic } from "../runtime-store-diagnostic.js";
 import type { Command } from "commander";
@@ -63,317 +64,325 @@ export function registerLifecycle(
   executeClosureHooks?: ExecuteClosureHooks,
 ): void {
   // ── loaf start <feature> ────────────────────────────────────────────────
-  program
-    .command("start <feature>")
-    .description("Start a new feature session (emits session:started)")
-    .option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard")
-    .option("--label <text>", "Human-readable session label (≥3 chars)")
-    .option("--workspace <name>", "Workspace name (multi-worktree display)", "default")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (
-        feature: string,
-        opts: { ceremony: string; label?: string; workspace: string; featureDir?: string },
-      ) => {
-        const ceremony = PRESETS[opts.ceremony];
-        if (!ceremony) {
-          ctx.failure(diagnostic("INVALID_PRESET", {}));
-          return;
-        }
-        // Phase 15 SC1 (F-019): --label is optional, but when given it must
-        // satisfy the session:started payload contract (≥3 chars). Reject
-        // client-side with a usage error rather than a deep INVALID_PAYLOAD.
-        if (opts.label !== undefined && opts.label.length < 3) {
-          ctx.failure(
-            diagnosticVariant("failure.start.label_too_short", {
-              ...{ min_length: 3 },
-              ...{ min_length: 3, actual_length: opts.label.length },
-            }),
-          );
-          return;
-        }
-        if (opts.workspace.length < 1) {
-          ctx.failure(diagnosticVariant("failure.start.workspace_empty", { ...{}, ...{} }));
-          return;
-        }
-        const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
-        ctx.recordTraceTarget(feature, featureDir);
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-        const sessionId = crypto.randomUUID();
-        const result = await mutator.run(featureDir, session, {
-          kind: "session:started",
-          // Phase 15 SC1 (F-019): bucket-C identity fields ride the
-          // session:started payload so state.json is fully journal-derived.
-          payload: {
-            session_id: sessionId,
-            feature,
-            ceremony,
-            ceremony_label: opts.ceremony,
-            workspace: opts.workspace,
-            loaf_version_required: `^${packageJson.version}`,
-            ...(opts.label !== undefined ? { session_label: opts.label } : {}),
-          },
-          actor,
-        });
-        if (!result) return;
-        const state = result.snapshot.state;
-        if (state === null) {
-          ctx.failure(diagnostic("REDUCER_ERROR", {}));
-          return;
-        }
-        const out = {
-          ok: true,
-          feature,
-          session_id: sessionId,
-          ceremony_label: opts.ceremony,
-          workspace: opts.workspace,
-          feature_dir: featureDir,
-          sub_state: state.sub_state,
-        };
-        // Phase 16 SC-5b1 pilot — `loaf start` is the first command
-        // migrated to ctx.success(payload, textRenderer, advisories).
-        // Text mode stdout = bare session_id (UUID) for pipeable use;
-        // stderr stateChange + next advisory per protocol §10.12
-        // (`docs/protocol.md:2014` — aligned to runtime data, no F-NNN).
-        ctx.success(
-          out,
-          () => `${sessionId}\n`,
-          (i18n) => {
-            const next = buildNextAdvisoryFromSnapshot(
-              i18n,
-              result.snapshot,
-              featureDir,
-              selectorForFeature(state.feature, featureDir, opts.featureDir !== undefined),
-            );
-            return {
-              stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
-              ...(next === undefined ? {} : { next }),
-            };
-          },
-        );
-      },
-    );
-
-  // ── loaf advance <to> ───────────────────────────────────────────────
-  program
-    .command("advance <to>")
-    .description("Advance the session cursor (emits event:phase_advanced)")
-    .option("--feature <name>", "Feature whose session to advance")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (to: string, opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const selector = await selectorForCommandContext(ctx);
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const from = session.snapshot.state?.sub_state;
-      if (!from) {
+  declareCommandPolicy(
+    program
+      .command("start <feature>")
+      .description("Start a new feature session (emits session:started)")
+      .option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard")
+      .option("--label <text>", "Human-readable session label (≥3 chars)")
+      .option("--workspace <name>", "Workspace name (multi-worktree display)", "default")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "start", dryRun: "mutating" },
+  ).action(
+    async (
+      feature: string,
+      opts: { ceremony: string; label?: string; workspace: string; featureDir?: string },
+    ) => {
+      const ceremony = PRESETS[opts.ceremony];
+      if (!ceremony) {
+        ctx.failure(diagnostic("INVALID_PRESET", {}));
+        return;
+      }
+      // Phase 15 SC1 (F-019): --label is optional, but when given it must
+      // satisfy the session:started payload contract (≥3 chars). Reject
+      // client-side with a usage error rather than a deep INVALID_PAYLOAD.
+      if (opts.label !== undefined && opts.label.length < 3) {
         ctx.failure(
-          diagnosticVariant("failure.no_session.advance", { ...{}, feature: opts.feature }),
+          diagnosticVariant("failure.start.label_too_short", {
+            ...{ min_length: 3 },
+            ...{ min_length: 3, actual_length: opts.label.length },
+          }),
         );
         return;
       }
-      if (to === "EXECUTE.done" && (from === "EXECUTE.work" || from === "EXECUTE.done")) {
-        const state = session.snapshot.state!;
-        const repoRoot = path.dirname(path.dirname(featureDir));
-        try {
-          const closure = await mutator.runExecuteClosure({
-            featureDir,
-            session,
-            actor,
-            identity: { session_id: state.session_id, cwd: repoRoot },
-            runtime: { runtimeDir, now: runtimeNow },
-            debug: ctx.debug,
-            ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
-          });
-          if (closure === null) return;
-          if (closure.kind !== "not-committed") {
-            const snapshot =
-              closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;
-            const out = {
-              ok: true,
-              from: closure.from,
-              to,
-              sub_state: snapshot.state?.sub_state,
-            };
-            ctx.success(
-              out,
-              () => "",
-              (i18n) => {
-                const next = buildNextAdvisoryFromSnapshot(i18n, snapshot, featureDir, selector);
-                return {
-                  stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
-                    from: closure.from,
-                    to,
-                  }),
-                  ...(next === undefined ? {} : { next }),
-                };
-              },
-            );
-            return;
-          }
-        } catch (error) {
-          const isRuntimeLockFailure =
-            error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
-          if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
-          if (error instanceof ExecuteClosureError) {
-            ctx.failure({
-              code: "SCHEMA_VALIDATION_FAILED",
-              detail: {
-                source: "execute-closure",
-                closure_code: error.code,
-                reason: error.code,
-                ...error.detail,
-              },
-            });
-          } else {
-            ctx.failure(runtimeStoreDiagnostic(error, "execute-closure"));
-          }
-          return;
-        }
+      if (opts.workspace.length < 1) {
+        ctx.failure(diagnosticVariant("failure.start.workspace_empty", { ...{}, ...{} }));
+        return;
       }
+      const featureDir = opts.featureDir ?? defaultFeatureDir(feature);
+      ctx.recordTraceTarget(feature, featureDir);
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      const sessionId = crypto.randomUUID();
       const result = await mutator.run(featureDir, session, {
-        kind: "event:phase_advanced",
-        payload: { from, to },
+        kind: "session:started",
+        // Phase 15 SC1 (F-019): bucket-C identity fields ride the
+        // session:started payload so state.json is fully journal-derived.
+        payload: {
+          session_id: sessionId,
+          feature,
+          ceremony,
+          ceremony_label: opts.ceremony,
+          workspace: opts.workspace,
+          loaf_version_required: `^${packageJson.version}`,
+          ...(opts.label !== undefined ? { session_label: opts.label } : {}),
+        },
         actor,
       });
       if (!result) return;
-      const out = { ok: true, from, to, sub_state: result.snapshot.state?.sub_state };
+      const state = result.snapshot.state;
+      if (state === null) {
+        ctx.failure(diagnostic("REDUCER_ERROR", {}));
+        return;
+      }
+      const out = {
+        ok: true,
+        feature,
+        session_id: sessionId,
+        ceremony_label: opts.ceremony,
+        workspace: opts.workspace,
+        feature_dir: featureDir,
+        sub_state: state.sub_state,
+      };
+      // Phase 16 SC-5b1 pilot — `loaf start` is the first command
+      // migrated to ctx.success(payload, textRenderer, advisories).
+      // Text mode stdout = bare session_id (UUID) for pipeable use;
+      // stderr stateChange + next advisory per protocol §10.12
+      // (`docs/protocol.md:2014` — aligned to runtime data, no F-NNN).
       ctx.success(
         out,
-        () => "",
+        () => `${sessionId}\n`,
         (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+          const next = buildNextAdvisoryFromSnapshot(
+            i18n,
+            result.snapshot,
+            featureDir,
+            selectorForFeature(state.feature, featureDir, opts.featureDir !== undefined),
+          );
           return {
-            stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, { from, to }),
+            stateChange: i18n.t(SUCCESS_KEYS.startStateChange, { feature }),
             ...(next === undefined ? {} : { next }),
           };
         },
       );
+    },
+  );
+
+  // ── loaf advance <to> ───────────────────────────────────────────────
+  declareCommandPolicy(
+    program
+      .command("advance <to>")
+      .description("Advance the session cursor (emits event:phase_advanced)")
+      .option("--feature <name>", "Feature whose session to advance")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (to: string, opts: { feature: string; featureDir?: string }) => {
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const selector = await selectorForCommandContext(ctx);
+    const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+    const from = session.snapshot.state?.sub_state;
+    if (!from) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.advance", { ...{}, feature: opts.feature }),
+      );
+      return;
+    }
+    if (to === "EXECUTE.done" && (from === "EXECUTE.work" || from === "EXECUTE.done")) {
+      const state = session.snapshot.state!;
+      const repoRoot = path.dirname(path.dirname(featureDir));
+      try {
+        const closure = await mutator.runExecuteClosure({
+          featureDir,
+          session,
+          actor,
+          identity: { session_id: state.session_id, cwd: repoRoot },
+          runtime: { runtimeDir, now: runtimeNow },
+          debug: ctx.debug,
+          ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
+        });
+        if (closure === null) return;
+        if (closure.kind !== "not-committed") {
+          const snapshot =
+            closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;
+          const out = {
+            ok: true,
+            from: closure.from,
+            to,
+            sub_state: snapshot.state?.sub_state,
+          };
+          ctx.success(
+            out,
+            () => "",
+            (i18n) => {
+              const next = buildNextAdvisoryFromSnapshot(i18n, snapshot, featureDir, selector);
+              return {
+                stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
+                  from: closure.from,
+                  to,
+                }),
+                ...(next === undefined ? {} : { next }),
+              };
+            },
+          );
+          return;
+        }
+      } catch (error) {
+        const isRuntimeLockFailure =
+          error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
+        if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
+        if (error instanceof ExecuteClosureError) {
+          ctx.failure({
+            code: "SCHEMA_VALIDATION_FAILED",
+            detail: {
+              source: "execute-closure",
+              closure_code: error.code,
+              reason: error.code,
+              ...error.detail,
+            },
+          });
+        } else {
+          ctx.failure(runtimeStoreDiagnostic(error, "execute-closure"));
+        }
+        return;
+      }
+    }
+    const result = await mutator.run(featureDir, session, {
+      kind: "event:phase_advanced",
+      payload: { from, to },
+      actor,
     });
+    if (!result) return;
+    const out = { ok: true, from, to, sub_state: result.snapshot.state?.sub_state };
+    ctx.success(
+      out,
+      () => "",
+      (i18n) => {
+        const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+        return {
+          stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, { from, to }),
+          ...(next === undefined ? {} : { next }),
+        };
+      },
+    );
+  });
 
   // ── loaf status ─────────────────────────────────────────────────────
   // Phase 15 SC3: switched from loadSession (full replay) to
   // loadProjections (snapshot + fast-check). Pre-`loaf start` dir now
   // exits 2 NO_SESSION (was exit 0 + state:null) — codex r175a confirmed
   // (A): uniform with the other 3 SC3-wired read commands.
-  program
-    .command("status")
-    .description("Show the current session snapshot (read-only)")
-    .option("--feature <name>", "Feature whose status to show")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("status")) return;
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const loaded = await ctx.loadProjectionsOrFail(
-        featureDir,
-        ["state", "tasks", "evidence", "findings", "pending"] as const,
-        opts.feature,
-        "failure.no_session.status",
-      );
-      if (loaded === null) return;
-      const { state, tasks, evidence, findings, pending, meta } = loaded;
-      // Adapter: StateProjection → SessionState-compatible slim shape
-      // (codex r176 BLOCK 1 — do not widen `status.state` with SC1 bucket-C
-      // fields or drop the historical `feature` field). Re-inject `feature`
-      // from --feature flag (StateProjection drops it; the feature dir is
-      // the canonical identity). 9-field shape mirrors reducer's SessionState.
-      const slimState = {
-        session_id: state.session_id,
-        feature: opts.feature,
-        phase: state.phase,
-        sub_state: state.sub_state,
-        iteration: state.iteration,
-        spec_locked: state.spec_locked,
-        verify_accepted: state.verify_accepted,
-        spec_version: state.spec_version,
-        ceremony: state.ceremony,
-      };
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        feature_dir: featureDir,
-        tail_seq: meta.last_applied_seq,
-        state: slimState,
-        tasks_count: tasks ? tasks.tasks.length : 0,
-        evidence_count: evidence.evidence.length,
-        findings_count: findings.findings.length,
-        pending_count: pending.pending.length,
-      };
-      ctx.success(
-        out,
-        (i18n) =>
-          i18n.t(CHROME_KEYS.statusFeature, { feature: opts.feature }) +
-          "\n" +
-          i18n.t(CHROME_KEYS.statusPhase, { phase: i18n.t(subStateKey(state.sub_state)) }) +
-          "\n" +
-          i18n.t(CHROME_KEYS.statusCursor, { cursor: state.sub_state }) +
-          "\n" +
-          i18n.t(CHROME_KEYS.statusTail, { seq: out.tail_seq }) +
-          "\n" +
-          i18n.t(CHROME_KEYS.statusCounts, {
-            tasks_count: out.tasks_count,
-            evidence_count: out.evidence_count,
-            findings_count: out.findings_count,
-            pending_count: out.pending_count,
-          }) +
-          "\n" +
-          i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) +
-          "\n",
-      );
-    });
+  declareCommandPolicy(
+    program
+      .command("status")
+      .description("Show the current session snapshot (read-only)")
+      .option("--feature <name>", "Feature whose status to show")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(async (opts: { feature: string; featureDir?: string }) => {
+    if (ctx.rejectIfDryRun("status")) return;
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const loaded = await ctx.loadProjectionsOrFail(
+      featureDir,
+      ["state", "tasks", "evidence", "findings", "pending"] as const,
+      opts.feature,
+      "failure.no_session.status",
+    );
+    if (loaded === null) return;
+    const { state, tasks, evidence, findings, pending, meta } = loaded;
+    // Adapter: StateProjection → SessionState-compatible slim shape
+    // (codex r176 BLOCK 1 — do not widen `status.state` with SC1 bucket-C
+    // fields or drop the historical `feature` field). Re-inject `feature`
+    // from --feature flag (StateProjection drops it; the feature dir is
+    // the canonical identity). 9-field shape mirrors reducer's SessionState.
+    const slimState = {
+      session_id: state.session_id,
+      feature: opts.feature,
+      phase: state.phase,
+      sub_state: state.sub_state,
+      iteration: state.iteration,
+      spec_locked: state.spec_locked,
+      verify_accepted: state.verify_accepted,
+      spec_version: state.spec_version,
+      ceremony: state.ceremony,
+    };
+    const out = {
+      ok: true,
+      feature: opts.feature,
+      feature_dir: featureDir,
+      tail_seq: meta.last_applied_seq,
+      state: slimState,
+      tasks_count: tasks ? tasks.tasks.length : 0,
+      evidence_count: evidence.evidence.length,
+      findings_count: findings.findings.length,
+      pending_count: pending.pending.length,
+    };
+    ctx.success(
+      out,
+      (i18n) =>
+        i18n.t(CHROME_KEYS.statusFeature, { feature: opts.feature }) +
+        "\n" +
+        i18n.t(CHROME_KEYS.statusPhase, { phase: i18n.t(subStateKey(state.sub_state)) }) +
+        "\n" +
+        i18n.t(CHROME_KEYS.statusCursor, { cursor: state.sub_state }) +
+        "\n" +
+        i18n.t(CHROME_KEYS.statusTail, { seq: out.tail_seq }) +
+        "\n" +
+        i18n.t(CHROME_KEYS.statusCounts, {
+          tasks_count: out.tasks_count,
+          evidence_count: out.evidence_count,
+          findings_count: out.findings_count,
+          pending_count: out.pending_count,
+        }) +
+        "\n" +
+        i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) +
+        "\n",
+    );
+  });
 
   // ── loaf next ───────────────────────────────────────────────────────
   // Read-side phase-routing computation. It does not mutate the session;
   // it formats the next owner command from the current cursor, unresolved
   // pending head, ceremony forks, and VERIFY lane applicability.
-  program
-    .command("next")
-    .description("Compute the next owner command for the current session (read-only)")
-    .option("--feature <name>", "Feature whose next action to compute")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature?: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("next")) return;
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const selector = await selectorForCommandContext(ctx);
-      const loaded = await ctx.loadProjectionsOrFail(
-        featureDir,
-        ["state", "tasks", "pending"] as const,
-        opts.feature!,
-        "failure.no_session.status",
-      );
-      if (loaded === null) return;
+  declareCommandPolicy(
+    program
+      .command("next")
+      .description("Compute the next owner command for the current session (read-only)")
+      .option("--feature <name>", "Feature whose next action to compute")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(async (opts: { feature?: string; featureDir?: string }) => {
+    if (ctx.rejectIfDryRun("next")) return;
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const selector = await selectorForCommandContext(ctx);
+    const loaded = await ctx.loadProjectionsOrFail(
+      featureDir,
+      ["state", "tasks", "pending"] as const,
+      opts.feature!,
+      "failure.no_session.status",
+    );
+    if (loaded === null) return;
 
-      let verifyApplicableLanes: ReturnType<typeof deriveVerifyApplicability> | undefined;
-      if (loaded.state.sub_state.startsWith("VERIFY.")) {
-        // Projection freshness is established above; replay is not a fallback
-        // for stale projections. Canonical spec and task obligations come from
-        // the same journal snapshot consumed by verify status and approval.
-        const session = await ctx.resolveSession(featureDir);
-        const built = buildSpecFrontmatterFromSnapshot(session.snapshot);
-        if (!built.ok) {
-          ctx.failure(built);
-          return;
-        }
-        verifyApplicableLanes = deriveVerifyApplicability(session.snapshot, built.frontmatter);
+    let verifyApplicableLanes: ReturnType<typeof deriveVerifyApplicability> | undefined;
+    if (loaded.state.sub_state.startsWith("VERIFY.")) {
+      // Projection freshness is established above; replay is not a fallback
+      // for stale projections. Canonical spec and task obligations come from
+      // the same journal snapshot consumed by verify status and approval.
+      const session = await ctx.resolveSession(featureDir);
+      const built = buildSpecFrontmatterFromSnapshot(session.snapshot);
+      if (!built.ok) {
+        ctx.failure(built);
+        return;
       }
+      verifyApplicableLanes = deriveVerifyApplicability(session.snapshot, built.frontmatter);
+    }
 
-      const out = buildScopedNextOutput(
-        {
-          feature: opts.feature!,
-          feature_dir: featureDir,
-          phase: loaded.state.phase,
-          sub_state: loaded.state.sub_state,
-          ceremony: loaded.state.ceremony,
-          spec_locked: loaded.state.spec_locked,
-          verify_accepted: loaded.state.verify_accepted,
-          pending: loaded.state.pending,
-          verify_applicable_lanes: verifyApplicableLanes,
-        },
-        selector,
-      );
+    const out = buildScopedNextOutput(
+      {
+        feature: opts.feature!,
+        feature_dir: featureDir,
+        phase: loaded.state.phase,
+        sub_state: loaded.state.sub_state,
+        ceremony: loaded.state.ceremony,
+        spec_locked: loaded.state.spec_locked,
+        verify_accepted: loaded.state.verify_accepted,
+        pending: loaded.state.pending,
+        verify_applicable_lanes: verifyApplicableLanes,
+      },
+      selector,
+    );
 
-      ctx.success(out, () => (out.next_action === undefined ? "" : `${out.next_action.command}\n`));
-    });
+    ctx.success(out, () => (out.next_action === undefined ? "" : `${out.next_action.command}\n`));
+  });
 }

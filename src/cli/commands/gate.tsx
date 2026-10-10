@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { planGatePending } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
@@ -33,146 +34,102 @@ export function registerGate(
   // (resolve the active prompt first). Rejected decisions do not
   // co-emit. Strict gate_decision(<G>) matching is deferred until
   // PendingAddedPayload gains a gate_name discriminator.
-  program
-    .command("gate")
-    .description("Gate decision commands (spec-lock + verify-accept)")
-    .command("decide <gate-name>")
-    .description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)")
-    .option("--approve", "Approve the gate")
-    .option("--reject", "Reject the gate")
-    .requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)")
-    .option("--feature <name>", "Feature whose session to gate")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (
-        gateName: string,
-        opts: {
-          approve?: boolean;
-          reject?: boolean;
-          reason: string;
-          feature: string;
-          featureDir?: string;
-        },
-      ) => {
-        // (1) action-level mutex: exactly one of --approve / --reject
-        const approve = opts.approve === true;
-        const reject = opts.reject === true;
-        if (approve === reject) {
-          ctx.failure(diagnostic("USAGE", { reason: "approval_decision_required" }));
-          return;
-        }
-        // (2) gate name validation — must be in GateName enum
-        if (gateName !== "spec-lock" && gateName !== "verify-accept") {
-          ctx.failure(diagnostic("GATE_NOT_IMPLEMENTED", { gate: gateName }));
-          return;
-        }
-        // (3) resolve human actor (gate is human-only per per-kind actor policy)
-        const humanActor = ctx.resolveHumanActorOrFail();
-        if (humanActor === null) return;
-        // (4) load session
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-        const from = session.snapshot.state?.sub_state;
-        if (!from) {
-          ctx.failure(
-            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-          );
-          return;
-        }
-        // (5) build entries + execute per-gate
-        // SC4 soft pending co-emission: if the unresolved head is a
-        // gate_decision prompt, the approve batch appends pending:resolved
-        // so the head clears atomically. Non-gate heads are rejected by
-        // preflight GATE_NOT_PENDING (see reducer/preflight.ts (5a)).
-        const pendingPlan = planGatePending(
-          session.snapshot.pending,
-          gateName,
-          approve ? "approved" : "rejected",
+  declareCommandPolicy(
+    program
+      .command("gate")
+      .description("Gate decision commands (spec-lock + verify-accept)")
+      .command("decide <gate-name>")
+      .description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)")
+      .option("--approve", "Approve the gate")
+      .option("--reject", "Reject the gate")
+      .requiredOption(
+        "--reason <text>",
+        "Decision rationale (passed through to GateDecidedPayload)",
+      )
+      .option("--feature <name>", "Feature whose session to gate")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(
+    async (
+      gateName: string,
+      opts: {
+        approve?: boolean;
+        reject?: boolean;
+        reason: string;
+        feature: string;
+        featureDir?: string;
+      },
+    ) => {
+      // (1) action-level mutex: exactly one of --approve / --reject
+      const approve = opts.approve === true;
+      const reject = opts.reject === true;
+      if (approve === reject) {
+        ctx.failure(diagnostic("USAGE", { reason: "approval_decision_required" }));
+        return;
+      }
+      // (2) gate name validation — must be in GateName enum
+      if (gateName !== "spec-lock" && gateName !== "verify-accept") {
+        ctx.failure(diagnostic("GATE_NOT_IMPLEMENTED", { gate: gateName }));
+        return;
+      }
+      // (3) resolve human actor (gate is human-only per per-kind actor policy)
+      const humanActor = ctx.resolveHumanActorOrFail();
+      if (humanActor === null) return;
+      // (4) load session
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
         );
-        // Admission owns failures; CLI only uses the eligible co-resolution head.
-        const pendingHead = pendingPlan.ok ? pendingPlan.resolutionHead : undefined;
-        if (approve) {
-          if (gateName === "spec-lock") {
-            // dual-entry batch: human gate:decided + machine event:phase_advanced.
-            // mutateBatch Pass 1.5 evaluates spec-lock from the pre-batch snapshot; any
-            // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
-            // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
-            // SC4: when pendingHead exists, insert pending:resolved between
-            // the gate decision and the cursor advance — order matters for
-            // reducer dry-run (pending head must still be unresolved when
-            // pending:resolved applies; phase_advanced runs after).
-            const result = await mutator.run(
-              featureDir,
-              session,
-              buildGateApprovalBatch({
-                gate: "spec-lock",
-                reason: opts.reason,
-                humanActor,
-                cliActor: actor,
-                from,
-                ...(pendingHead ? { pendingHeadId: pendingHead.id } : {}),
-              }),
-            );
-            if (!result) return;
-            const out = {
-              ok: true,
-              gate: "spec-lock",
-              decision: "approved" as const,
-              from,
-              to: "EXECUTE.plan",
-              actor: humanActor,
-              sub_state: result.snapshot.state?.sub_state,
-              spec_locked: result.snapshot.state?.spec_locked,
-            };
-            const selector = await selectorForCommandContext(ctx);
-            ctx.success(
-              out,
-              () => "",
-              (i18n) => {
-                const next = buildNextAdvisoryFromSnapshot(
-                  i18n,
-                  result.snapshot,
-                  featureDir,
-                  selector,
-                );
-                return {
-                  stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, {
-                    actor: humanActor,
-                  }),
-                  ...(next === undefined ? {} : { next }),
-                };
-              },
-            );
-            return;
-          }
-          // verify-accept approve: single-entry [gate:decided] OR 2-entry
-          // batch [gate:decided, pending:resolved] when SC4 co-emission fires.
-          // mutateBatch Pass 1.5 evaluates verify-accept via evaluateVerifyAccept
-          // (5 checks: lane status / open findings / coverage / done-task evidence
-          // / deep spec-review). Gate does NOT move cursor — cursor stays at
-          // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
-          // per ceremony.settle_phase.
+        return;
+      }
+      // (5) build entries + execute per-gate
+      // SC4 soft pending co-emission: if the unresolved head is a
+      // gate_decision prompt, the approve batch appends pending:resolved
+      // so the head clears atomically. Non-gate heads are rejected by
+      // preflight GATE_NOT_PENDING (see reducer/preflight.ts (5a)).
+      const pendingPlan = planGatePending(
+        session.snapshot.pending,
+        gateName,
+        approve ? "approved" : "rejected",
+      );
+      // Admission owns failures; CLI only uses the eligible co-resolution head.
+      const pendingHead = pendingPlan.ok ? pendingPlan.resolutionHead : undefined;
+      if (approve) {
+        if (gateName === "spec-lock") {
+          // dual-entry batch: human gate:decided + machine event:phase_advanced.
+          // mutateBatch Pass 1.5 evaluates spec-lock from the pre-batch snapshot; any
+          // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
+          // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
+          // SC4: when pendingHead exists, insert pending:resolved between
+          // the gate decision and the cursor advance — order matters for
+          // reducer dry-run (pending head must still be unresolved when
+          // pending:resolved applies; phase_advanced runs after).
           const result = await mutator.run(
             featureDir,
             session,
             buildGateApprovalBatch({
-              gate: "verify-accept",
+              gate: "spec-lock",
               reason: opts.reason,
               humanActor,
               cliActor: actor,
+              from,
               ...(pendingHead ? { pendingHeadId: pendingHead.id } : {}),
             }),
           );
           if (!result) return;
           const out = {
             ok: true,
-            gate: "verify-accept",
+            gate: "spec-lock",
             decision: "approved" as const,
             from,
+            to: "EXECUTE.plan",
             actor: humanActor,
             sub_state: result.snapshot.state?.sub_state,
-            verify_accepted: result.snapshot.state?.verify_accepted,
+            spec_locked: result.snapshot.state?.spec_locked,
           };
           const selector = await selectorForCommandContext(ctx);
           ctx.success(
@@ -186,7 +143,7 @@ export function registerGate(
                 selector,
               );
               return {
-                stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, {
+                stateChange: i18n.t(SUCCESS_KEYS.gateSpecLockApprovedStateChange, {
                   actor: humanActor,
                 }),
                 ...(next === undefined ? {} : { next }),
@@ -195,34 +152,78 @@ export function registerGate(
           );
           return;
         }
-        // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
-        // Shared between spec-lock and verify-accept.
-        const result = await mutator.run(featureDir, session, {
-          kind: "gate:decided",
-          payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
-          actor: humanActor,
-        });
+        // verify-accept approve: single-entry [gate:decided] OR 2-entry
+        // batch [gate:decided, pending:resolved] when SC4 co-emission fires.
+        // mutateBatch Pass 1.5 evaluates verify-accept via evaluateVerifyAccept
+        // (5 checks: lane status / open findings / coverage / done-task evidence
+        // / deep spec-review). Gate does NOT move cursor — cursor stays at
+        // VERIFY.accept; `loaf deliver` / `loaf settle` advance cursor later
+        // per ceremony.settle_phase.
+        const result = await mutator.run(
+          featureDir,
+          session,
+          buildGateApprovalBatch({
+            gate: "verify-accept",
+            reason: opts.reason,
+            humanActor,
+            cliActor: actor,
+            ...(pendingHead ? { pendingHeadId: pendingHead.id } : {}),
+          }),
+        );
         if (!result) return;
         const out = {
           ok: true,
-          gate: gateName,
-          decision: "rejected" as const,
+          gate: "verify-accept",
+          decision: "approved" as const,
           from,
           actor: humanActor,
           sub_state: result.snapshot.state?.sub_state,
-          spec_locked: result.snapshot.state?.spec_locked,
           verify_accepted: result.snapshot.state?.verify_accepted,
         };
+        const selector = await selectorForCommandContext(ctx);
         ctx.success(
           out,
           () => "",
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.gateRejectedStateChange, {
-              gate: gateName,
-              actor: humanActor,
-            }),
-          }),
+          (i18n) => {
+            const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+            return {
+              stateChange: i18n.t(SUCCESS_KEYS.gateVerifyAcceptApprovedStateChange, {
+                actor: humanActor,
+              }),
+              ...(next === undefined ? {} : { next }),
+            };
+          },
         );
-      },
-    );
+        return;
+      }
+      // reject: single entry, no cursor side-effect, no Pass 1.5 eval.
+      // Shared between spec-lock and verify-accept.
+      const result = await mutator.run(featureDir, session, {
+        kind: "gate:decided",
+        payload: { gate_kind: gateName, decision: "rejected", reason: opts.reason },
+        actor: humanActor,
+      });
+      if (!result) return;
+      const out = {
+        ok: true,
+        gate: gateName,
+        decision: "rejected" as const,
+        from,
+        actor: humanActor,
+        sub_state: result.snapshot.state?.sub_state,
+        spec_locked: result.snapshot.state?.spec_locked,
+        verify_accepted: result.snapshot.state?.verify_accepted,
+      };
+      ctx.success(
+        out,
+        () => "",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.gateRejectedStateChange, {
+            gate: gateName,
+            actor: humanActor,
+          }),
+        }),
+      );
+    },
+  );
 }

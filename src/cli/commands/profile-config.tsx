@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { pendingHead } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
@@ -50,73 +51,78 @@ export function registerProfileConfig(
   // kind=spike task.
   const spikeCmd = program.command("spike").description("Spike-task exits (protocol §8.3)");
 
-  spikeCmd
-    .command("convert")
-    .description("Convert a spike session — emits spike:converted then archives to DONE.archived")
-    .option("--feature <name>", "Feature whose spike session to convert")
-    .requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into")
-    .requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (opts: { feature: string; toFeature: string; reason: string; featureDir?: string }) => {
-        // (1) Human-only actor — `spike:converted` is HUMAN_ONLY per PER_KIND_ACTOR.
-        const humanActor = ctx.resolveHumanActorOrFail();
-        if (humanActor === null) return;
+  declareCommandPolicy(
+    spikeCmd
+      .command("convert")
+      .description("Convert a spike session — emits spike:converted then archives to DONE.archived")
+      .option("--feature <name>", "Feature whose spike session to convert")
+      .requiredOption(
+        "--to-feature <id>",
+        "Target feature id (F-NNN) the spike learnings carry into",
+      )
+      .requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(
+    async (opts: { feature: string; toFeature: string; reason: string; featureDir?: string }) => {
+      // (1) Human-only actor — `spike:converted` is HUMAN_ONLY per PER_KIND_ACTOR.
+      const humanActor = ctx.resolveHumanActorOrFail();
+      if (humanActor === null) return;
 
-        // (2) Load session.
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-        const from = session.snapshot.state?.sub_state;
-        if (!from) {
-          ctx.failure(
-            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-          );
-          return;
-        }
-
-        // (3) Mutate — 2-entry batch. spike:converted (record-only) MUST
-        //     precede session:archived: it carries ANY_NON_DONE authority and
-        //     would be rejected against the post-archive DONE snapshot. The
-        //     sponsored session:archived performs the terminal cursor flip.
-        const result = await mutator.run(featureDir, session, [
-          {
-            kind: "spike:converted",
-            payload: { to_feature: opts.toFeature, reason: opts.reason },
-            actor: humanActor,
-          },
-          {
-            kind: "session:archived",
-            payload: { reason: opts.reason },
-            actor: humanActor,
-          },
-        ]);
-        if (!result) return;
-
-        // (4) Success output.
-        const out = {
-          ok: true,
-          feature: opts.feature,
-          to_feature: opts.toFeature,
-          from,
-          to: "DONE.archived" as const,
-          actor: humanActor,
-          sub_state: result.snapshot.state?.sub_state,
-        };
-        ctx.success(
-          out,
-          () => "",
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.spikeConvertStateChange, {
-              feature: opts.feature,
-              to_feature: opts.toFeature,
-              from,
-              actor: humanActor,
-            }),
-          }),
+      // (2) Load session.
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
         );
-      },
-    );
+        return;
+      }
+
+      // (3) Mutate — 2-entry batch. spike:converted (record-only) MUST
+      //     precede session:archived: it carries ANY_NON_DONE authority and
+      //     would be rejected against the post-archive DONE snapshot. The
+      //     sponsored session:archived performs the terminal cursor flip.
+      const result = await mutator.run(featureDir, session, [
+        {
+          kind: "spike:converted",
+          payload: { to_feature: opts.toFeature, reason: opts.reason },
+          actor: humanActor,
+        },
+        {
+          kind: "session:archived",
+          payload: { reason: opts.reason },
+          actor: humanActor,
+        },
+      ]);
+      if (!result) return;
+
+      // (4) Success output.
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        to_feature: opts.toFeature,
+        from,
+        to: "DONE.archived" as const,
+        actor: humanActor,
+        sub_state: result.snapshot.state?.sub_state,
+      };
+      ctx.success(
+        out,
+        () => "",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.spikeConvertStateChange, {
+            feature: opts.feature,
+            to_feature: opts.toFeature,
+            from,
+            actor: humanActor,
+          }),
+        }),
+      );
+    },
+  );
 
   // ── loaf profile <subcommand> ───────────────────────────────────────
   // Phase 13 — `profile escalate` applies a ceremony escalation (protocol
@@ -131,118 +137,120 @@ export function registerProfileConfig(
     .command("profile")
     .description("Ceremony profile commands (protocol §10.8)");
 
-  profileCmd
-    .command("escalate")
-    .description(
-      "Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set",
-    )
-    .requiredOption("--confirm", "Human acceptance of the escalation (required)")
-    .requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object")
-    .option("--feature <name>", "Feature whose session to escalate")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (opts: { confirm: boolean; input: string; feature: string; featureDir?: string }) => {
-        // SC-6b — record trace target at action entry so input-read /
-        // schema-parse failures still trace. SC-8: dispatchOrFail
-        // resolves §10.3 precedence + mutates opts.feature/featureDir
-        // + records traceTarget (replaces the SC-6b raw recordTraceTarget).
-        const earlyFeatureDir = await ctx.dispatchOrFail(opts);
-        if (earlyFeatureDir === null) return;
-        // (1) Human-only acceptance — escalation is a human decision.
-        const humanActor = ctx.resolveHumanActorOrFail();
-        if (humanActor === null) return;
+  declareCommandPolicy(
+    profileCmd
+      .command("escalate")
+      .description(
+        "Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set",
+      )
+      .requiredOption("--confirm", "Human acceptance of the escalation (required)")
+      .requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object")
+      .option("--feature <name>", "Feature whose session to escalate")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(
+    async (opts: { confirm: boolean; input: string; feature: string; featureDir?: string }) => {
+      // SC-6b — record trace target at action entry so input-read /
+      // schema-parse failures still trace. SC-8: dispatchOrFail
+      // resolves §10.3 precedence + mutates opts.feature/featureDir
+      // + records traceTarget (replaces the SC-6b raw recordTraceTarget).
+      const earlyFeatureDir = await ctx.dispatchOrFail(opts);
+      if (earlyFeatureDir === null) return;
+      // (1) Human-only acceptance — escalation is a human decision.
+      const humanActor = ctx.resolveHumanActorOrFail();
+      if (humanActor === null) return;
 
-        // (2) Read + parse the escalated Ceremony. Schema validation is the
-        //     mutateBatch preflight's job (PER_KIND_PAYLOAD = CeremonyPayload).
-        let content: string;
-        try {
-          content = await fsP.readFile(opts.input, "utf8");
-        } catch (err) {
-          if ((err as { code?: string }).code === "ENOENT") {
-            ctx.failure(
-              diagnosticVariant("failure.profile.input_file_missing", {
-                ...{ path: opts.input },
-                ...{ path: opts.input },
-              }),
-            );
-          } else {
-            ctx.failure(
-              diagnosticVariant("failure.profile.input_file_unreadable", {
-                ...{ path: opts.input, error: String(err) },
-                ...{ path: opts.input },
-              }),
-            );
-          }
-          return;
-        }
-        let ceremony: unknown;
-        try {
-          ceremony = JSON.parse(content);
-        } catch (err) {
+      // (2) Read + parse the escalated Ceremony. Schema validation is the
+      //     mutateBatch preflight's job (PER_KIND_PAYLOAD = CeremonyPayload).
+      let content: string;
+      try {
+        content = await fsP.readFile(opts.input, "utf8");
+      } catch (err) {
+        if ((err as { code?: string }).code === "ENOENT") {
           ctx.failure(
-            diagnostic("SCHEMA_VALIDATION_FAILED", {
-              reason: (err as Error).message,
-              path: opts.input,
+            diagnosticVariant("failure.profile.input_file_missing", {
+              ...{ path: opts.input },
+              ...{ path: opts.input },
             }),
           );
-          return;
-        }
-
-        // (3) Load session.
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-        const from = session.snapshot.state?.sub_state;
-        if (!from) {
+        } else {
           ctx.failure(
-            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+            diagnosticVariant("failure.profile.input_file_unreadable", {
+              ...{ path: opts.input, error: String(err) },
+              ...{ path: opts.input },
+            }),
           );
-          return;
         }
-
-        // (4) The pending:resolved entry needs the head id. Preflight 5c.4
-        //     owns the authority check (head must be profile_escalation);
-        //     this only handles the structural "no head at all" case, where
-        //     no PEND-id exists to build the pending:resolved entry.
-        const head = pendingHead(session.snapshot.pending);
-        if (!head) {
-          ctx.failure(diagnostic("ESCALATION_NOT_PENDING", { actual_head: "(none)" }));
-          return;
-        }
-
-        // (5) Mutate — 2-entry batch. event:ceremony_set MUST precede
-        //     pending:resolved so preflight 5c.4 sees the unresolved head.
-        const result = await mutator.run(featureDir, session, [
-          {
-            kind: "event:ceremony_set",
-            payload: ceremony as Record<string, unknown>,
-            actor: humanActor,
-          },
-          {
-            kind: "pending:resolved",
-            payload: { id: head.id },
-            actor: humanActor,
-          },
-        ]);
-        if (!result) return;
-
-        // (6) Success output. The batch moves no cursor — sub_state unchanged.
-        const out = {
-          ok: true,
-          feature: opts.feature,
-          resolved_pending: head.id,
-          sub_state: result.snapshot.state?.sub_state,
-          actor: humanActor,
-        };
-        ctx.success(
-          out,
-          () => "",
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.profileEscalateStateChange, { pending_id: head.id }),
+        return;
+      }
+      let ceremony: unknown;
+      try {
+        ceremony = JSON.parse(content);
+      } catch (err) {
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: (err as Error).message,
+            path: opts.input,
           }),
         );
-      },
-    );
+        return;
+      }
+
+      // (3) Load session.
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      const from = session.snapshot.state?.sub_state;
+      if (!from) {
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
+        return;
+      }
+
+      // (4) The pending:resolved entry needs the head id. Preflight 5c.4
+      //     owns the authority check (head must be profile_escalation);
+      //     this only handles the structural "no head at all" case, where
+      //     no PEND-id exists to build the pending:resolved entry.
+      const head = pendingHead(session.snapshot.pending);
+      if (!head) {
+        ctx.failure(diagnostic("ESCALATION_NOT_PENDING", { actual_head: "(none)" }));
+        return;
+      }
+
+      // (5) Mutate — 2-entry batch. event:ceremony_set MUST precede
+      //     pending:resolved so preflight 5c.4 sees the unresolved head.
+      const result = await mutator.run(featureDir, session, [
+        {
+          kind: "event:ceremony_set",
+          payload: ceremony as Record<string, unknown>,
+          actor: humanActor,
+        },
+        {
+          kind: "pending:resolved",
+          payload: { id: head.id },
+          actor: humanActor,
+        },
+      ]);
+      if (!result) return;
+
+      // (6) Success output. The batch moves no cursor — sub_state unchanged.
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        resolved_pending: head.id,
+        sub_state: result.snapshot.state?.sub_state,
+        actor: humanActor,
+      };
+      ctx.success(
+        out,
+        () => "",
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.profileEscalateStateChange, { pending_id: head.id }),
+        }),
+      );
+    },
+  );
 
   // ── loaf config init — scaffold project/user config (no journal entry) ──
   const refuseConfigExists = (configPath: string): void =>
@@ -263,37 +271,39 @@ export function registerProfileConfig(
 
   const configCmd = program.command("config").description("Project and user config commands");
 
-  configCmd
-    .command("init")
-    .description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json")
-    .option("--global", "Write user config at ~/.loaf/config.json instead of project config")
-    .action(async (opts: { global?: boolean }) => {
-      // no-feature: config init writes project/user config, not a feature session target.
-      if (ctx.rejectIfDryRun("config init", "scaffold-writer")) return;
+  declareCommandPolicy(
+    configCmd
+      .command("init")
+      .description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json")
+      .option("--global", "Write user config at ~/.loaf/config.json instead of project config"),
+    { selectors: "unscoped", dryRun: "scaffold-writer" },
+  ).action(async (opts: { global?: boolean }) => {
+    // no-feature: config init writes project/user config, not a feature session target.
+    if (ctx.rejectIfDryRun("config init", "scaffold-writer")) return;
 
-      const configPath = opts.global
-        ? userConfigPath(userConfigHomeDir ?? os.homedir())
-        : loafConfigPath(process.cwd());
-      if (!(await ensureConfigTargetAbsent(configPath))) return;
+    const configPath = opts.global
+      ? userConfigPath(userConfigHomeDir ?? os.homedir())
+      : loafConfigPath(process.cwd());
+    if (!(await ensureConfigTargetAbsent(configPath))) return;
 
-      const content = opts.global
-        ? serializeStableJson(
-            UserConfig.parse({
-              schema_version: 1,
-              locale: { default_lang: "en" },
-            }),
-          )
-        : serializeStableJson({
-            _comment: CONFIG_INIT_COMMENT,
-            ...LoafConfig.parse(defaultLoafConfig()),
-          });
+    const content = opts.global
+      ? serializeStableJson(
+          UserConfig.parse({
+            schema_version: 1,
+            locale: { default_lang: "en" },
+          }),
+        )
+      : serializeStableJson({
+          _comment: CONFIG_INIT_COMMENT,
+          ...LoafConfig.parse(defaultLoafConfig()),
+        });
 
-      if ((await writeConfigExclusive(configPath, content)) === "exists") {
-        refuseConfigExists(configPath);
-        return;
-      }
-      ctx.success({ ok: true, config_path: configPath }, () => `${configPath}\n`);
-    });
+    if ((await writeConfigExclusive(configPath, content)) === "exists") {
+      refuseConfigExists(configPath);
+      return;
+    }
+    ctx.success({ ok: true, config_path: configPath }, () => `${configPath}\n`);
+  });
 
   // ── loaf doctor --rebuild ───────────────────────────────────────────
   // The shipped doctor surface has one mode: --rebuild performs a full
@@ -312,125 +322,127 @@ export function registerProfileConfig(
   //   boundary at the end of main(), which also writes ~/.loaf/crashes/.
   // The replay and all projection writes run under the feature write lease,
   // so doctor cannot publish an older replay over a concurrent mutation.
-  program
-    .command("doctor")
-    .description("Repository self-check. This release implements --rebuild only")
-    .option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json")
-    .option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { rebuild?: boolean; feature?: string; featureDir?: string }) => {
-      // Doctor rebuild is a projection writer, not a journal mutator. A
-      // dry-run would need a separate replay-preview contract, so both bare
-      // doctor and --rebuild reject --dry-run.
-      if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
+  declareCommandPolicy(
+    program
+      .command("doctor")
+      .description("Repository self-check. This release implements --rebuild only")
+      .option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json")
+      .option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "recovery", dryRun: "read-only" },
+  ).action(async (opts: { rebuild?: boolean; feature?: string; featureDir?: string }) => {
+    // Doctor rebuild is a projection writer, not a journal mutator. A
+    // dry-run would need a separate replay-preview contract, so both bare
+    // doctor and --rebuild reject --dry-run.
+    if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 
-      if (!opts.rebuild) {
-        ctx.failure(diagnostic("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
+    if (!opts.rebuild) {
+      ctx.failure(diagnostic("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
+      return;
+    }
+
+    // --feature is validated AFTER mode selection so a literal bare
+    // `loaf doctor` surfaces DOCTOR_MODE_NOT_IMPLEMENTED, not a
+    // missing-feature error — `--feature` is a Commander `.option`, not
+    // `.requiredOption`, precisely so mode is checked first (codex r161).
+    if (!opts.feature) {
+      ctx.failure(diagnostic("DOCTOR_FEATURE_REQUIRED", {}));
+      return;
+    }
+
+    // SC-8: doctor --rebuild bypasses ctx.resolveDispatch because the
+    // whole point of `doctor --rebuild` is to recover from corrupt
+    // state projections. Going through dispatch would prematurely
+    // surface NoSession/SnapshotStale before the rebuild logic gets
+    // a chance to read the raw journal and re-derive projections.
+    // Compute featureDir directly + record trace target manually.
+    // no-dispatch (sc8-dispatch-gate exception marker)
+    const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
+    ctx.recordTraceTarget(opts.feature, featureDir);
+    let lease: FeatureWriteLease;
+    try {
+      lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
+    } catch (error) {
+      if (error instanceof FeatureWriteLeaseError) {
+        ctx.failure(error.diagnostic);
         return;
       }
-
-      // --feature is validated AFTER mode selection so a literal bare
-      // `loaf doctor` surfaces DOCTOR_MODE_NOT_IMPLEMENTED, not a
-      // missing-feature error — `--feature` is a Commander `.option`, not
-      // `.requiredOption`, precisely so mode is checked first (codex r161).
-      if (!opts.feature) {
-        ctx.failure(diagnostic("DOCTOR_FEATURE_REQUIRED", {}));
-        return;
-      }
-
-      // SC-8: doctor --rebuild bypasses ctx.resolveDispatch because the
-      // whole point of `doctor --rebuild` is to recover from corrupt
-      // state projections. Going through dispatch would prematurely
-      // surface NoSession/SnapshotStale before the rebuild logic gets
-      // a chance to read the raw journal and re-derive projections.
-      // Compute featureDir directly + record trace target manually.
-      // no-dispatch (sc8-dispatch-gate exception marker)
-      const featureDir = opts.featureDir ?? defaultFeatureDir(opts.feature);
-      ctx.recordTraceTarget(opts.feature, featureDir);
-      let lease: FeatureWriteLease;
-      try {
-        lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
-      } catch (error) {
-        if (error instanceof FeatureWriteLeaseError) {
-          ctx.failure(error.diagnostic);
-          return;
-        }
-        throw error;
-      }
-      try {
-        const journalPath = path.join(featureDir, "journal.jsonl");
-        const replay = await replayJournal(journalPath, {
-          collect_entries: true,
-        });
-        if (!replay.ok) {
-          ctx.failure(
-            diagnostic("DOCTOR_REBUILD_FAILED", {
-              journal_path: journalPath,
-              replay_code: replay.code,
-              at_seq: replay.at_seq,
-              ...replay.detail,
-              ...(replay.code === "REDUCER_REJECTED"
-                ? { diagnostic: replay.diagnostic }
-                : { cause: replay.message }),
-            }),
-          );
-          return;
-        }
-        const entries = replay.entries;
-        if (entries === undefined) {
-          ctx.failure(diagnostic("DOCTOR_REBUILD_FAILED", {}));
-          return;
-        }
-
-        let rebuilt: string[];
-        try {
-          rebuilt = await writeProjections(featureDir, {
-            snapshot: replay.snapshot,
-            entries,
-            meta: replay.meta,
-          });
-        } catch (err) {
-          ctx.failure(
-            diagnostic("DOCTOR_REBUILD_FAILED", {
-              reason: "projection_write_failed",
-              cause: (err as Error).message,
-              feature_dir: featureDir,
-            }),
-          );
-          return;
-        }
-
-        const out = {
-          ok: true,
-          feature: opts.feature,
-          feature_dir: featureDir,
-          tail_seq: replay.meta.last_applied_seq,
-          rebuilt,
-        };
-        ctx.success(
-          out,
-          (i18n) =>
-            i18n.t(
-              rebuilt.length === 1
-                ? SUCCESS_KEYS.doctorRebuildTextOne
-                : SUCCESS_KEYS.doctorRebuildTextMany,
-              { count: rebuilt.length, feature: opts.feature },
-            ) +
-            "\n" +
-            rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
-            i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) +
-            "\n",
-          (i18n) => ({
-            stateChange: i18n.t(
-              rebuilt.length === 1
-                ? SUCCESS_KEYS.doctorRebuildStateChangeOne
-                : SUCCESS_KEYS.doctorRebuildStateChangeMany,
-              { count: rebuilt.length, feature: opts.feature },
-            ),
+      throw error;
+    }
+    try {
+      const journalPath = path.join(featureDir, "journal.jsonl");
+      const replay = await replayJournal(journalPath, {
+        collect_entries: true,
+      });
+      if (!replay.ok) {
+        ctx.failure(
+          diagnostic("DOCTOR_REBUILD_FAILED", {
+            journal_path: journalPath,
+            replay_code: replay.code,
+            at_seq: replay.at_seq,
+            ...replay.detail,
+            ...(replay.code === "REDUCER_REJECTED"
+              ? { diagnostic: replay.diagnostic }
+              : { cause: replay.message }),
           }),
         );
-      } finally {
-        await lease.release();
+        return;
       }
-    });
+      const entries = replay.entries;
+      if (entries === undefined) {
+        ctx.failure(diagnostic("DOCTOR_REBUILD_FAILED", {}));
+        return;
+      }
+
+      let rebuilt: string[];
+      try {
+        rebuilt = await writeProjections(featureDir, {
+          snapshot: replay.snapshot,
+          entries,
+          meta: replay.meta,
+        });
+      } catch (err) {
+        ctx.failure(
+          diagnostic("DOCTOR_REBUILD_FAILED", {
+            reason: "projection_write_failed",
+            cause: (err as Error).message,
+            feature_dir: featureDir,
+          }),
+        );
+        return;
+      }
+
+      const out = {
+        ok: true,
+        feature: opts.feature,
+        feature_dir: featureDir,
+        tail_seq: replay.meta.last_applied_seq,
+        rebuilt,
+      };
+      ctx.success(
+        out,
+        (i18n) =>
+          i18n.t(
+            rebuilt.length === 1
+              ? SUCCESS_KEYS.doctorRebuildTextOne
+              : SUCCESS_KEYS.doctorRebuildTextMany,
+            { count: rebuilt.length, feature: opts.feature },
+          ) +
+          "\n" +
+          rebuilt.map((f) => `  snapshots/${f}\n`).join("") +
+          i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) +
+          "\n",
+        (i18n) => ({
+          stateChange: i18n.t(
+            rebuilt.length === 1
+              ? SUCCESS_KEYS.doctorRebuildStateChangeOne
+              : SUCCESS_KEYS.doctorRebuildStateChangeMany,
+            { count: rebuilt.length, feature: opts.feature },
+          ),
+        }),
+      );
+    } finally {
+      await lease.release();
+    }
+  });
 }

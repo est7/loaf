@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -30,75 +31,77 @@ export function registerTerminalExecute(
   // Output is advisory-only per protocol §1824 — the deliver step does
   // not invoke git/gh; it records the cursor flip and renders a "next:"
   // hint that callers can grep for.
-  program
-    .command("deliver")
-    .description("Deliver the feature session (emits session:delivered → DONE.delivered)")
-    .option("--feature <name>", "Feature whose session to deliver")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .option("--reason <text>", "Optional rationale to record on the session:delivered entry")
-    .action(async (opts: { feature: string; featureDir?: string; reason?: string }) => {
-      // Phase 16 SC-3 — representative command migrated to CommandContext.
-      // Same external behavior (byte-identical text + JSON output) per
-      // codex r206 axis I; proves the API can drive a real mutate command
-      // end-to-end. SC-4..SC-15 migrate the remaining 28 handlers as
-      // each command group gets touched.
+  declareCommandPolicy(
+    program
+      .command("deliver")
+      .description("Deliver the feature session (emits session:delivered → DONE.delivered)")
+      .option("--feature <name>", "Feature whose session to deliver")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+      .option("--reason <text>", "Optional rationale to record on the session:delivered entry"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { feature: string; featureDir?: string; reason?: string }) => {
+    // Phase 16 SC-3 — representative command migrated to CommandContext.
+    // Same external behavior (byte-identical text + JSON output) per
+    // codex r206 axis I; proves the API can drive a real mutate command
+    // end-to-end. SC-4..SC-15 migrate the remaining 28 handlers as
+    // each command group gets touched.
 
-      // (1) Human-only actor — `session:delivered` is HUMAN_ONLY per PER_KIND_ACTOR.
-      const humanActor = ctx.resolveHumanActorOrFail();
-      if (humanActor === null) return;
+    // (1) Human-only actor — `session:delivered` is HUMAN_ONLY per PER_KIND_ACTOR.
+    const humanActor = ctx.resolveHumanActorOrFail();
+    if (humanActor === null) return;
 
-      // (2) Load session via ctx (caches per featureDir; ctx also captures
-      //     the resolved sub_state for snapshotCrashContext enrichment).
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await ctx.resolveSession(featureDir);
-      const from = session.snapshot.state?.sub_state;
-      if (!from) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-
-      // (3) Build payload (reason is optional per SessionReasonPayload).
-      const payload: Record<string, unknown> = {};
-      if (opts.reason !== undefined) payload["reason"] = opts.reason;
-
-      // (4) Mutate. preflight step 5c enforces all delivery preconditions;
-      //     reducer flips cursor to DONE.delivered.
-      const result = await mutator.run(featureDir, session, {
-        kind: "session:delivered",
-        payload,
-        actor: humanActor,
-      });
-      if (!result) return;
-
-      // (5) Success output via ctx.success — stateChange + next routed to
-      //     stderr per protocol §10.12 (SC-5b2). The advisory string
-      //     remains in the JSON payload for back-compat.
-      const advisory = [`session complete — \`loaf start <feature>\` to begin another`];
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        from,
-        to: "DONE.delivered" as const,
-        actor: humanActor,
-        sub_state: result.snapshot.state?.sub_state,
-        advisory,
-      };
-      ctx.success(
-        out,
-        () => "",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.deliverStateChange, {
-            feature: opts.feature,
-            from,
-            actor: humanActor,
-          }),
-          next: i18n.t(SUCCESS_KEYS.deliverNext),
-        }),
+    // (2) Load session via ctx (caches per featureDir; ctx also captures
+    //     the resolved sub_state for snapshotCrashContext enrichment).
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await ctx.resolveSession(featureDir);
+    const from = session.snapshot.state?.sub_state;
+    if (!from) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
       );
+      return;
+    }
+
+    // (3) Build payload (reason is optional per SessionReasonPayload).
+    const payload: Record<string, unknown> = {};
+    if (opts.reason !== undefined) payload["reason"] = opts.reason;
+
+    // (4) Mutate. preflight step 5c enforces all delivery preconditions;
+    //     reducer flips cursor to DONE.delivered.
+    const result = await mutator.run(featureDir, session, {
+      kind: "session:delivered",
+      payload,
+      actor: humanActor,
     });
+    if (!result) return;
+
+    // (5) Success output via ctx.success — stateChange + next routed to
+    //     stderr per protocol §10.12 (SC-5b2). The advisory string
+    //     remains in the JSON payload for back-compat.
+    const advisory = [`session complete — \`loaf start <feature>\` to begin another`];
+    const out = {
+      ok: true,
+      feature: opts.feature,
+      from,
+      to: "DONE.delivered" as const,
+      actor: humanActor,
+      sub_state: result.snapshot.state?.sub_state,
+      advisory,
+    };
+    ctx.success(
+      out,
+      () => "",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.deliverStateChange, {
+          feature: opts.feature,
+          from,
+          actor: humanActor,
+        }),
+        next: i18n.t(SUCCESS_KEYS.deliverNext),
+      }),
+    );
+  });
 
   // ── loaf archive / loaf abandon ─────────────────────────────────────
   // Item 2 — the two non-delivered session-terminal commands (protocol
@@ -111,114 +114,118 @@ export function registerTerminalExecute(
   // and accept any non-DONE source sub_state per PER_KIND_SUB_STATE.
   // The two blocks are intentionally parallel — kept side-by-side rather
   // than abstracted, consistent with `deliver` not sharing a helper.
-  program
-    .command("archive")
-    .description(
-      "Close the feature session without delivering (emits session:archived → DONE.archived)",
-    )
-    .option("--feature <name>", "Feature whose session to archive")
-    .requiredOption("--reason <text>", "Rationale recorded on the session:archived entry")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
-      // (1) Human-only actor — `session:archived` is HUMAN_ONLY per PER_KIND_ACTOR.
-      const humanActor = ctx.resolveHumanActorOrFail();
-      if (humanActor === null) return;
+  declareCommandPolicy(
+    program
+      .command("archive")
+      .description(
+        "Close the feature session without delivering (emits session:archived → DONE.archived)",
+      )
+      .option("--feature <name>", "Feature whose session to archive")
+      .requiredOption("--reason <text>", "Rationale recorded on the session:archived entry")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
+    // (1) Human-only actor — `session:archived` is HUMAN_ONLY per PER_KIND_ACTOR.
+    const humanActor = ctx.resolveHumanActorOrFail();
+    if (humanActor === null) return;
 
-      // (2) Load session.
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const from = session.snapshot.state?.sub_state;
-      if (!from) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-
-      // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
-      //     flips cursor to DONE.archived.
-      const result = await mutator.run(featureDir, session, {
-        kind: "session:archived",
-        payload: { reason: opts.reason },
-        actor: humanActor,
-      });
-      if (!result) return;
-
-      // (4) Success output.
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        from,
-        to: "DONE.archived" as const,
-        actor: humanActor,
-        sub_state: result.snapshot.state?.sub_state,
-      };
-      ctx.success(
-        out,
-        () => "",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.archiveStateChange, {
-            feature: opts.feature,
-            from,
-            actor: humanActor,
-          }),
-        }),
+    // (2) Load session.
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+    const from = session.snapshot.state?.sub_state;
+    if (!from) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
       );
+      return;
+    }
+
+    // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
+    //     flips cursor to DONE.archived.
+    const result = await mutator.run(featureDir, session, {
+      kind: "session:archived",
+      payload: { reason: opts.reason },
+      actor: humanActor,
     });
+    if (!result) return;
 
-  program
-    .command("abandon")
-    .description("Abandon the feature session (emits session:abandoned → DONE.abandoned)")
-    .option("--feature <name>", "Feature whose session to abandon")
-    .requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
-      // (1) Human-only actor — `session:abandoned` is HUMAN_ONLY per PER_KIND_ACTOR.
-      const humanActor = ctx.resolveHumanActorOrFail();
-      if (humanActor === null) return;
-
-      // (2) Load session.
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const from = session.snapshot.state?.sub_state;
-      if (!from) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-
-      // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
-      //     flips cursor to DONE.abandoned.
-      const result = await mutator.run(featureDir, session, {
-        kind: "session:abandoned",
-        payload: { reason: opts.reason },
-        actor: humanActor,
-      });
-      if (!result) return;
-
-      // (4) Success output.
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        from,
-        to: "DONE.abandoned" as const,
-        actor: humanActor,
-        sub_state: result.snapshot.state?.sub_state,
-      };
-      ctx.success(
-        out,
-        () => "",
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.abandonStateChange, {
-            feature: opts.feature,
-            from,
-            actor: humanActor,
-            reason: opts.reason,
-          }),
+    // (4) Success output.
+    const out = {
+      ok: true,
+      feature: opts.feature,
+      from,
+      to: "DONE.archived" as const,
+      actor: humanActor,
+      sub_state: result.snapshot.state?.sub_state,
+    };
+    ctx.success(
+      out,
+      () => "",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.archiveStateChange, {
+          feature: opts.feature,
+          from,
+          actor: humanActor,
         }),
+      }),
+    );
+  });
+
+  declareCommandPolicy(
+    program
+      .command("abandon")
+      .description("Abandon the feature session (emits session:abandoned → DONE.abandoned)")
+      .option("--feature <name>", "Feature whose session to abandon")
+      .requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { feature: string; reason: string; featureDir?: string }) => {
+    // (1) Human-only actor — `session:abandoned` is HUMAN_ONLY per PER_KIND_ACTOR.
+    const humanActor = ctx.resolveHumanActorOrFail();
+    if (humanActor === null) return;
+
+    // (2) Load session.
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+    const from = session.snapshot.state?.sub_state;
+    if (!from) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
       );
+      return;
+    }
+
+    // (3) Mutate. preflight step 5c.2 enforces reason-required; reducer
+    //     flips cursor to DONE.abandoned.
+    const result = await mutator.run(featureDir, session, {
+      kind: "session:abandoned",
+      payload: { reason: opts.reason },
+      actor: humanActor,
     });
+    if (!result) return;
+
+    // (4) Success output.
+    const out = {
+      ok: true,
+      feature: opts.feature,
+      from,
+      to: "DONE.abandoned" as const,
+      actor: humanActor,
+      sub_state: result.snapshot.state?.sub_state,
+    };
+    ctx.success(
+      out,
+      () => "",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.abandonStateChange, {
+          feature: opts.feature,
+          from,
+          actor: humanActor,
+          reason: opts.reason,
+        }),
+      }),
+    );
+  });
 }

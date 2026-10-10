@@ -92,7 +92,21 @@ test.each([
     ["start", "-"],
   ],
 ])("bootstrap positional view preserves characterized token consumption: %j", (args, expected) => {
-  expect(bootstrapCommandTokens(["node", "loaf", ...args], 2)).toEqual(expected);
+  expect(
+    bootstrapCommandTokens(
+      ["node", "loaf", ...args],
+      2,
+      new Set([
+        "--format",
+        "--session",
+        "--feature",
+        "--feature-dir",
+        "--ceremony",
+        "--label",
+        "--workspace",
+      ]),
+    ),
+  ).toEqual(expected);
 });
 
 test("lexical records preserve duplicates and option-looking values across the terminator", () => {

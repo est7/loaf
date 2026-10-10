@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -158,121 +159,125 @@ export function registerSpec(
       "SPEC content and diagnostic commands (status / submit / add-req / add-scenario / add-visual; init in SC4)",
     );
 
-  specCmd
-    .command("status")
-    .description("Show failing and suppressed spec-lock checks from replayed state (read-only)")
-    .option("--feature <name>", "Feature whose spec-lock status to show")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("spec status")) return;
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: false });
-      if (session.snapshot.state === null) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-      const result = evaluateSpecLockFromSnapshot(session.snapshot);
-      const envelope = buildSpecStatusEnvelope(result);
-      ctx.success(envelope, (i18n) => renderSpecStatusText(envelope, i18n));
-    });
-
-  specCmd
-    .command("submit")
-    .description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)")
-    .requiredOption("--input <src>", jsonInputHelp(SPEC_SUBMIT_INPUT))
-    .option("--feature <name>", "Feature whose spec to submit")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { input: string; feature: string; featureDir?: string }) => {
-      // SC-6b — record trace target at action entry so long input-validation
-      // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
-      // + traceTarget in one call.
-      const earlyFeatureDir = await ctx.dispatchOrFail(opts);
-      if (earlyFeatureDir === null) return;
-      const read = await inputIngestor.readJson(ctx, opts.input, SPEC_SUBMIT_INPUT);
-      if (!read.ok) return;
-      const parsed = read.value;
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        ctx.failure(diagnostic("USAGE", { reason: "spec_input_object_required" }));
-        return;
-      }
-      // CLI boundary: typed runtime schema enforcement (codex r75 BLOCK
-      // fix). A malformed `spec_version: "2"` or `requirements: "oops"`
-      // would otherwise silently degrade (drop to current+1 / coerce to
-      // []) and bump spec_version with empty projection — worse than a
-      // hard failure. SpecSubmitInput rejects wrong types before mutate.
-      const inputParse = SpecSubmitInput.safeParse(parsed);
-      if (!inputParse.success) {
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
-            issues: inputParse.error.issues,
-          }),
-        );
-        return;
-      }
-      const input = inputParse.data;
-      // Load session via ctx (caches; captures sub_state for crash context).
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await ctx.resolveSession(featureDir);
-      if (!session.snapshot.state) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-      // (4-6) Build the spec-submit batch via shared SC-12a-1 helper.
-      // CLI owns spec_version stamping; reducer enforces monotonic at
-      // append. See `src/cli/spec-submit-batch.ts` for the canonical
-      // shape (1 head + N req + M scen + K vis entries sharing at /
-      // actor / spec_version).
-      const now = new Date().toISOString();
-      const entries = buildSpecSubmitBatch({
-        input,
-        snapshot: session.snapshot,
-        actor,
-        now,
-      });
-      // (7) Mutate.
-      const result = await mutator.runPreparedBatch(featureDir, session, entries);
-      if (!result) return;
-      // Output. Echo collected ids for shell scripting.
-      const reqIds = result.snapshot.requirements.map((r) => r.id);
-      const scenIds = result.snapshot.scenarios.map((s) => s.id);
-      const visIds = result.snapshot.visual_contracts.map((v) => v.id);
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        spec_version: result.snapshot.state?.spec_version,
-        req_ids: reqIds,
-        scen_ids: scenIds,
-        vis_ids: visIds,
-        sub_state: result.snapshot.state?.sub_state,
-      };
-      const selector = await selectorForCommandContext(ctx);
-      ctx.success(
-        out,
-        (i18n) =>
-          i18n.t(SUCCESS_KEYS.specSubmitText, {
-            spec_version: out.spec_version,
-            req_count: reqIds.length,
-            scen_count: scenIds.length,
-            vis_count: visIds.length,
-          }) + "\n",
-        (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
-          return {
-            stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, {
-              spec_version: out.spec_version,
-            }),
-            ...(next === undefined ? {} : { next }),
-          };
-        },
+  declareCommandPolicy(
+    specCmd
+      .command("status")
+      .description("Show failing and suppressed spec-lock checks from replayed state (read-only)")
+      .option("--feature <name>", "Feature whose spec-lock status to show")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(async (opts: { feature: string; featureDir?: string }) => {
+    if (ctx.rejectIfDryRun("spec status")) return;
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: false });
+    if (session.snapshot.state === null) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
       );
+      return;
+    }
+    const result = evaluateSpecLockFromSnapshot(session.snapshot);
+    const envelope = buildSpecStatusEnvelope(result);
+    ctx.success(envelope, (i18n) => renderSpecStatusText(envelope, i18n));
+  });
+
+  declareCommandPolicy(
+    specCmd
+      .command("submit")
+      .description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)")
+      .requiredOption("--input <src>", jsonInputHelp(SPEC_SUBMIT_INPUT))
+      .option("--feature <name>", "Feature whose spec to submit")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { input: string; feature: string; featureDir?: string }) => {
+    // SC-6b — record trace target at action entry so long input-validation
+    // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
+    // + traceTarget in one call.
+    const earlyFeatureDir = await ctx.dispatchOrFail(opts);
+    if (earlyFeatureDir === null) return;
+    const read = await inputIngestor.readJson(ctx, opts.input, SPEC_SUBMIT_INPUT);
+    if (!read.ok) return;
+    const parsed = read.value;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      ctx.failure(diagnostic("USAGE", { reason: "spec_input_object_required" }));
+      return;
+    }
+    // CLI boundary: typed runtime schema enforcement (codex r75 BLOCK
+    // fix). A malformed `spec_version: "2"` or `requirements: "oops"`
+    // would otherwise silently degrade (drop to current+1 / coerce to
+    // []) and bump spec_version with empty projection — worse than a
+    // hard failure. SpecSubmitInput rejects wrong types before mutate.
+    const inputParse = SpecSubmitInput.safeParse(parsed);
+    if (!inputParse.success) {
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+          issues: inputParse.error.issues,
+        }),
+      );
+      return;
+    }
+    const input = inputParse.data;
+    // Load session via ctx (caches; captures sub_state for crash context).
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await ctx.resolveSession(featureDir);
+    if (!session.snapshot.state) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+      );
+      return;
+    }
+    // (4-6) Build the spec-submit batch via shared SC-12a-1 helper.
+    // CLI owns spec_version stamping; reducer enforces monotonic at
+    // append. See `src/cli/spec-submit-batch.ts` for the canonical
+    // shape (1 head + N req + M scen + K vis entries sharing at /
+    // actor / spec_version).
+    const now = new Date().toISOString();
+    const entries = buildSpecSubmitBatch({
+      input,
+      snapshot: session.snapshot,
+      actor,
+      now,
     });
+    // (7) Mutate.
+    const result = await mutator.runPreparedBatch(featureDir, session, entries);
+    if (!result) return;
+    // Output. Echo collected ids for shell scripting.
+    const reqIds = result.snapshot.requirements.map((r) => r.id);
+    const scenIds = result.snapshot.scenarios.map((s) => s.id);
+    const visIds = result.snapshot.visual_contracts.map((v) => v.id);
+    const out = {
+      ok: true,
+      feature: opts.feature,
+      spec_version: result.snapshot.state?.spec_version,
+      req_ids: reqIds,
+      scen_ids: scenIds,
+      vis_ids: visIds,
+      sub_state: result.snapshot.state?.sub_state,
+    };
+    const selector = await selectorForCommandContext(ctx);
+    ctx.success(
+      out,
+      (i18n) =>
+        i18n.t(SUCCESS_KEYS.specSubmitText, {
+          spec_version: out.spec_version,
+          req_count: reqIds.length,
+          scen_count: scenIds.length,
+          vis_count: visIds.length,
+        }) + "\n",
+      (i18n) => {
+        const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+        return {
+          stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, {
+            spec_version: out.spec_version,
+          }),
+          ...(next === undefined ? {} : { next }),
+        };
+      },
+    );
+  });
 
   // ── loaf spec add-req / add-scenario / add-visual ────────────────────
   // Slice 4 SC2 (codex r74 sign-off, rev 4.3 / ADR-0004 A5). Incremental
@@ -307,122 +312,127 @@ export function registerSpec(
   // requirements / scenarios / visual_contracts / needs_clarification
   // arrays so the file passes SpecFrontmatter parsing without leaking
   // tutorial-style sample placeholders into real submits.
-  specCmd
-    .command("init")
-    .description("Write a parser-valid minimal spec.md scaffold (no journal entry)")
-    .option("--feature <name>", "Feature whose spec.md to scaffold")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)")
-    .option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)")
-    .option(
-      "--intent <text>",
-      "Override intent line in scaffold (default: TODO placeholder ≥20 chars)",
-    )
-    .action(
-      async (opts: {
-        feature: string;
-        featureDir?: string;
-        featureId?: string;
-        featureName?: string;
-        intent?: string;
-      }) => {
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const specMdPath = path.join(featureDir, "spec.md");
-        // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
-        // before any I/O so the error surface is the file's existence,
-        // not a partial write.
-        try {
-          await fsP.access(specMdPath);
-          // File exists — refuse.
-          ctx.failure(diagnostic("SPEC_ALREADY_INITIALIZED", { spec_md_path: specMdPath }));
-          return;
-        } catch {
-          // ENOENT — proceed.
-        }
-        // Ensure feature dir exists (loaf start would have created it,
-        // but spec init might be called before start in a fresh tree).
-        await fsP.mkdir(featureDir, { recursive: true });
-        // FeatureIdPayload regex is `^F-\d{3,}$`. F-000 is a deliberate
-        // placeholder that parses but is obviously a stand-in — caller
-        // should override with `--feature-id F-NNN` before running submit.
-        // codex r81 BLOCK fix: validate the composed scaffold against
-        // SpecFrontmatter BEFORE writing. Otherwise caller overrides like
-        // `--feature-id BAD --feature-name x --intent short` would emit a
-        // file that immediately fails the production readSpecFrontmatter()
-        // parser, giving scripts a false-success result. Validation here
-        // catches feature.id regex / feature.name min length / intent
-        // min length / etc. upfront with SCHEMA_VALIDATION_FAILED.
-        const featureId = opts.featureId ?? "F-000";
-        // SpecFrontmatter requires feature.name length ≥3. The --feature
-        // flag is a loaf-internal feature key that can be short (e.g.
-        // "F1"); when no --feature-name override is supplied and the
-        // feature key is too short, fall back to a clearly-marked
-        // placeholder so the scaffold parses but does not pretend to be
-        // a finished display name.
-        const featureName =
-          opts.featureName ?? (opts.feature.length >= 3 ? opts.feature : "TODO Feature Name");
-        const intent =
-          opts.intent ?? "TODO: describe the feature intent in at least twenty characters";
-        // codex r81 BLOCK fix: validate the composed scaffold against
-        // SpecFrontmatter BEFORE any disk write. Caller overrides
-        // (--feature-id BAD / --feature-name x / --intent short) would
-        // otherwise write a spec.md that immediately fails the production
-        // readSpecFrontmatter() parser. Validation here catches feature.id
-        // regex / feature.name min length / intent min length upfront with
-        // SCHEMA_VALIDATION_FAILED and zero partial-write risk.
-        const scaffoldObj = {
-          schema_version: 2,
-          spec_version: 1,
-          feature: { id: featureId, name: featureName },
-          intent,
-          adr_refs: [],
-          requirements: [],
-          scenarios: [],
-          visual_contracts: [],
-          needs_clarification: [],
-        };
-        const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
-        if (!scaffoldParse.success) {
-          ctx.failure(
-            diagnostic("SCHEMA_VALIDATION_FAILED", {
-              reason: scaffoldParse.error.issues.map((issue) => issue.message).join("; "),
-              issues: scaffoldParse.error.issues,
-            }),
-          );
-          return;
-        }
-        // codex r80 BLOCK fix: YAML scalars containing colons / leading
-        // dashes / hashes (e.g. the default "TODO: describe..." intent)
-        // would otherwise be parsed as nested mappings or comments. Quote
-        // every interpolated scalar via JSON.stringify — JSON-encoded
-        // strings are also valid double-quoted YAML scalars, so the
-        // production readSpecFrontmatter() parser accepts them.
-        const md =
-          `---\n` +
-          `schema_version: 2\n` +
-          `spec_version: 1\n` +
-          `feature:\n` +
-          `  id: ${JSON.stringify(featureId)}\n` +
-          `  name: ${JSON.stringify(featureName)}\n` +
-          `intent: ${JSON.stringify(intent)}\n` +
-          `adr_refs: []\n` +
-          `requirements: []\n` +
-          `scenarios: []\n` +
-          `needs_clarification: []\n` +
-          `---\n` +
-          `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec edit --input <json>\` to record the canonical spec.\n`;
-        await fsP.writeFile(specMdPath, md);
-        ctx.success(
-          { ok: true, feature: opts.feature, spec_md_path: specMdPath },
-          () => `${specMdPath}\n`,
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.specInitStateChange, { path: specMdPath }),
-            next: i18n.t(SUCCESS_KEYS.specInitNext),
+  declareCommandPolicy(
+    specCmd
+      .command("init")
+      .description("Write a parser-valid minimal spec.md scaffold (no journal entry)")
+      .option("--feature <name>", "Feature whose spec.md to scaffold")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
+      .option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)")
+      .option(
+        "--feature-name <text>",
+        "Override feature.name in scaffold (default: --feature value)",
+      )
+      .option(
+        "--intent <text>",
+        "Override intent line in scaffold (default: TODO placeholder ≥20 chars)",
+      ),
+    { selectors: "selected", dryRun: "legacy-scaffold" },
+  ).action(
+    async (opts: {
+      feature: string;
+      featureDir?: string;
+      featureId?: string;
+      featureName?: string;
+      intent?: string;
+    }) => {
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const specMdPath = path.join(featureDir, "spec.md");
+      // SPEC_ALREADY_INITIALIZED guard: refuse to overwrite. Check
+      // before any I/O so the error surface is the file's existence,
+      // not a partial write.
+      try {
+        await fsP.access(specMdPath);
+        // File exists — refuse.
+        ctx.failure(diagnostic("SPEC_ALREADY_INITIALIZED", { spec_md_path: specMdPath }));
+        return;
+      } catch {
+        // ENOENT — proceed.
+      }
+      // Ensure feature dir exists (loaf start would have created it,
+      // but spec init might be called before start in a fresh tree).
+      await fsP.mkdir(featureDir, { recursive: true });
+      // FeatureIdPayload regex is `^F-\d{3,}$`. F-000 is a deliberate
+      // placeholder that parses but is obviously a stand-in — caller
+      // should override with `--feature-id F-NNN` before running submit.
+      // codex r81 BLOCK fix: validate the composed scaffold against
+      // SpecFrontmatter BEFORE writing. Otherwise caller overrides like
+      // `--feature-id BAD --feature-name x --intent short` would emit a
+      // file that immediately fails the production readSpecFrontmatter()
+      // parser, giving scripts a false-success result. Validation here
+      // catches feature.id regex / feature.name min length / intent
+      // min length / etc. upfront with SCHEMA_VALIDATION_FAILED.
+      const featureId = opts.featureId ?? "F-000";
+      // SpecFrontmatter requires feature.name length ≥3. The --feature
+      // flag is a loaf-internal feature key that can be short (e.g.
+      // "F1"); when no --feature-name override is supplied and the
+      // feature key is too short, fall back to a clearly-marked
+      // placeholder so the scaffold parses but does not pretend to be
+      // a finished display name.
+      const featureName =
+        opts.featureName ?? (opts.feature.length >= 3 ? opts.feature : "TODO Feature Name");
+      const intent =
+        opts.intent ?? "TODO: describe the feature intent in at least twenty characters";
+      // codex r81 BLOCK fix: validate the composed scaffold against
+      // SpecFrontmatter BEFORE any disk write. Caller overrides
+      // (--feature-id BAD / --feature-name x / --intent short) would
+      // otherwise write a spec.md that immediately fails the production
+      // readSpecFrontmatter() parser. Validation here catches feature.id
+      // regex / feature.name min length / intent min length upfront with
+      // SCHEMA_VALIDATION_FAILED and zero partial-write risk.
+      const scaffoldObj = {
+        schema_version: 2,
+        spec_version: 1,
+        feature: { id: featureId, name: featureName },
+        intent,
+        adr_refs: [],
+        requirements: [],
+        scenarios: [],
+        visual_contracts: [],
+        needs_clarification: [],
+      };
+      const scaffoldParse = SpecFrontmatter.safeParse(scaffoldObj);
+      if (!scaffoldParse.success) {
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: scaffoldParse.error.issues.map((issue) => issue.message).join("; "),
+            issues: scaffoldParse.error.issues,
           }),
         );
-      },
-    );
+        return;
+      }
+      // codex r80 BLOCK fix: YAML scalars containing colons / leading
+      // dashes / hashes (e.g. the default "TODO: describe..." intent)
+      // would otherwise be parsed as nested mappings or comments. Quote
+      // every interpolated scalar via JSON.stringify — JSON-encoded
+      // strings are also valid double-quoted YAML scalars, so the
+      // production readSpecFrontmatter() parser accepts them.
+      const md =
+        `---\n` +
+        `schema_version: 2\n` +
+        `spec_version: 1\n` +
+        `feature:\n` +
+        `  id: ${JSON.stringify(featureId)}\n` +
+        `  name: ${JSON.stringify(featureName)}\n` +
+        `intent: ${JSON.stringify(intent)}\n` +
+        `adr_refs: []\n` +
+        `requirements: []\n` +
+        `scenarios: []\n` +
+        `needs_clarification: []\n` +
+        `---\n` +
+        `\n## Why\n\nTODO: describe motivation and scope. Edit this section, then run \`loaf spec edit --input <json>\` to record the canonical spec.\n`;
+      await fsP.writeFile(specMdPath, md);
+      ctx.success(
+        { ok: true, feature: opts.feature, spec_md_path: specMdPath },
+        () => `${specMdPath}\n`,
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.specInitStateChange, { path: specMdPath }),
+          next: i18n.t(SUCCESS_KEYS.specInitNext),
+        }),
+      );
+    },
+  );
 
   // ── loaf spec edit — Phase 16 SC-12a-2 ─────────────────────────────
   // Dual-lane mutator: deterministic --input replaces only the Markdown
@@ -436,55 +446,136 @@ export function registerSpec(
   //   - r336 P3: SCHEMA_VALIDATION_FAILED + subcode parity with SC-9c
   //   - r336 P4: SC-6c scanner regex update (tests/scripts/sc6c-...)
   //   - r333 P3: signal !== null → exit 130, code !== 0 → exit 2 USAGE
-  specCmd
-    .command("edit")
-    .description(
-      "Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted",
-    )
-    .option("--input <src>", jsonInputHelp(SPEC_EDIT_INPUT))
-    .option("--feature <name>", "Feature whose spec.md to edit")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { input?: string; feature: string; featureDir?: string }) => {
-      const hasInput = opts.input !== undefined;
-      // The editor lane remains a wrapping command. The deterministic
-      // --input lane is a normal mutator and therefore participates in the
-      // shared dry-run transaction path.
-      if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const explicitEditor = (process.env["EDITOR"] ?? "").trim();
-      // Match the §10.1 TTY no-hang rule used by `--input -`: whether an
-      // interactive program is safe is determined by its streams, never by
-      // the presence of $EDITOR. Both streams must be terminals because an
-      // editor reads controls from stdin and renders its UI to stdout.
-      if (!hasInput && (!isStdinTty() || !isStdoutTty())) {
-        ctx.failure(diagnostic("SPEC_EDIT_INPUT_REQUIRED", {}));
-        return;
-      }
-      // (1) actor — `event:spec_submitted` is human:* per PER_KIND_AUTHORITY
-      const actor = ctx.resolveHumanActorOrFail();
-      if (actor === null) return;
-      const session = await loadSession(featureDir, { ensureDir: false });
-      if (!session.snapshot.state) {
+  declareCommandPolicy(
+    specCmd
+      .command("edit")
+      .description(
+        "Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted",
+      )
+      .option("--input <src>", jsonInputHelp(SPEC_EDIT_INPUT))
+      .option("--feature <name>", "Feature whose spec.md to edit")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "spec-edit" },
+  ).action(async (opts: { input?: string; feature: string; featureDir?: string }) => {
+    const hasInput = opts.input !== undefined;
+    // The editor lane remains a wrapping command. The deterministic
+    // --input lane is a normal mutator and therefore participates in the
+    // shared dry-run transaction path.
+    if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const explicitEditor = (process.env["EDITOR"] ?? "").trim();
+    // Match the §10.1 TTY no-hang rule used by `--input -`: whether an
+    // interactive program is safe is determined by its streams, never by
+    // the presence of $EDITOR. Both streams must be terminals because an
+    // editor reads controls from stdin and renders its UI to stdout.
+    if (!hasInput && (!isStdinTty() || !isStdoutTty())) {
+      ctx.failure(diagnostic("SPEC_EDIT_INPUT_REQUIRED", {}));
+      return;
+    }
+    // (1) actor — `event:spec_submitted` is human:* per PER_KIND_AUTHORITY
+    const actor = ctx.resolveHumanActorOrFail();
+    if (actor === null) return;
+    const session = await loadSession(featureDir, { ensureDir: false });
+    if (!session.snapshot.state) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+      );
+      return;
+    }
+    // (1.5) pre-editor lock gate (codex r339 P2): post-lock direct
+    // spec edits must go through `loaf finding raise --action
+    // amend-spec` so the spec_lock invariant + iteration counter
+    // stay coherent. Reject BEFORE spawning $EDITOR so the user is
+    // not deceived by an open editor whose contents will be discarded.
+    if (session.snapshot.state.spec_locked === true) {
+      ctx.failure(diagnostic("SPEC_LOCKED_NO_DIRECT_EDIT", { kind: "event:spec_submitted" }));
+      return;
+    }
+    const specMdPath = path.join(featureDir, "spec.md");
+    // (2) capture before-content for no-op detection (codex r332 P6)
+    let beforeContent: string;
+    try {
+      beforeContent = await fsP.readFile(specMdPath, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "spec-not-found",
+            subcode: "spec-not-found",
+            path: specMdPath,
+          }),
         );
         return;
       }
-      // (1.5) pre-editor lock gate (codex r339 P2): post-lock direct
-      // spec edits must go through `loaf finding raise --action
-      // amend-spec` so the spec_lock invariant + iteration counter
-      // stay coherent. Reject BEFORE spawning $EDITOR so the user is
-      // not deceived by an open editor whose contents will be discarded.
-      if (session.snapshot.state.spec_locked === true) {
-        ctx.failure(diagnostic("SPEC_LOCKED_NO_DIRECT_EDIT", { kind: "event:spec_submitted" }));
+      throw err;
+    }
+    let afterContent: string;
+    if (hasInput) {
+      const read = await inputIngestor.readJson(ctx, opts.input, SPEC_EDIT_INPUT);
+      if (!read.ok) return;
+      const inputParse = SpecEditInput.safeParse(read.value);
+      if (!inputParse.success) {
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+            issues: inputParse.error.issues,
+          }),
+        );
         return;
       }
-      const specMdPath = path.join(featureDir, "spec.md");
-      // (2) capture before-content for no-op detection (codex r332 P6)
-      let beforeContent: string;
+      const frontmatterMatch = FRONTMATTER_RE.exec(beforeContent);
+      if (frontmatterMatch === null) {
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "missing-frontmatter",
+            subcode: "missing-frontmatter",
+            path: specMdPath,
+          }),
+        );
+        return;
+      }
+      // Preserve the current frontmatter bytes exactly. Projection refresh
+      // after the journal commit reuses this body from the CLI-owned work
+      // copy. A dry-run validates the batch without touching that copy.
+      afterContent = beforeContent.slice(0, frontmatterMatch[0].length) + inputParse.data.body;
+    } else {
+      // (3) spawn editor
+      const editor = explicitEditor || "vi";
+      const result = await resolvedRunEditor({
+        filePath: specMdPath,
+        editor,
+        cwd: process.cwd(),
+        env: process.env,
+      });
+      // (4a) spawn error → USAGE (codex r335 P1)
+      if (result.error !== undefined) {
+        ctx.failure(
+          diagnostic("USAGE", {
+            editor,
+            spawn_error: result.error,
+          }),
+        );
+        return;
+      }
+      // (4b) signal abort → exit 130, no journal write (codex r333 P3)
+      if (result.signal !== null) {
+        ctx.exitCode = 130;
+        return;
+      }
+      // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
+      if (result.code !== 0) {
+        ctx.failure(
+          diagnostic("USAGE", {
+            editor,
+            editor_exit: result.code,
+          }),
+        );
+        return;
+      }
+      // (5) re-read post-edit content; no-op skip (codex r332 P6)
       try {
-        beforeContent = await fsP.readFile(specMdPath, "utf8");
+        afterContent = await fsP.readFile(specMdPath, "utf8");
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           ctx.failure(
@@ -498,194 +589,115 @@ export function registerSpec(
         }
         throw err;
       }
-      let afterContent: string;
-      if (hasInput) {
-        const read = await inputIngestor.readJson(ctx, opts.input, SPEC_EDIT_INPUT);
-        if (!read.ok) return;
-        const inputParse = SpecEditInput.safeParse(read.value);
-        if (!inputParse.success) {
-          ctx.failure(
-            diagnostic("SCHEMA_VALIDATION_FAILED", {
-              reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
-              issues: inputParse.error.issues,
-            }),
-          );
-          return;
-        }
-        const frontmatterMatch = FRONTMATTER_RE.exec(beforeContent);
-        if (frontmatterMatch === null) {
-          ctx.failure(
-            diagnostic("SCHEMA_VALIDATION_FAILED", {
-              reason: "missing-frontmatter",
-              subcode: "missing-frontmatter",
-              path: specMdPath,
-            }),
-          );
-          return;
-        }
-        // Preserve the current frontmatter bytes exactly. Projection refresh
-        // after the journal commit reuses this body from the CLI-owned work
-        // copy. A dry-run validates the batch without touching that copy.
-        afterContent = beforeContent.slice(0, frontmatterMatch[0].length) + inputParse.data.body;
-      } else {
-        // (3) spawn editor
-        const editor = explicitEditor || "vi";
-        const result = await resolvedRunEditor({
-          filePath: specMdPath,
-          editor,
-          cwd: process.cwd(),
-          env: process.env,
-        });
-        // (4a) spawn error → USAGE (codex r335 P1)
-        if (result.error !== undefined) {
-          ctx.failure(
-            diagnostic("USAGE", {
-              editor,
-              spawn_error: result.error,
-            }),
-          );
-          return;
-        }
-        // (4b) signal abort → exit 130, no journal write (codex r333 P3)
-        if (result.signal !== null) {
-          ctx.exitCode = 130;
-          return;
-        }
-        // (4c) non-zero exit → USAGE (user aborted via :q! or similar)
-        if (result.code !== 0) {
-          ctx.failure(
-            diagnostic("USAGE", {
-              editor,
-              editor_exit: result.code,
-            }),
-          );
-          return;
-        }
-        // (5) re-read post-edit content; no-op skip (codex r332 P6)
-        try {
-          afterContent = await fsP.readFile(specMdPath, "utf8");
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-            ctx.failure(
-              diagnostic("SCHEMA_VALIDATION_FAILED", {
-                reason: "spec-not-found",
-                subcode: "spec-not-found",
-                path: specMdPath,
-              }),
-            );
-            return;
-          }
-          throw err;
-        }
-      }
-      if (beforeContent === afterContent) {
-        ctx.success(
-          { ok: true, feature: opts.feature, no_op: true, spec_md_path: specMdPath },
-          () => "spec.md unchanged (no-op)\n",
-        );
-        return;
-      }
-      // (6) frontmatter validation — direct splitFrontmatter +
-      //     parseYaml + SpecFrontmatter.safeParse mirrors SC-9c check
-      //     subcode taxonomy (codex r336 P3)
-      const { frontmatter } = splitFrontmatter(afterContent);
-      if (frontmatter === null) {
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: "missing-frontmatter",
-            subcode: "missing-frontmatter",
-            path: specMdPath,
-          }),
-        );
-        return;
-      }
-      let parsedYaml: unknown;
-      try {
-        parsedYaml = parseYaml(frontmatter);
-      } catch (err) {
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: "invalid-yaml",
-            cause: (err as Error).message,
-            subcode: "invalid-yaml",
-            path: specMdPath,
-          }),
-        );
-        return;
-      }
-      const zodResult = SpecFrontmatter.safeParse(parsedYaml);
-      if (!zodResult.success) {
-        const issues = mapZodIssues(zodResult.error);
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: "zod",
-            subcode: "zod",
-            path: specMdPath,
-            errors: issues.errors,
-            truncated: issues.truncated,
-            error_count: issues.error_count,
-          }),
-        );
-        return;
-      }
-      // (7) Build SpecSubmitInput (CLI stamps spec_version = current+1
-      //     even if user edited the frontmatter value; codex r331 P1)
-      const fm = zodResult.data;
-      const submitParse = SpecSubmitInput.safeParse({
-        spec_version: undefined, // builder defaults to snapshot+1
-        feature: fm.feature,
-        intent: fm.intent,
-        adr_refs: fm.adr_refs,
-        requirements: fm.requirements,
-        scenarios: fm.scenarios,
-        visual_contracts: fm.visual_contracts ?? [],
-        needs_clarification: fm.needs_clarification,
-      });
-      if (!submitParse.success) {
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: submitParse.error.issues.map((issue) => issue.message).join("; "),
-            subcode: "zod",
-            path: specMdPath,
-            issues: submitParse.error.issues,
-          }),
-        );
-        return;
-      }
-      // (8) Build batch via shared SC-12a-1 helper + mutate
-      const now = new Date().toISOString();
-      const entries = buildSpecSubmitBatch({
-        input: submitParse.data,
-        snapshot: session.snapshot,
-        actor,
-        now,
-      });
-      // Match the editor lane's work-copy semantics: a real mutation leaves
-      // the supplied body on disk even if downstream admission fails, while a
-      // dry-run has no filesystem side effects. Validation above completes
-      // before this write, so malformed input never damages the work copy.
-      if (hasInput && !ctx.dryRun) {
-        await fsP.writeFile(specMdPath, afterContent, "utf8");
-      }
-      const mutateResult = await mutator.runPreparedBatch(featureDir, session, entries);
-      if (!mutateResult) return;
-      const newSpecVersion = (entries[0]!.payload as { spec_version: number }).spec_version;
+    }
+    if (beforeContent === afterContent) {
       ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          spec_version: newSpecVersion,
-          sub_state: mutateResult.snapshot.state?.sub_state,
-        },
-        (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n",
-        (i18n) => ({
-          stateChange: i18n.t(
-            hasInput ? SUCCESS_KEYS.specEditInputStateChange : SUCCESS_KEYS.specEditStateChange,
-            { spec_version: newSpecVersion },
-          ),
+        { ok: true, feature: opts.feature, no_op: true, spec_md_path: specMdPath },
+        () => "spec.md unchanged (no-op)\n",
+      );
+      return;
+    }
+    // (6) frontmatter validation — direct splitFrontmatter +
+    //     parseYaml + SpecFrontmatter.safeParse mirrors SC-9c check
+    //     subcode taxonomy (codex r336 P3)
+    const { frontmatter } = splitFrontmatter(afterContent);
+    if (frontmatter === null) {
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: "missing-frontmatter",
+          subcode: "missing-frontmatter",
+          path: specMdPath,
         }),
       );
+      return;
+    }
+    let parsedYaml: unknown;
+    try {
+      parsedYaml = parseYaml(frontmatter);
+    } catch (err) {
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: "invalid-yaml",
+          cause: (err as Error).message,
+          subcode: "invalid-yaml",
+          path: specMdPath,
+        }),
+      );
+      return;
+    }
+    const zodResult = SpecFrontmatter.safeParse(parsedYaml);
+    if (!zodResult.success) {
+      const issues = mapZodIssues(zodResult.error);
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: "zod",
+          subcode: "zod",
+          path: specMdPath,
+          errors: issues.errors,
+          truncated: issues.truncated,
+          error_count: issues.error_count,
+        }),
+      );
+      return;
+    }
+    // (7) Build SpecSubmitInput (CLI stamps spec_version = current+1
+    //     even if user edited the frontmatter value; codex r331 P1)
+    const fm = zodResult.data;
+    const submitParse = SpecSubmitInput.safeParse({
+      spec_version: undefined, // builder defaults to snapshot+1
+      feature: fm.feature,
+      intent: fm.intent,
+      adr_refs: fm.adr_refs,
+      requirements: fm.requirements,
+      scenarios: fm.scenarios,
+      visual_contracts: fm.visual_contracts ?? [],
+      needs_clarification: fm.needs_clarification,
     });
+    if (!submitParse.success) {
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: submitParse.error.issues.map((issue) => issue.message).join("; "),
+          subcode: "zod",
+          path: specMdPath,
+          issues: submitParse.error.issues,
+        }),
+      );
+      return;
+    }
+    // (8) Build batch via shared SC-12a-1 helper + mutate
+    const now = new Date().toISOString();
+    const entries = buildSpecSubmitBatch({
+      input: submitParse.data,
+      snapshot: session.snapshot,
+      actor,
+      now,
+    });
+    // Match the editor lane's work-copy semantics: a real mutation leaves
+    // the supplied body on disk even if downstream admission fails, while a
+    // dry-run has no filesystem side effects. Validation above completes
+    // before this write, so malformed input never damages the work copy.
+    if (hasInput && !ctx.dryRun) {
+      await fsP.writeFile(specMdPath, afterContent, "utf8");
+    }
+    const mutateResult = await mutator.runPreparedBatch(featureDir, session, entries);
+    if (!mutateResult) return;
+    const newSpecVersion = (entries[0]!.payload as { spec_version: number }).spec_version;
+    ctx.success(
+      {
+        ok: true,
+        feature: opts.feature,
+        spec_version: newSpecVersion,
+        sub_state: mutateResult.snapshot.state?.sub_state,
+      },
+      (i18n) => i18n.t(SUCCESS_KEYS.specEditText, { spec_version: newSpecVersion }) + "\n",
+      (i18n) => ({
+        stateChange: i18n.t(
+          hasInput ? SUCCESS_KEYS.specEditInputStateChange : SUCCESS_KEYS.specEditStateChange,
+          { spec_version: newSpecVersion },
+        ),
+      }),
+    );
+  });
 
   for (const cfg of REGISTER_SPEC_ADD) {
     const mutatorKey: MutatorCommand =
@@ -695,123 +707,128 @@ export function registerSpec(
           ? "spec:add-scenario"
           : "spec:add-visual";
     const inputDeclaration = specAddInputDeclaration(cfg.name);
-    specCmd
-      .command(`add-${cfg.name}`)
-      .description(
-        `Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`,
-      )
-      .option("--input <src>", jsonInputHelp(inputDeclaration))
-      .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
-      .option("--feature <name>", `Feature whose spec to extend`)
-      .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-      .action(
-        async (rawOpts: {
-          input?: string;
-          schema?: boolean;
-          feature: string;
-          featureDir?: string;
-        }) => {
-          // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
-          // no session resolve). Pre-parse guard already rejected selectors
-          // when --schema is present. Literal labels per cfg.name so the
-          // SC-6c static guard can scan ctx.rejectIfDryRun("<label>") strings.
-          if (rawOpts.schema === true) {
-            let rejected = false;
-            if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
-            else if (cfg.name === "scenario")
-              rejected = ctx.rejectIfDryRun("spec add-scenario --schema");
-            else rejected = ctx.rejectIfDryRun("spec add-visual --schema");
-            if (rejected) return;
-            mutator.emitSchemaAndExit(mutatorKey);
-            return;
-          }
-          const read = await inputIngestor.readJson(ctx, rawOpts.input, inputDeclaration);
-          if (!read.ok) return;
-          const opts = rawOpts as { input: string; feature: string; featureDir?: string };
-          const parsed = read.value;
-          const inputParse = cfg.inputSchema.safeParse(parsed);
-          if (!inputParse.success) {
-            ctx.failure(
-              diagnostic("SCHEMA_VALIDATION_FAILED", {
-                reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
-                issues: inputParse.error.issues,
-              }),
-            );
-            return;
-          }
-          const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> =
-            Array.isArray(inputParse.data) ? inputParse.data : [inputParse.data];
-          // Load session via ctx (caches; captures sub_state for crash context).
-          const featureDir = await ctx.dispatchOrFail(opts);
-          if (featureDir === null) return;
-          const session = await ctx.resolveSession(featureDir);
-          if (!session.snapshot.state) {
-            ctx.failure(
-              diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-            );
-            return;
-          }
-          // (4) Per-namespace allocator. Track counter across the batch so
-          // multiple items in the same invocation share a coherent
-          // monotonic sequence per namespace.
-          const projection = session.snapshot[cfg.snapshotKey] as ReadonlyArray<{ id: string }>;
-          const existingIds = projection.map((p) => p.id);
-          const counters = new Map<string, number>();
-          const allocatedIds: string[] = [];
-          const transformedItems: Array<{ id: string; rest: Record<string, unknown> }> = [];
-          for (const raw of items) {
-            const ns = raw.id_namespace;
-            let next = counters.get(ns);
-            if (next === undefined) {
-              next = nextSerialInNamespace(existingIds, ns);
-            }
-            const fullId = `${ns}-${String(next).padStart(3, "0")}`;
-            counters.set(ns, next + 1);
-            allocatedIds.push(fullId);
-            // Strip id_namespace; CLI does not pass it through to the
-            // journal payload (output regex enforces id only).
-            const { id_namespace: _ns, ...rest } = raw;
-            transformedItems.push({ id: fullId, rest });
-          }
-          // (5) Build batch: one event:spec_*_added per item. spec_version
-          // = current+1; reducer applies whole-batch monotonic check
-          // (batch head bumps; companions share). Per protocol: each CLI
-          // invocation = one spec_version bump, irrespective of N items.
-          const targetVersion = session.snapshot.state.spec_version + 1;
-          const entries: MutatorEntry[] = transformedItems.map(({ id, rest }) => ({
-            kind: cfg.entryKind,
-            payload: {
-              spec_version: targetVersion,
-              [cfg.payloadField]: { id, ...rest },
-            },
-            actor,
-          }));
-          const result = await mutator.run(featureDir, session, entries);
-          if (!result) return;
-          const specVersion = result.snapshot.state?.spec_version;
-          ctx.success(
-            {
-              ok: true,
-              feature: opts.feature,
-              spec_version: specVersion,
-              ids: allocatedIds,
-              sub_state: result.snapshot.state?.sub_state,
-            },
-            (i18n) =>
-              i18n.t(specAddTextKey(cfg.name, allocatedIds.length), {
-                spec_version: specVersion,
-                ids: allocatedIds.join(", "),
-              }) + "\n",
-            (i18n) => ({
-              stateChange: i18n.t(specAddStateChangeKey(cfg.name, allocatedIds.length), {
-                count: allocatedIds.length,
-                spec_version: specVersion,
-                ids: allocatedIds.join(","),
-              }),
+    declareCommandPolicy(
+      specCmd
+        .command(`add-${cfg.name}`)
+        .description(
+          `Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`,
+        )
+        .option("--input <src>", jsonInputHelp(inputDeclaration))
+        .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
+        .option("--feature <name>", `Feature whose spec to extend`)
+        .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+      { selectors: "selected", dryRun: "mutating", schema: { kind: "input", key: mutatorKey } },
+    ).action(
+      async (rawOpts: {
+        input?: string;
+        schema?: boolean;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
+        // no session resolve). Pre-parse guard already rejected selectors
+        // when --schema is present. Literal labels per cfg.name so the
+        // SC-6c static guard can scan ctx.rejectIfDryRun("<label>") strings.
+        if (rawOpts.schema === true) {
+          let rejected = false;
+          if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
+          else if (cfg.name === "scenario")
+            rejected = ctx.rejectIfDryRun("spec add-scenario --schema");
+          else rejected = ctx.rejectIfDryRun("spec add-visual --schema");
+          if (rejected) return;
+          mutator.emitSchemaAndExit(mutatorKey);
+          return;
+        }
+        const read = await inputIngestor.readJson(ctx, rawOpts.input, inputDeclaration);
+        if (!read.ok) return;
+        const opts = rawOpts as { input: string; feature: string; featureDir?: string };
+        const parsed = read.value;
+        const inputParse = cfg.inputSchema.safeParse(parsed);
+        if (!inputParse.success) {
+          ctx.failure(
+            diagnostic("SCHEMA_VALIDATION_FAILED", {
+              reason: inputParse.error.issues.map((issue) => issue.message).join("; "),
+              issues: inputParse.error.issues,
             }),
           );
-        },
-      );
+          return;
+        }
+        const items: ReadonlyArray<{ id_namespace: string; [k: string]: unknown }> = Array.isArray(
+          inputParse.data,
+        )
+          ? inputParse.data
+          : [inputParse.data];
+        // Load session via ctx (caches; captures sub_state for crash context).
+        const featureDir = await ctx.dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await ctx.resolveSession(featureDir);
+        if (!session.snapshot.state) {
+          ctx.failure(
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
+          return;
+        }
+        // (4) Per-namespace allocator. Track counter across the batch so
+        // multiple items in the same invocation share a coherent
+        // monotonic sequence per namespace.
+        const projection = session.snapshot[cfg.snapshotKey] as ReadonlyArray<{ id: string }>;
+        const existingIds = projection.map((p) => p.id);
+        const counters = new Map<string, number>();
+        const allocatedIds: string[] = [];
+        const transformedItems: Array<{ id: string; rest: Record<string, unknown> }> = [];
+        for (const raw of items) {
+          const ns = raw.id_namespace;
+          let next = counters.get(ns);
+          if (next === undefined) {
+            next = nextSerialInNamespace(existingIds, ns);
+          }
+          const fullId = `${ns}-${String(next).padStart(3, "0")}`;
+          counters.set(ns, next + 1);
+          allocatedIds.push(fullId);
+          // Strip id_namespace; CLI does not pass it through to the
+          // journal payload (output regex enforces id only).
+          const { id_namespace: _ns, ...rest } = raw;
+          transformedItems.push({ id: fullId, rest });
+        }
+        // (5) Build batch: one event:spec_*_added per item. spec_version
+        // = current+1; reducer applies whole-batch monotonic check
+        // (batch head bumps; companions share). Per protocol: each CLI
+        // invocation = one spec_version bump, irrespective of N items.
+        const targetVersion = session.snapshot.state.spec_version + 1;
+        const entries: MutatorEntry[] = transformedItems.map(({ id, rest }) => ({
+          kind: cfg.entryKind,
+          payload: {
+            spec_version: targetVersion,
+            [cfg.payloadField]: { id, ...rest },
+          },
+          actor,
+        }));
+        const result = await mutator.run(featureDir, session, entries);
+        if (!result) return;
+        const specVersion = result.snapshot.state?.spec_version;
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            spec_version: specVersion,
+            ids: allocatedIds,
+            sub_state: result.snapshot.state?.sub_state,
+          },
+          (i18n) =>
+            i18n.t(specAddTextKey(cfg.name, allocatedIds.length), {
+              spec_version: specVersion,
+              ids: allocatedIds.join(", "),
+            }) + "\n",
+          (i18n) => ({
+            stateChange: i18n.t(specAddStateChangeKey(cfg.name, allocatedIds.length), {
+              count: allocatedIds.length,
+              spec_version: specVersion,
+              ids: allocatedIds.join(","),
+            }),
+          }),
+        );
+      },
+    );
   }
 
   return { specCmd };

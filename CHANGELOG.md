@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Command registrations now declare selector, dry-run and schema policy on
+  their actual Commander objects. Command-specific pre-parse checks consume
+  that registration inventory before user configuration or actions run;
+  bootstrap option arities come from registered options. Existing diagnostic
+  ordering, action guards and terminator behavior remain unchanged.
+
 - CLI bootstrap, selector resolution and presentation parsing now share a
   pure argv scanner with ordered raw-token provenance and option arity.
   Existing command recognition, duplicate-flag handling, error ordering and

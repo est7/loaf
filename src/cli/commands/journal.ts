@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 
@@ -31,65 +32,67 @@ export function registerJournal(program: Command, ctx: CommandContext): void {
     .alias("log")
     .description("Journal inspection commands (list; `loaf log` alias)");
 
-  journalCmd
-    .command("list", { isDefault: true })
-    .description("List journal entry envelopes without interpreting payloads (read-only)")
-    .option("--after-seq <n>", "Only include entries whose seq is greater than n")
-    .option("--limit <n>", "Return at most n entries in journal order")
-    .option("--kind <kind>", "Filter by the closed journal kind registry")
-    .option("--actor <prefix-or-full>", "Filter by actor prefix or full actor string")
-    .option("--feature <name>", "Feature whose journal to list")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: JournalListOptions) => {
-      if (ctx.rejectIfDryRun("journal list")) return;
+  declareCommandPolicy(
+    journalCmd
+      .command("list", { isDefault: true })
+      .description("List journal entry envelopes without interpreting payloads (read-only)")
+      .option("--after-seq <n>", "Only include entries whose seq is greater than n")
+      .option("--limit <n>", "Return at most n entries in journal order")
+      .option("--kind <kind>", "Filter by the closed journal kind registry")
+      .option("--actor <prefix-or-full>", "Filter by actor prefix or full actor string")
+      .option("--feature <name>", "Feature whose journal to list")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(async (opts: JournalListOptions) => {
+    if (ctx.rejectIfDryRun("journal list")) return;
 
-      const afterSeq = parseIntegerFilter(ctx, "--after-seq", opts.afterSeq, 0);
-      if (afterSeq === null) return;
-      const limit = parseIntegerFilter(ctx, "--limit", opts.limit, 1);
-      if (limit === null) return;
-      if (opts.kind !== undefined && !Object.hasOwn(KIND_REGISTRY, opts.kind)) {
-        ctx.failure(
-          diagnosticVariant("failure.journal.kind_invalid", {
-            ...{ value: opts.kind },
-            ...{ value: opts.kind, allowed: JOURNAL_KINDS },
-          }),
-        );
-        return;
-      }
-      if (opts.actor !== undefined && opts.actor.length === 0) {
-        ctx.failure(diagnosticVariant("failure.journal.actor_invalid", { ...{}, ...{} }));
-        return;
-      }
-
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: false });
-      if (session.snapshot.state === null) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-
-      let entries = session.entries.filter(
-        (entry) =>
-          (afterSeq === undefined || entry.seq > afterSeq) &&
-          (opts.kind === undefined || entry.kind === opts.kind) &&
-          (opts.actor === undefined || entry.actor.startsWith(opts.actor)),
+    const afterSeq = parseIntegerFilter(ctx, "--after-seq", opts.afterSeq, 0);
+    if (afterSeq === null) return;
+    const limit = parseIntegerFilter(ctx, "--limit", opts.limit, 1);
+    if (limit === null) return;
+    if (opts.kind !== undefined && !Object.hasOwn(KIND_REGISTRY, opts.kind)) {
+      ctx.failure(
+        diagnosticVariant("failure.journal.kind_invalid", {
+          ...{ value: opts.kind },
+          ...{ value: opts.kind, allowed: JOURNAL_KINDS },
+        }),
       );
-      if (limit !== undefined) entries = entries.slice(0, limit);
-      const rows = entries.map(toJournalListRow);
+      return;
+    }
+    if (opts.actor !== undefined && opts.actor.length === 0) {
+      ctx.failure(diagnosticVariant("failure.journal.actor_invalid", { ...{}, ...{} }));
+      return;
+    }
 
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          count: rows.length,
-          entries: rows,
-        },
-        (i18n) => renderJournalRows(i18n, rows),
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: false });
+    if (session.snapshot.state === null) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
       );
-    });
+      return;
+    }
+
+    let entries = session.entries.filter(
+      (entry) =>
+        (afterSeq === undefined || entry.seq > afterSeq) &&
+        (opts.kind === undefined || entry.kind === opts.kind) &&
+        (opts.actor === undefined || entry.actor.startsWith(opts.actor)),
+    );
+    if (limit !== undefined) entries = entries.slice(0, limit);
+    const rows = entries.map(toJournalListRow);
+
+    ctx.success(
+      {
+        ok: true,
+        feature: opts.feature,
+        count: rows.length,
+        entries: rows,
+      },
+      (i18n) => renderJournalRows(i18n, rows),
+    );
+  });
 }
 
 function parseIntegerFilter(

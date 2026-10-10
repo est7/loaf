@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -44,56 +45,58 @@ export function registerTerminalSettle(
   //   `settled <feature> — VERIFY.accept → SETTLE.lessons`
   //   `next: loaf deliver --feature <feature>`
   // JSON includes `advisory: string[]` for scripted chaining.
-  program
-    .command("settle")
-    .description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)")
-    .option("--feature <name>", "Feature whose session to settle")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const from = session.snapshot.state?.sub_state;
-      if (!from) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-
-      // mutate. preflight + transition validator enforce all preconditions
-      // (settle_phase / verify_accepted / cursor edge legality).
-      const result = await mutator.run(
-        featureDir,
-        session,
-        // module-level cli:loaf actor — settle is machine-driven
-        { kind: "event:phase_advanced", payload: { from, to: "SETTLE.lessons" }, actor },
+  declareCommandPolicy(
+    program
+      .command("settle")
+      .description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)")
+      .option("--feature <name>", "Feature whose session to settle")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { feature: string; featureDir?: string }) => {
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+    const from = session.snapshot.state?.sub_state;
+    if (!from) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
       );
-      if (!result) return;
+      return;
+    }
 
-      const selector = await selectorForCommandContext(ctx);
-      const nextCommand = nextCommandFromSnapshot(result.snapshot, featureDir, selector);
-      const advisory = nextCommand === undefined ? [] : [nextCommand];
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        from,
-        to: "SETTLE.lessons" as const,
-        sub_state: result.snapshot.state?.sub_state,
-        advisory,
-      };
-      ctx.success(
-        out,
-        (i18n) => i18n.t(SUCCESS_KEYS.settleText),
-        (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
-          return {
-            stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
-            ...(next === undefined ? {} : { next }),
-          };
-        },
-      );
-    });
+    // mutate. preflight + transition validator enforce all preconditions
+    // (settle_phase / verify_accepted / cursor edge legality).
+    const result = await mutator.run(
+      featureDir,
+      session,
+      // module-level cli:loaf actor — settle is machine-driven
+      { kind: "event:phase_advanced", payload: { from, to: "SETTLE.lessons" }, actor },
+    );
+    if (!result) return;
+
+    const selector = await selectorForCommandContext(ctx);
+    const nextCommand = nextCommandFromSnapshot(result.snapshot, featureDir, selector);
+    const advisory = nextCommand === undefined ? [] : [nextCommand];
+    const out = {
+      ok: true,
+      feature: opts.feature,
+      from,
+      to: "SETTLE.lessons" as const,
+      sub_state: result.snapshot.state?.sub_state,
+      advisory,
+    };
+    ctx.success(
+      out,
+      (i18n) => i18n.t(SUCCESS_KEYS.settleText),
+      (i18n) => {
+        const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+        return {
+          stateChange: i18n.t(SUCCESS_KEYS.settleStateChange, { from }),
+          ...(next === undefined ? {} : { next }),
+        };
+      },
+    );
+  });
 
   // ── loaf resume — Phase 16 SC-13b ────────────────────────────────────
   // Mutator: reads `<feature-dir>/snapshots/resume-pack.json`, validates
@@ -102,91 +105,93 @@ export function registerTerminalSettle(
   // transparent marker (codex r343 P3). Default cli actor
   // (`cli:loaf@<USER>`) is allowed per PER_KIND_ACTOR; no human gate.
   // `--dry-run` honored through standard mutate dry-run path.
-  program
-    .command("resume")
-    .description(
-      "Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)",
-    )
-    .option("--feature <name>", "Feature whose resume pack to consume")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; featureDir?: string }) => {
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: false });
-      if (!session.snapshot.state) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-        );
+  declareCommandPolicy(
+    program
+      .command("resume")
+      .description(
+        "Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)",
+      )
+      .option("--feature <name>", "Feature whose resume pack to consume")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { feature: string; featureDir?: string }) => {
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: false });
+    if (!session.snapshot.state) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+      );
+      return;
+    }
+    const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
+    let raw: string;
+    try {
+      raw = await fsP.readFile(packPath, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        ctx.failure(diagnostic("INPUT_FILE_NOT_FOUND", { path: packPath }));
         return;
       }
-      const packPath = path.join(featureDir, "snapshots", "resume-pack.json");
-      let raw: string;
-      try {
-        raw = await fsP.readFile(packPath, "utf8");
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          ctx.failure(diagnostic("INPUT_FILE_NOT_FOUND", { path: packPath }));
-          return;
-        }
-        throw err;
-      }
-      let parsedPack: unknown;
-      try {
-        parsedPack = JSON.parse(raw);
-      } catch (err) {
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: "invalid-json",
-            cause: (err as Error).message,
-            subcode: "invalid-json",
-            path: packPath,
-          }),
-        );
-        return;
-      }
-      const packParse = RuntimeResumePack.safeParse(parsedPack);
-      if (!packParse.success) {
-        ctx.failure(
-          diagnostic("SCHEMA_VALIDATION_FAILED", {
-            reason: packParse.error.issues.map((issue) => issue.message).join("; "),
-            subcode: "zod",
-            path: packPath,
-            issues: packParse.error.issues,
-          }),
-        );
-        return;
-      }
-      const pack = packParse.data;
-      // Default cli actor — PER_KIND_ACTOR allows human|skill|ci|cli.
-      const resumeActor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
-      const result = await mutator.run(featureDir, session, {
-        kind: "session:resumed",
-        payload: {
-          resumed_from_pack: {
-            at: pack.at,
-            reason: pack.reason,
-            session_id: pack.session_id,
-          },
-        },
-        actor: resumeActor,
-      });
-      if (!result) return;
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          session_id: pack.session_id,
-          sub_state: result.snapshot.state?.sub_state,
-        },
-        () => `${pack.session_id}\n`,
-        (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.resumeStateChange, {
-            session_id: pack.session_id,
-            sub_state: result.snapshot.state?.sub_state,
-          }),
+      throw err;
+    }
+    let parsedPack: unknown;
+    try {
+      parsedPack = JSON.parse(raw);
+    } catch (err) {
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: "invalid-json",
+          cause: (err as Error).message,
+          subcode: "invalid-json",
+          path: packPath,
         }),
       );
+      return;
+    }
+    const packParse = RuntimeResumePack.safeParse(parsedPack);
+    if (!packParse.success) {
+      ctx.failure(
+        diagnostic("SCHEMA_VALIDATION_FAILED", {
+          reason: packParse.error.issues.map((issue) => issue.message).join("; "),
+          subcode: "zod",
+          path: packPath,
+          issues: packParse.error.issues,
+        }),
+      );
+      return;
+    }
+    const pack = packParse.data;
+    // Default cli actor — PER_KIND_ACTOR allows human|skill|ci|cli.
+    const resumeActor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
+    const result = await mutator.run(featureDir, session, {
+      kind: "session:resumed",
+      payload: {
+        resumed_from_pack: {
+          at: pack.at,
+          reason: pack.reason,
+          session_id: pack.session_id,
+        },
+      },
+      actor: resumeActor,
     });
+    if (!result) return;
+    ctx.success(
+      {
+        ok: true,
+        feature: opts.feature,
+        session_id: pack.session_id,
+        sub_state: result.snapshot.state?.sub_state,
+      },
+      () => `${pack.session_id}\n`,
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.resumeStateChange, {
+          session_id: pack.session_id,
+          sub_state: result.snapshot.state?.sub_state,
+        }),
+      }),
+    );
+  });
 
   // ── loaf handoff — Phase 16 SC-13a ───────────────────────────────────
   // Read-side projection writer. Composes a `ResumePack` from current
@@ -195,90 +200,92 @@ export function registerTerminalSettle(
   // entry. Reject `--dry-run` with new `command_type: "projection-writer"`
   // category (writes a file but no journal mutation — neither read-only
   // nor wrapping).
-  program
-    .command("handoff")
-    .description(
-      "Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)",
-    )
-    .requiredOption(
-      "--reason <text>",
-      "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)",
-    )
-    .option("--notes <text>", "Optional free-form notes attached to the pack")
-    .option("--feature <name>", "Feature whose handoff to take")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
-        if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
-        if (opts.reason.length < 5) {
+  declareCommandPolicy(
+    program
+      .command("handoff")
+      .description(
+        "Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)",
+      )
+      .requiredOption(
+        "--reason <text>",
+        "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)",
+      )
+      .option("--notes <text>", "Optional free-form notes attached to the pack")
+      .option("--feature <name>", "Feature whose handoff to take")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "projection-writer" },
+  ).action(
+    async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
+      if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
+      if (opts.reason.length < 5) {
+        ctx.failure(
+          diagnosticVariant("failure.handoff.reason_too_short", {
+            ...{ min_length: 5, reason_length: opts.reason.length },
+            ...{ min_length: 5, reason_length: opts.reason.length },
+          }),
+        );
+        return;
+      }
+      // Handoff is a deliberate human decision (codex r345 P4 — actor is
+      // a gate not persisted in the pack, per ResumePack having no actor
+      // field; documented residual).
+      const humanActor = ctx.resolveHumanActorOrFail();
+      if (humanActor === null) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      let lease: FeatureWriteLease;
+      try {
+        lease = await acquireFeatureWriteLease(featureDir, "handoff");
+      } catch (error) {
+        if (error instanceof FeatureWriteLeaseError) {
+          ctx.failure(error.diagnostic);
+          return;
+        }
+        throw error;
+      }
+      try {
+        const session = await loadSession(featureDir, { ensureDir: false });
+        if (!session.snapshot.state) {
           ctx.failure(
-            diagnosticVariant("failure.handoff.reason_too_short", {
-              ...{ min_length: 5, reason_length: opts.reason.length },
-              ...{ min_length: 5, reason_length: opts.reason.length },
+            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+          );
+          return;
+        }
+        const pack = buildResumePack({
+          snapshot: session.snapshot,
+          entries: session.entries,
+          at: new Date().toISOString(),
+          reason: opts.reason,
+          ...(opts.notes !== undefined && { notes: opts.notes }),
+        });
+        // Defense-in-depth: validate against runtime schema before write.
+        const parse = RuntimeResumePack.safeParse(pack);
+        if (!parse.success) {
+          ctx.failure(
+            diagnosticVariant("failure.handoff.pack_validation_failed", {
+              ...{},
+              ...{ subcode: "zod", issues: parse.error.issues },
             }),
           );
           return;
         }
-        // Handoff is a deliberate human decision (codex r345 P4 — actor is
-        // a gate not persisted in the pack, per ResumePack having no actor
-        // field; documented residual).
-        const humanActor = ctx.resolveHumanActorOrFail();
-        if (humanActor === null) return;
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        let lease: FeatureWriteLease;
-        try {
-          lease = await acquireFeatureWriteLease(featureDir, "handoff");
-        } catch (error) {
-          if (error instanceof FeatureWriteLeaseError) {
-            ctx.failure(error.diagnostic);
-            return;
-          }
-          throw error;
-        }
-        try {
-          const session = await loadSession(featureDir, { ensureDir: false });
-          if (!session.snapshot.state) {
-            ctx.failure(
-              diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-            );
-            return;
-          }
-          const pack = buildResumePack({
-            snapshot: session.snapshot,
-            entries: session.entries,
-            at: new Date().toISOString(),
-            reason: opts.reason,
-            ...(opts.notes !== undefined && { notes: opts.notes }),
-          });
-          // Defense-in-depth: validate against runtime schema before write.
-          const parse = RuntimeResumePack.safeParse(pack);
-          if (!parse.success) {
-            ctx.failure(
-              diagnosticVariant("failure.handoff.pack_validation_failed", {
-                ...{},
-                ...{ subcode: "zod", issues: parse.error.issues },
-              }),
-            );
-            return;
-          }
-          // Atomic write to <feature-dir>/snapshots/resume-pack.json
-          const snapshotsDir = path.join(featureDir, "snapshots");
-          await fsP.mkdir(snapshotsDir, { recursive: true });
-          const packPath = path.join(snapshotsDir, "resume-pack.json");
-          const tmpPath = packPath + ".tmp";
-          await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
-          await fsP.rename(tmpPath, packPath);
-          ctx.success(
-            { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
-            () => `${packPath}\n`,
-            (i18n) => ({
-              stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }),
-            }),
-          );
-        } finally {
-          await lease.release();
-        }
-      },
-    );
+        // Atomic write to <feature-dir>/snapshots/resume-pack.json
+        const snapshotsDir = path.join(featureDir, "snapshots");
+        await fsP.mkdir(snapshotsDir, { recursive: true });
+        const packPath = path.join(snapshotsDir, "resume-pack.json");
+        const tmpPath = packPath + ".tmp";
+        await fsP.writeFile(tmpPath, JSON.stringify(pack, null, 2) + "\n");
+        await fsP.rename(tmpPath, packPath);
+        ctx.success(
+          { ok: true, feature: opts.feature, pack_path: packPath, session_id: pack.session_id },
+          () => `${packPath}\n`,
+          (i18n) => ({
+            stateChange: i18n.t(SUCCESS_KEYS.handoffStateChange, { actor: humanActor }),
+          }),
+        );
+      } finally {
+        await lease.release();
+      }
+    },
+  );
 }

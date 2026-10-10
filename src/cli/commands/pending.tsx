@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { pendingHead, pendingHeadIndex } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
@@ -46,139 +47,32 @@ export function registerPending(
     .command("pending")
     .description("Pending queue commands (raise / list / status / resolve)");
 
-  pendingCmd
-    .command("raise")
-    .description("Raise a new pending entry (CLI allocates PEND-id)")
-    .requiredOption(
-      "--kind <kind>",
-      "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)",
-    )
-    .requiredOption(
-      "--question <text>",
-      "Question / rationale shown to whoever resolves it (required for ALL kinds)",
-    )
-    .option("--options <csv>", "Comma-separated answer options (passthrough)")
-    .option("--task-id <id>", "Optional task association (passthrough)")
-    .option("--feature <name>", "Feature whose session to raise pending against")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (opts: {
-        kind: string;
-        question: string;
-        options?: string;
-        taskId?: string;
-        feature: string;
-        featureDir?: string;
-      }) => {
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-        if (!session.snapshot.state) {
-          ctx.failure(
-            diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
-          );
-          return;
-        }
-        // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
-        // digits to match `^PEND-\d{4,}$` (src/core/journal-entry.ts PendingId,
-        // protocol §10.7 rev 4.1). Journal payload schemas require this
-        // canonical form; numeric extraction recovers the current serial.
-        const maxSerial = session.snapshot.pending.reduce((max, p) => {
-          const m = /^PEND-(\d+)$/.exec(p.id);
-          if (!m) return max;
-          return Math.max(max, Number.parseInt(m[1]!, 10));
-        }, 0);
-        const id = `PEND-${String(maxSerial + 1).padStart(4, "0")}`;
-        const payload: Record<string, unknown> = {
-          id,
-          kind: opts.kind,
-          question: opts.question,
-        };
-        if (opts.options !== undefined) {
-          payload["options"] = opts.options
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0);
-        }
-        if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
-        const result = await mutator.run(featureDir, session, {
-          kind: "pending:added",
-          payload,
-          actor,
-        });
-        if (!result) return;
-        ctx.success(
-          { ok: true, feature: opts.feature, id, kind: opts.kind },
-          () => id + "\n",
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.pendingRaiseStateChange, {
-              pending_id: id,
-              kind: opts.kind,
-            }),
-          }),
-        );
-      },
-    );
-
-  pendingCmd
-    .command("list")
-    .description("List pending entries (FIFO; first unresolved is head)")
-    .option("--feature <name>", "Feature whose pending to list")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("pending list")) return;
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
-      // (pending.json native — pending_id + rich fields) → slim row
-      // {id, kind, resolved, head} matching the prior PendingState shape.
-      const loaded = await ctx.loadProjectionsOrFail(
-        featureDir,
-        ["pending"] as const,
-        opts.feature,
-        "failure.no_session.pending",
-      );
-      if (loaded === null) return;
-      const entries = loaded.pending.pending;
-      const headIdx = pendingHeadIndex(entries);
-      const rows = entries.map((p, i) => ({
-        id: p.pending_id,
-        kind: p.kind,
-        resolved: p.resolved,
-        head: i === headIdx,
-      }));
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          count: rows.length,
-          pending: rows,
-        },
-        (i18n) =>
-          rows
-            .map(
-              (r) =>
-                i18n.t(CHROME_KEYS.pendingListRow, {
-                  pending_id: r.id,
-                  kind: formatPendingKind(i18n, r.kind),
-                  status: i18n.t(
-                    r.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen,
-                  ),
-                  head: i18n.t(r.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
-                }) + "\n",
-            )
-            .join(""),
-      );
-    });
-
-  pendingCmd
-    .command("status")
-    .description("Status of head pending entry (default) or specific entry by --id")
-    .option("--feature <name>", "Feature whose pending to inspect")
-    .option("--id <id>", "Lookup a specific PEND-id (default: head)")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("pending status")) return;
+  declareCommandPolicy(
+    pendingCmd
+      .command("raise")
+      .description("Raise a new pending entry (CLI allocates PEND-id)")
+      .requiredOption(
+        "--kind <kind>",
+        "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)",
+      )
+      .requiredOption(
+        "--question <text>",
+        "Question / rationale shown to whoever resolves it (required for ALL kinds)",
+      )
+      .option("--options <csv>", "Comma-separated answer options (passthrough)")
+      .option("--task-id <id>", "Optional task association (passthrough)")
+      .option("--feature <name>", "Feature whose session to raise pending against")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(
+    async (opts: {
+      kind: string;
+      question: string;
+      options?: string;
+      taskId?: string;
+      feature: string;
+      featureDir?: string;
+    }) => {
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -188,92 +82,203 @@ export function registerPending(
         );
         return;
       }
-      const headIdx = pendingHeadIndex(session.snapshot.pending);
-      let target: { id: string; kind: string; resolved: boolean; head: boolean } | null;
-      if (opts.id !== undefined) {
-        const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
-        if (idx === -1) {
-          ctx.failure(
-            diagnostic("PENDING_NOT_FOUND", {
-              reason: "pending_id_not_found",
-              pending_id: opts.id,
-            }),
-          );
-          return;
-        }
-        target = { ...session.snapshot.pending[idx]!, head: idx === headIdx };
-      } else {
-        // Default = head; empty queue yields null (script-friendly per
-        // codex r63 — distinct from --id miss which is PENDING_NOT_FOUND).
-        target = headIdx === -1 ? null : { ...session.snapshot.pending[headIdx]!, head: true };
+      // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
+      // digits to match `^PEND-\d{4,}$` (src/core/journal-entry.ts PendingId,
+      // protocol §10.7 rev 4.1). Journal payload schemas require this
+      // canonical form; numeric extraction recovers the current serial.
+      const maxSerial = session.snapshot.pending.reduce((max, p) => {
+        const m = /^PEND-(\d+)$/.exec(p.id);
+        if (!m) return max;
+        return Math.max(max, Number.parseInt(m[1]!, 10));
+      }, 0);
+      const id = `PEND-${String(maxSerial + 1).padStart(4, "0")}`;
+      const payload: Record<string, unknown> = {
+        id,
+        kind: opts.kind,
+        question: opts.question,
+      };
+      if (opts.options !== undefined) {
+        payload["options"] = opts.options
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
       }
-      ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          pending: target,
-        },
-        (i18n) => {
-          if (target === null) return i18n.t(CHROME_KEYS.pendingStatusNoOpen) + "\n";
-          return (
-            i18n.t(CHROME_KEYS.pendingListRow, {
-              pending_id: target.id,
-              kind: formatPendingKind(i18n, target.kind),
-              status: i18n.t(
-                target.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen,
-              ),
-              head: i18n.t(target.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
-            }) + "\n"
-          );
-        },
-      );
-    });
-
-  pendingCmd
-    .command("resolve")
-    .description("Resolve the head pending entry (strict FIFO; no --id flag)")
-    .requiredOption(
-      "--answer <text>",
-      "Resolution answer (passthrough into pending:resolved payload)",
-    )
-    .option("--feature <name>", "Feature whose pending to resolve")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      if (!session.snapshot.state) {
-        ctx.failure(
-          diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
-        );
-        return;
-      }
-      const head = pendingHead(session.snapshot.pending);
-      if (!head) {
-        ctx.failure(diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }));
-        return;
-      }
+      if (opts.taskId !== undefined) payload["task_id"] = opts.taskId;
       const result = await mutator.run(featureDir, session, {
-        kind: "pending:resolved",
-        payload: { id: head.id, answer: opts.answer },
+        kind: "pending:added",
+        payload,
         actor,
       });
       if (!result) return;
       ctx.success(
-        {
-          ok: true,
-          feature: opts.feature,
-          resolved_id: head.id,
-          kind: head.kind,
-        },
-        (i18n) =>
-          i18n.t(SUCCESS_KEYS.pendingResolveText, {
-            pending_id: head.id,
-            kind: head.kind,
-          }) + "\n",
+        { ok: true, feature: opts.feature, id, kind: opts.kind },
+        () => id + "\n",
         (i18n) => ({
-          stateChange: i18n.t(SUCCESS_KEYS.pendingResolveStateChange, { pending_id: head.id }),
+          stateChange: i18n.t(SUCCESS_KEYS.pendingRaiseStateChange, {
+            pending_id: id,
+            kind: opts.kind,
+          }),
         }),
       );
+    },
+  );
+
+  declareCommandPolicy(
+    pendingCmd
+      .command("list")
+      .description("List pending entries (FIFO; first unresolved is head)")
+      .option("--feature <name>", "Feature whose pending to list")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(async (opts: { feature: string; featureDir?: string }) => {
+    if (ctx.rejectIfDryRun("pending list")) return;
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
+    // (pending.json native — pending_id + rich fields) → slim row
+    // {id, kind, resolved, head} matching the prior PendingState shape.
+    const loaded = await ctx.loadProjectionsOrFail(
+      featureDir,
+      ["pending"] as const,
+      opts.feature,
+      "failure.no_session.pending",
+    );
+    if (loaded === null) return;
+    const entries = loaded.pending.pending;
+    const headIdx = pendingHeadIndex(entries);
+    const rows = entries.map((p, i) => ({
+      id: p.pending_id,
+      kind: p.kind,
+      resolved: p.resolved,
+      head: i === headIdx,
+    }));
+    ctx.success(
+      {
+        ok: true,
+        feature: opts.feature,
+        count: rows.length,
+        pending: rows,
+      },
+      (i18n) =>
+        rows
+          .map(
+            (r) =>
+              i18n.t(CHROME_KEYS.pendingListRow, {
+                pending_id: r.id,
+                kind: formatPendingKind(i18n, r.kind),
+                status: i18n.t(r.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+                head: i18n.t(r.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
+              }) + "\n",
+          )
+          .join(""),
+    );
+  });
+
+  declareCommandPolicy(
+    pendingCmd
+      .command("status")
+      .description("Status of head pending entry (default) or specific entry by --id")
+      .option("--feature <name>", "Feature whose pending to inspect")
+      .option("--id <id>", "Lookup a specific PEND-id (default: head)")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
+    if (ctx.rejectIfDryRun("pending status")) return;
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+    if (!session.snapshot.state) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
+      );
+      return;
+    }
+    const headIdx = pendingHeadIndex(session.snapshot.pending);
+    let target: { id: string; kind: string; resolved: boolean; head: boolean } | null;
+    if (opts.id !== undefined) {
+      const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
+      if (idx === -1) {
+        ctx.failure(
+          diagnostic("PENDING_NOT_FOUND", {
+            reason: "pending_id_not_found",
+            pending_id: opts.id,
+          }),
+        );
+        return;
+      }
+      target = { ...session.snapshot.pending[idx]!, head: idx === headIdx };
+    } else {
+      // Default = head; empty queue yields null (script-friendly per
+      // codex r63 — distinct from --id miss which is PENDING_NOT_FOUND).
+      target = headIdx === -1 ? null : { ...session.snapshot.pending[headIdx]!, head: true };
+    }
+    ctx.success(
+      {
+        ok: true,
+        feature: opts.feature,
+        pending: target,
+      },
+      (i18n) => {
+        if (target === null) return i18n.t(CHROME_KEYS.pendingStatusNoOpen) + "\n";
+        return (
+          i18n.t(CHROME_KEYS.pendingListRow, {
+            pending_id: target.id,
+            kind: formatPendingKind(i18n, target.kind),
+            status: i18n.t(target.resolved ? CHROME_KEYS.pendingResolved : CHROME_KEYS.pendingOpen),
+            head: i18n.t(target.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead),
+          }) + "\n"
+        );
+      },
+    );
+  });
+
+  declareCommandPolicy(
+    pendingCmd
+      .command("resolve")
+      .description("Resolve the head pending entry (strict FIFO; no --id flag)")
+      .requiredOption(
+        "--answer <text>",
+        "Resolution answer (passthrough into pending:resolved payload)",
+      )
+      .option("--feature <name>", "Feature whose pending to resolve")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(async (opts: { answer: string; feature: string; featureDir?: string }) => {
+    const featureDir = await ctx.dispatchOrFail(opts);
+    if (featureDir === null) return;
+    const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+    if (!session.snapshot.state) {
+      ctx.failure(
+        diagnosticVariant("failure.no_session.pending", { ...{}, feature: opts.feature }),
+      );
+      return;
+    }
+    const head = pendingHead(session.snapshot.pending);
+    if (!head) {
+      ctx.failure(diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }));
+      return;
+    }
+    const result = await mutator.run(featureDir, session, {
+      kind: "pending:resolved",
+      payload: { id: head.id, answer: opts.answer },
+      actor,
     });
+    if (!result) return;
+    ctx.success(
+      {
+        ok: true,
+        feature: opts.feature,
+        resolved_id: head.id,
+        kind: head.kind,
+      },
+      (i18n) =>
+        i18n.t(SUCCESS_KEYS.pendingResolveText, {
+          pending_id: head.id,
+          kind: head.kind,
+        }) + "\n",
+      (i18n) => ({
+        stateChange: i18n.t(SUCCESS_KEYS.pendingResolveStateChange, { pending_id: head.id }),
+      }),
+    );
+  });
 }

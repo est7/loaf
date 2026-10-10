@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -107,279 +108,278 @@ export function registerEvidence(
     .command("evidence")
     .description("Evidence ledger commands (add, list)");
 
-  evidenceCmd
-    .command("add")
-    .description(
-      "Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)",
-    )
-    .option("--input <src>", jsonInputHelp(inputDeclaration))
-    .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
-    .option("--feature <name>", "Feature whose ledger to append to")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (rawOpts: {
-        input?: string;
-        schema?: boolean;
-        feature: string;
-        featureDir?: string;
-      }) => {
-        if (rawOpts.schema === true) {
-          if (ctx.rejectIfDryRun("evidence add --schema")) return;
-          mutator.emitSchemaAndExit("evidence:add");
-          return;
-        }
-        if (!input.requireArg(ctx, rawOpts.input, inputDeclaration)) return;
-        const opts = rawOpts as { input: string; feature: string; featureDir?: string };
-        // SC-6b — record trace target at action entry so long input-validation
-        // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
-        // + traceTarget in one call.
-        const earlyFeatureDir = await ctx.dispatchOrFail(opts);
-        if (earlyFeatureDir === null) return;
-        const read = await input.readJson(ctx, opts.input, inputDeclaration);
-        if (!read.ok) return;
-        const parsed = read.value;
+  declareCommandPolicy(
+    evidenceCmd
+      .command("add")
+      .description(
+        "Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)",
+      )
+      .option("--input <src>", jsonInputHelp(inputDeclaration))
+      .option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)")
+      .option("--feature <name>", "Feature whose ledger to append to")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating", schema: { kind: "input", key: "evidence:add" } },
+  ).action(
+    async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
+      if (rawOpts.schema === true) {
+        if (ctx.rejectIfDryRun("evidence add --schema")) return;
+        mutator.emitSchemaAndExit("evidence:add");
+        return;
+      }
+      if (!input.requireArg(ctx, rawOpts.input, inputDeclaration)) return;
+      const opts = rawOpts as { input: string; feature: string; featureDir?: string };
+      // SC-6b — record trace target at action entry so long input-validation
+      // failures still trace. SC-8: dispatchOrFail handles §10.3 precedence
+      // + traceTarget in one call.
+      const earlyFeatureDir = await ctx.dispatchOrFail(opts);
+      if (earlyFeatureDir === null) return;
+      const read = await input.readJson(ctx, opts.input, inputDeclaration);
+      if (!read.ok) return;
+      const parsed = read.value;
 
-        // Normalize to array; reject empty (codex r230 Q3 + r236 PATCH E).
-        const rawItems: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
-        if (rawItems.length === 0) {
+      // Normalize to array; reject empty (codex r230 Q3 + r236 PATCH E).
+      const rawItems: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+      if (rawItems.length === 0) {
+        ctx.failure(
+          diagnostic("SCHEMA_VALIDATION_FAILED", {
+            reason: "evidence_batch_empty",
+            command: "evidence add",
+          }),
+        );
+        return;
+      }
+
+      // Per-item strict parse — caller-supplied `id` rejected via
+      // .strict() in EvidenceAddInput (codex r230 PATCH D:
+      // SCHEMA_VALIDATION_FAILED, not USAGE, for input-schema violations
+      // — matches tasks add strict rejection pattern). detail.index
+      // identifies the failing item in batch input.
+      const validatedInputs: EvidenceAddInput[] = [];
+      for (let i = 0; i < rawItems.length; i++) {
+        const raw = rawItems[i];
+        const p = EvidenceAddInput.safeParse(raw);
+        if (!p.success) {
           ctx.failure(
             diagnostic("SCHEMA_VALIDATION_FAILED", {
-              reason: "evidence_batch_empty",
-              command: "evidence add",
+              reason: p.error.issues.map((issue) => issue.message).join("; "),
+              index: i,
+              issues: p.error.issues,
             }),
           );
           return;
         }
+        validatedInputs.push(p.data);
+      }
 
-        // Per-item strict parse — caller-supplied `id` rejected via
-        // .strict() in EvidenceAddInput (codex r230 PATCH D:
-        // SCHEMA_VALIDATION_FAILED, not USAGE, for input-schema violations
-        // — matches tasks add strict rejection pattern). detail.index
-        // identifies the failing item in batch input.
-        const validatedInputs: EvidenceAddInput[] = [];
-        for (let i = 0; i < rawItems.length; i++) {
-          const raw = rawItems[i];
-          const p = EvidenceAddInput.safeParse(raw);
-          if (!p.success) {
-            ctx.failure(
-              diagnostic("SCHEMA_VALIDATION_FAILED", {
-                reason: p.error.issues.map((issue) => issue.message).join("; "),
-                index: i,
-                issues: p.error.issues,
-              }),
-            );
-            return;
-          }
-          validatedInputs.push(p.data);
-        }
+      // Load session via ctx.
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await ctx.resolveSession(featureDir);
+      if (!session.snapshot.state) {
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
+        return;
+      }
 
-        // Load session via ctx.
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await ctx.resolveSession(featureDir);
-        if (!session.snapshot.state) {
-          ctx.failure(
-            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-          );
-          return;
-        }
+      // Allocate EV-ids sequentially via shared allocator (Phase 16
+      // SC-11 lock — single source for `evidence add` / `waive` /
+      // `lessons add`). Atomic across batch via mutateBatch sharing
+      // batch_id (codex r230 Q1 / r236 GO).
+      const evIds: string[] = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
 
-        // Allocate EV-ids sequentially via shared allocator (Phase 16
-        // SC-11 lock — single source for `evidence add` / `waive` /
-        // `lessons add`). Atomic across batch via mutateBatch sharing
-        // batch_id (codex r230 Q1 / r236 GO).
-        const evIds: string[] = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
-
-        // Slice 3's canonical compatibility owner has always promised an
-        // input-time diagnostic. Wire it now without rejecting the append:
-        // evidence is cumulative and one entry may legitimately cover a mix
-        // of compatible and incompatible obligation families.
-        const compatibilityMismatches = validatedInputs.flatMap((input, i) => {
-          const evidence: EvidenceState = {
-            id: evIds[i]!,
-            kind: input.kind,
-            result: input.result,
-            covers: input.covers,
-            actor: input.actor,
-            ...(input.check !== undefined ? { check: input.check } : {}),
-            ...(input.reason !== undefined ? { reason: input.reason } : {}),
-            ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
-          };
-          return evidence.covers.flatMap((coveredId) => {
-            const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
-            return mismatch === null ? [] : [mismatch];
-          });
-        });
-
-        // Materialize full payloads (inject CLI-allocated EV-id; refines
-        // in EvidenceFullPayload run during mutateBatch preflight).
-        const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
-          kind: "evidence:added",
-          payload: { ...input, id: evIds[i] },
-          actor,
-        }));
-
-        const result = await mutator.run(featureDir, session, entries);
-        if (!result) return;
-
-        // Output preserves single-input bare-EV-id text (back-compat per
-        // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
-        // sub_state} JSON for batch (matches tasks add shape).
-        // SC-5b2: stateChange via evidenceAddStateChange helper per
-        // protocol §10.12 (set-semantics covers; heterogeneous batches
-        // drop kind/covers).
-        const isBatch = Array.isArray(parsed);
-        const evidenceItems = validatedInputs.map((input, i) => ({
+      // Slice 3's canonical compatibility owner has always promised an
+      // input-time diagnostic. Wire it now without rejecting the append:
+      // evidence is cumulative and one entry may legitimately cover a mix
+      // of compatible and incompatible obligation families.
+      const compatibilityMismatches = validatedInputs.flatMap((input, i) => {
+        const evidence: EvidenceState = {
           id: evIds[i]!,
           kind: input.kind,
+          result: input.result,
           covers: input.covers,
-        }));
-        if (isBatch) {
-          ctx.success(
-            {
-              ok: true,
-              feature: opts.feature,
-              ev_ids: evIds,
-              count: evIds.length,
-              sub_state: result.snapshot.state?.sub_state,
-            },
-            () => evIds.join("\n") + "\n",
-            (i18n) => ({
-              stateChange: evidenceAddStateChange(i18n, evidenceItems),
-              warnings: compatibilityMismatches.map((mismatch) =>
-                i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
-                  kind: mismatch.supplied_kind,
-                  covered_id: mismatch.covered_id,
-                  allowed_kinds: mismatch.allowed_kinds.join(", "),
-                }),
-              ),
-            }),
-          );
-        } else {
-          // Single-input back-compat: bare EV-id in text mode; {ok,
-          // feature, id, kind} in JSON mode (pre-SC-4c shape preserved).
-          ctx.success(
-            {
-              ok: true,
-              feature: opts.feature,
-              id: evIds[0],
-              kind: validatedInputs[0]!.kind,
-            },
-            () => `${evIds[0]}\n`,
-            (i18n) => ({
-              stateChange: evidenceAddStateChange(i18n, evidenceItems),
-              warnings: compatibilityMismatches.map((mismatch) =>
-                i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
-                  kind: mismatch.supplied_kind,
-                  covered_id: mismatch.covered_id,
-                  allowed_kinds: mismatch.allowed_kinds.join(", "),
-                }),
-              ),
-            }),
-          );
-        }
-      },
-    );
+          actor: input.actor,
+          ...(input.check !== undefined ? { check: input.check } : {}),
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+        };
+        return evidence.covers.flatMap((coveredId) => {
+          const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
+          return mismatch === null ? [] : [mismatch];
+        });
+      });
 
-  // ── loaf evidence list ────────────────────────────────────────────────
-  evidenceCmd
-    .command("list")
-    .description("List evidence coverage fields from the evidence projection (read-only)")
-    .option("--covers <id>", "Filter entries whose covers array contains id")
-    .option("--task <T-N>", "Filter entries linked to a task id")
-    .option("--kind <kind>", "Filter by the closed EvidenceKind enum")
-    .option("--feature <name>", "Feature whose evidence to list")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (opts: {
-        covers?: string;
-        task?: string;
-        kind?: string;
-        feature: string;
-        featureDir?: string;
-      }) => {
-        if (ctx.rejectIfDryRun("evidence list")) return;
+      // Materialize full payloads (inject CLI-allocated EV-id; refines
+      // in EvidenceFullPayload run during mutateBatch preflight).
+      const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
+        kind: "evidence:added",
+        payload: { ...input, id: evIds[i] },
+        actor,
+      }));
 
-        if (opts.covers !== undefined && !CoversRefPayload.safeParse(opts.covers).success) {
-          ctx.failure(
-            diagnosticVariant("failure.evidence.covers_invalid", {
-              ...{ value: opts.covers },
-              ...{ value: opts.covers },
-            }),
-          );
-          return;
-        }
-        if (opts.task !== undefined && !TaskIdPayload.safeParse(opts.task).success) {
-          ctx.failure(
-            diagnosticVariant("failure.evidence.task_invalid", {
-              ...{ value: opts.task },
-              ...{ value: opts.task },
-            }),
-          );
-          return;
-        }
-        if (opts.kind !== undefined && !EvidenceKind.safeParse(opts.kind).success) {
-          ctx.failure(
-            diagnosticVariant("failure.evidence.kind_invalid", {
-              ...{ value: opts.kind, allowed_kinds_human: EvidenceKind.options.join(" | ") },
-              ...{ value: opts.kind, allowed: EvidenceKind.options },
-            }),
-          );
-          return;
-        }
+      const result = await mutator.run(featureDir, session, entries);
+      if (!result) return;
 
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const loaded = await ctx.loadProjectionsOrFail(
-          featureDir,
-          ["evidence"] as const,
-          opts.feature,
-          "failure.no_session.generic",
-        );
-        if (loaded === null) return;
-
-        const rows = loaded.evidence.evidence
-          .filter(
-            (entry) =>
-              (opts.covers === undefined || entry.covers.includes(opts.covers)) &&
-              (opts.task === undefined || entry.task_id === opts.task) &&
-              (opts.kind === undefined || entry.kind === opts.kind),
-          )
-          .map((entry) => ({
-            id: entry.id,
-            kind: entry.kind,
-            covers: entry.covers,
-            task_id: entry.task_id ?? null,
-            at: entry.at,
-            actor: entry.actor,
-          }));
-
+      // Output preserves single-input bare-EV-id text (back-compat per
+      // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
+      // sub_state} JSON for batch (matches tasks add shape).
+      // SC-5b2: stateChange via evidenceAddStateChange helper per
+      // protocol §10.12 (set-semantics covers; heterogeneous batches
+      // drop kind/covers).
+      const isBatch = Array.isArray(parsed);
+      const evidenceItems = validatedInputs.map((input, i) => ({
+        id: evIds[i]!,
+        kind: input.kind,
+        covers: input.covers,
+      }));
+      if (isBatch) {
         ctx.success(
           {
             ok: true,
             feature: opts.feature,
-            count: rows.length,
-            evidence: rows,
+            ev_ids: evIds,
+            count: evIds.length,
+            sub_state: result.snapshot.state?.sub_state,
           },
-          (i18n) => {
-            if (rows.length === 0) return i18n.t(CHROME_KEYS.evidenceListEmpty) + "\n";
-            return rows
-              .map(
-                (row) =>
-                  i18n.t(CHROME_KEYS.evidenceListRow, {
-                    id: row.id,
-                    kind: row.kind,
-                    covers: row.covers.join(",") || "-",
-                    task_id: row.task_id ?? "-",
-                    at: row.at,
-                    actor: row.actor,
-                  }) + "\n",
-              )
-              .join("");
-          },
+          () => evIds.join("\n") + "\n",
+          (i18n) => ({
+            stateChange: evidenceAddStateChange(i18n, evidenceItems),
+            warnings: compatibilityMismatches.map((mismatch) =>
+              i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
+                kind: mismatch.supplied_kind,
+                covered_id: mismatch.covered_id,
+                allowed_kinds: mismatch.allowed_kinds.join(", "),
+              }),
+            ),
+          }),
         );
-      },
-    );
+      } else {
+        // Single-input back-compat: bare EV-id in text mode; {ok,
+        // feature, id, kind} in JSON mode (pre-SC-4c shape preserved).
+        ctx.success(
+          {
+            ok: true,
+            feature: opts.feature,
+            id: evIds[0],
+            kind: validatedInputs[0]!.kind,
+          },
+          () => `${evIds[0]}\n`,
+          (i18n) => ({
+            stateChange: evidenceAddStateChange(i18n, evidenceItems),
+            warnings: compatibilityMismatches.map((mismatch) =>
+              i18n.t(CHROME_KEYS.evidenceCompatibilityWarning, {
+                kind: mismatch.supplied_kind,
+                covered_id: mismatch.covered_id,
+                allowed_kinds: mismatch.allowed_kinds.join(", "),
+              }),
+            ),
+          }),
+        );
+      }
+    },
+  );
+
+  // ── loaf evidence list ────────────────────────────────────────────────
+  declareCommandPolicy(
+    evidenceCmd
+      .command("list")
+      .description("List evidence coverage fields from the evidence projection (read-only)")
+      .option("--covers <id>", "Filter entries whose covers array contains id")
+      .option("--task <T-N>", "Filter entries linked to a task id")
+      .option("--kind <kind>", "Filter by the closed EvidenceKind enum")
+      .option("--feature <name>", "Feature whose evidence to list")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "read-only" },
+  ).action(
+    async (opts: {
+      covers?: string;
+      task?: string;
+      kind?: string;
+      feature: string;
+      featureDir?: string;
+    }) => {
+      if (ctx.rejectIfDryRun("evidence list")) return;
+
+      if (opts.covers !== undefined && !CoversRefPayload.safeParse(opts.covers).success) {
+        ctx.failure(
+          diagnosticVariant("failure.evidence.covers_invalid", {
+            ...{ value: opts.covers },
+            ...{ value: opts.covers },
+          }),
+        );
+        return;
+      }
+      if (opts.task !== undefined && !TaskIdPayload.safeParse(opts.task).success) {
+        ctx.failure(
+          diagnosticVariant("failure.evidence.task_invalid", {
+            ...{ value: opts.task },
+            ...{ value: opts.task },
+          }),
+        );
+        return;
+      }
+      if (opts.kind !== undefined && !EvidenceKind.safeParse(opts.kind).success) {
+        ctx.failure(
+          diagnosticVariant("failure.evidence.kind_invalid", {
+            ...{ value: opts.kind, allowed_kinds_human: EvidenceKind.options.join(" | ") },
+            ...{ value: opts.kind, allowed: EvidenceKind.options },
+          }),
+        );
+        return;
+      }
+
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const loaded = await ctx.loadProjectionsOrFail(
+        featureDir,
+        ["evidence"] as const,
+        opts.feature,
+        "failure.no_session.generic",
+      );
+      if (loaded === null) return;
+
+      const rows = loaded.evidence.evidence
+        .filter(
+          (entry) =>
+            (opts.covers === undefined || entry.covers.includes(opts.covers)) &&
+            (opts.task === undefined || entry.task_id === opts.task) &&
+            (opts.kind === undefined || entry.kind === opts.kind),
+        )
+        .map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          covers: entry.covers,
+          task_id: entry.task_id ?? null,
+          at: entry.at,
+          actor: entry.actor,
+        }));
+
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          count: rows.length,
+          evidence: rows,
+        },
+        (i18n) => {
+          if (rows.length === 0) return i18n.t(CHROME_KEYS.evidenceListEmpty) + "\n";
+          return rows
+            .map(
+              (row) =>
+                i18n.t(CHROME_KEYS.evidenceListRow, {
+                  id: row.id,
+                  kind: row.kind,
+                  covers: row.covers.join(",") || "-",
+                  task_id: row.task_id ?? "-",
+                  at: row.at,
+                  actor: row.actor,
+                }) + "\n",
+            )
+            .join("");
+        },
+      );
+    },
+  );
 
   // ── loaf waive <obligation-id> — Phase 16 SC-11 ──────────────────────
   // Sugar wrapper over `evidence:added` payload.kind=waiver. Records a
@@ -388,88 +388,90 @@ export function registerEvidence(
   // evidence:added entry (no batch). Uses the shared SC-11 EV-id
   // allocator so monotonic ordering matches `evidence add` /
   // `lessons add`.
-  program
-    .command("waive <obligation-id>")
-    .description(
-      "Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)",
-    )
-    .requiredOption(
-      "--reason <text>",
-      "Waiver rationale (≥10 chars; mandatory per evidence schema refine)",
-    )
-    .option("--feature <name>", "Feature whose ledger to append to")
-    .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(
-      async (
-        obligationId: string,
-        opts: { reason: string; feature: string; featureDir?: string },
-      ) => {
-        // (1) obligation id validation via shared CoversRefPayload regex
-        //     (no parallel local regex; codex r322 P5 lock)
-        const idCheck = CoversRefPayload.safeParse(obligationId);
-        if (!idCheck.success) {
-          ctx.failure(
-            diagnostic("USAGE", { reason: "invalid_obligation_id", argument: obligationId }),
-          );
-          return;
-        }
-        // (2) reason length is enforced by EvidenceFullPayload refine
-        //     downstream; surface the friendlier USAGE here too
-        if (opts.reason.length < 10) {
-          ctx.failure(
-            diagnosticVariant("failure.lessons.reason_too_short", {
-              ...{ min_length: 10, reason_length: opts.reason.length },
-              ...{ min_length: 10, reason_length: opts.reason.length },
-            }),
-          );
-          return;
-        }
-        // (3) resolve human actor (waiver requires human:* per refine)
-        const waiveActor = ctx.resolveHumanActorOrFail();
-        if (waiveActor === null) return;
-        const featureDir = await ctx.dispatchOrFail(opts);
-        if (featureDir === null) return;
-        const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-        if (!session.snapshot.state) {
-          ctx.failure(
-            diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
-          );
-          return;
-        }
-        // (4) allocate EV-id + build payload (pure builder, payload only)
-        const evidenceId = allocateNextEvidenceId(session.snapshot);
-        const payload = buildWaiveEvidencePayload({
-          evidenceId,
-          obligationId,
-          reason: opts.reason,
-          actor: waiveActor,
-          iteration: session.snapshot.state.iteration,
-        });
-        // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
-        const result = await mutator.run(featureDir, session, {
-          kind: "evidence:added",
-          payload,
-          actor: waiveActor,
-        });
-        if (!result) return;
-        ctx.success(
-          {
-            ok: true,
-            feature: opts.feature,
-            id: evidenceId,
-            kind: "waiver" as const,
-            obligation_id: obligationId,
-          },
-          () => `${evidenceId}\n`,
-          (i18n) => ({
-            stateChange: i18n.t(SUCCESS_KEYS.waiveStateChange, {
-              evidence_id: evidenceId,
-              obligation_id: obligationId,
-            }),
+  declareCommandPolicy(
+    program
+      .command("waive <obligation-id>")
+      .description(
+        "Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)",
+      )
+      .requiredOption(
+        "--reason <text>",
+        "Waiver rationale (≥10 chars; mandatory per evidence schema refine)",
+      )
+      .option("--feature <name>", "Feature whose ledger to append to")
+      .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
+    { selectors: "selected", dryRun: "mutating" },
+  ).action(
+    async (
+      obligationId: string,
+      opts: { reason: string; feature: string; featureDir?: string },
+    ) => {
+      // (1) obligation id validation via shared CoversRefPayload regex
+      //     (no parallel local regex; codex r322 P5 lock)
+      const idCheck = CoversRefPayload.safeParse(obligationId);
+      if (!idCheck.success) {
+        ctx.failure(
+          diagnostic("USAGE", { reason: "invalid_obligation_id", argument: obligationId }),
+        );
+        return;
+      }
+      // (2) reason length is enforced by EvidenceFullPayload refine
+      //     downstream; surface the friendlier USAGE here too
+      if (opts.reason.length < 10) {
+        ctx.failure(
+          diagnosticVariant("failure.lessons.reason_too_short", {
+            ...{ min_length: 10, reason_length: opts.reason.length },
+            ...{ min_length: 10, reason_length: opts.reason.length },
           }),
         );
-      },
-    );
+        return;
+      }
+      // (3) resolve human actor (waiver requires human:* per refine)
+      const waiveActor = ctx.resolveHumanActorOrFail();
+      if (waiveActor === null) return;
+      const featureDir = await ctx.dispatchOrFail(opts);
+      if (featureDir === null) return;
+      const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
+      if (!session.snapshot.state) {
+        ctx.failure(
+          diagnosticVariant("failure.no_session.generic", { ...{}, feature: opts.feature }),
+        );
+        return;
+      }
+      // (4) allocate EV-id + build payload (pure builder, payload only)
+      const evidenceId = allocateNextEvidenceId(session.snapshot);
+      const payload = buildWaiveEvidencePayload({
+        evidenceId,
+        obligationId,
+        reason: opts.reason,
+        actor: waiveActor,
+        iteration: session.snapshot.state.iteration,
+      });
+      // (5) wrap in journal envelope (codex r325 P1 Option A boundary)
+      const result = await mutator.run(featureDir, session, {
+        kind: "evidence:added",
+        payload,
+        actor: waiveActor,
+      });
+      if (!result) return;
+      ctx.success(
+        {
+          ok: true,
+          feature: opts.feature,
+          id: evidenceId,
+          kind: "waiver" as const,
+          obligation_id: obligationId,
+        },
+        () => `${evidenceId}\n`,
+        (i18n) => ({
+          stateChange: i18n.t(SUCCESS_KEYS.waiveStateChange, {
+            evidence_id: evidenceId,
+            obligation_id: obligationId,
+          }),
+        }),
+      );
+    },
+  );
 
   return { evidenceCmd };
 }

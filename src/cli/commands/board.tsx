@@ -1,3 +1,4 @@
+import { declareCommandPolicy } from "../command-policy.js";
 import { diagnostic } from "../../core/error-catalog.js";
 // `loaf board` — open the local read-only loaf board in a browser.
 //
@@ -38,81 +39,86 @@ function waitForever(): Promise<void> {
 }
 
 export function registerBoard(program: Command, ctx: CommandContext, deps: BoardDeps): void {
-  program
-    .command("board")
-    .description("Open the local read-only loaf board in a browser")
-    .option("--port <port>", `Loopback port (default: ${DEFAULT_BOARD_PORT}; use 0 for ephemeral)`)
-    .option("--in-cwd", "Only show sessions whose registered cwd matches the current cwd")
-    .option("--once", "Print one board snapshot and exit without starting a server")
-    .option("--open", "Open the board URL in the default browser")
-    .action(async (opts: { port?: string; inCwd?: boolean; once?: boolean; open?: boolean }) => {
-      // no-feature — board walks the registry across sessions.
-      if (ctx.rejectIfDryRun("board")) return;
-      const selectors = collectPresentSelectors(ctx.argv, process.env);
-      if (selectors.length > 0) {
-        ctx.failure(
-          diagnostic("USAGE", { reason: "board_selector_not_supported", conflicting: selectors }),
-        );
-        return;
+  declareCommandPolicy(
+    program
+      .command("board")
+      .description("Open the local read-only loaf board in a browser")
+      .option(
+        "--port <port>",
+        `Loopback port (default: ${DEFAULT_BOARD_PORT}; use 0 for ephemeral)`,
+      )
+      .option("--in-cwd", "Only show sessions whose registered cwd matches the current cwd")
+      .option("--once", "Print one board snapshot and exit without starting a server")
+      .option("--open", "Open the board URL in the default browser"),
+    { selectors: "forbidden", dryRun: "read-only", selectorStage: "action" },
+  ).action(async (opts: { port?: string; inCwd?: boolean; once?: boolean; open?: boolean }) => {
+    // no-feature — board walks the registry across sessions.
+    if (ctx.rejectIfDryRun("board")) return;
+    const selectors = collectPresentSelectors(ctx.argv, process.env);
+    if (selectors.length > 0) {
+      ctx.failure(
+        diagnostic("USAGE", { reason: "board_selector_not_supported", conflicting: selectors }),
+      );
+      return;
+    }
+    const scope = opts.inCwd ? "cwd" : "all";
+    let port: number;
+    try {
+      port = opts.port === undefined ? DEFAULT_BOARD_PORT : parseBoardPort(opts.port);
+    } catch (error) {
+      ctx.failure(
+        diagnostic("USAGE", {
+          reason: error instanceof Error ? error.message : String(error),
+          port: opts.port,
+        }),
+      );
+      return;
+    }
+    if (opts.once) {
+      const snapshot = await createBoardOnceSnapshot({
+        ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+        cwd: process.cwd(),
+        scope,
+        now: deps.now(),
+      });
+      ctx.success(snapshot, () => {
+        const plural = snapshot.totals.sessions === 1 ? "session" : "sessions";
+        return `loaf board: ${snapshot.totals.sessions} ${plural} (${snapshot.totals.active} active, ${snapshot.totals.blocked} blocked)\n`;
+      });
+      return;
+    }
+    try {
+      const board = await startBoardServer({
+        host: DEFAULT_BOARD_HOST,
+        port,
+        ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
+        cwd: process.cwd(),
+        i18n: deps.i18n,
+      });
+      ctx.success(
+        { ok: true, url: board.url, host: board.host, port: board.port },
+        () => `loaf board: ${board.url}\n`,
+      );
+      if (opts.open) {
+        const openUrl = deps.openUrl ?? defaultOpenUrl;
+        await openUrl(board.url);
       }
-      const scope = opts.inCwd ? "cwd" : "all";
-      let port: number;
+      const keepAlive = deps.boardKeepAlive ?? waitForever;
       try {
-        port = opts.port === undefined ? DEFAULT_BOARD_PORT : parseBoardPort(opts.port);
-      } catch (error) {
+        await keepAlive(board.url);
+      } finally {
+        await board.close();
+      }
+    } catch (error) {
+      if (isAddressInUse(error)) {
         ctx.failure(
           diagnostic("USAGE", {
-            reason: error instanceof Error ? error.message : String(error),
-            port: opts.port,
+            port,
           }),
         );
         return;
       }
-      if (opts.once) {
-        const snapshot = await createBoardOnceSnapshot({
-          ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
-          cwd: process.cwd(),
-          scope,
-          now: deps.now(),
-        });
-        ctx.success(snapshot, () => {
-          const plural = snapshot.totals.sessions === 1 ? "session" : "sessions";
-          return `loaf board: ${snapshot.totals.sessions} ${plural} (${snapshot.totals.active} active, ${snapshot.totals.blocked} blocked)\n`;
-        });
-        return;
-      }
-      try {
-        const board = await startBoardServer({
-          host: DEFAULT_BOARD_HOST,
-          port,
-          ...(deps.registryDir !== undefined && { registryDir: deps.registryDir }),
-          cwd: process.cwd(),
-          i18n: deps.i18n,
-        });
-        ctx.success(
-          { ok: true, url: board.url, host: board.host, port: board.port },
-          () => `loaf board: ${board.url}\n`,
-        );
-        if (opts.open) {
-          const openUrl = deps.openUrl ?? defaultOpenUrl;
-          await openUrl(board.url);
-        }
-        const keepAlive = deps.boardKeepAlive ?? waitForever;
-        try {
-          await keepAlive(board.url);
-        } finally {
-          await board.close();
-        }
-      } catch (error) {
-        if (isAddressInUse(error)) {
-          ctx.failure(
-            diagnostic("USAGE", {
-              port,
-            }),
-          );
-          return;
-        }
-        throw error;
-      }
-    });
+      throw error;
+    }
+  });
 }

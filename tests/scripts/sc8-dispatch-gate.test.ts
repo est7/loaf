@@ -60,7 +60,7 @@ describe("SC-8 — feature-addressed actions go through dispatchOrFail", () => {
     const lines = source.split("\n");
     const actionStarts = lines
       .map((line, index) => ({ line, index }))
-      .filter(({ line }) => /^\s*\.action\(/.test(line));
+      .filter(({ line }) => /^\s*\)?\.action\(/.test(line));
 
     expect(actionStarts.length).toBeGreaterThanOrEqual(33);
 

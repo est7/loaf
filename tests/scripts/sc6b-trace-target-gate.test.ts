@@ -41,7 +41,7 @@ describe("SC-6b — static guard: every .action( records trace target", () => {
     const lines = source.split("\n");
     const actionLines = lines
       .map((line, index) => ({ line, index }))
-      .filter(({ line }) => /^\s*\.action\(/.test(line));
+      .filter(({ line }) => /^\s*\)?\.action\(/.test(line));
 
     expect(actionLines.length).toBeGreaterThanOrEqual(33);
 

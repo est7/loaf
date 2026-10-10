@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import { z } from "zod";
 import { Command, CommanderError } from "commander";
+import { z } from "zod";
 import os from "node:os";
+import { execFileSync, spawn } from "node:child_process";
 import { constants, promises, readFileSync, unlinkSync } from "node:fs";
 import * as path$1 from "node:path";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
 import * as fsp from "node:fs/promises";
 import picomatch from "picomatch";
 import { isDeepStrictEqual } from "node:util";
@@ -17,66 +17,6 @@ import { Box, Text, useApp, useInput } from "ink";
 import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
-//#region src/core/argv-scanner.ts
-/** Keep every raw token, including option-looking values and duplicates.
-* No command recognition, validation, alias expansion or shell parsing occurs.
-*/
-function scanArgv(argv, valueFlags = /* @__PURE__ */ new Set()) {
-	return argv.map((raw, index) => {
-		if (raw === "--") return {
-			kind: "terminator",
-			index,
-			raw
-		};
-		if (!raw.startsWith("-") || raw === "-") return {
-			kind: "positional",
-			index,
-			raw
-		};
-		const equals = raw.startsWith("--") ? raw.indexOf("=") : -1;
-		const flag = equals === -1 ? raw : raw.slice(0, equals);
-		const arity = equals !== -1 || valueFlags.has(flag) ? 1 : 0;
-		return {
-			kind: "option",
-			index,
-			raw,
-			flag,
-			arity,
-			value: equals !== -1 ? raw.slice(equals + 1) : arity === 1 ? argv[index + 1] : void 0,
-			valueIndex: equals !== -1 ? index : arity === 1 && index + 1 < argv.length ? index + 1 : void 0
-		};
-	});
-}
-//#endregion
-//#region src/cli/argv-bootstrap.ts
-const BOOTSTRAP_VALUE_FLAGS = new Set([
-	"--format",
-	"--session",
-	"--feature",
-	"--feature-dir",
-	"--ceremony",
-	"--label",
-	"--workspace"
-]);
-/** Preserve the bootstrap's positional view, including its legacy treatment
-* of `--` and unconditional consumption of a value-taking flag's next token.
-*/
-function bootstrapCommandTokens(argv, max) {
-	const out = [];
-	let consumedThrough = 1;
-	for (const token of scanArgv(argv, BOOTSTRAP_VALUE_FLAGS)) {
-		if (token.index <= consumedThrough) continue;
-		if (token.kind === "option") {
-			if (token.raw.startsWith("--") && token.arity === 1 && !token.raw.includes("=")) consumedThrough = token.index + 1;
-			continue;
-		}
-		if (token.kind === "terminator") continue;
-		out.push(token.raw);
-		if (out.length >= max) break;
-	}
-	return out;
-}
-//#endregion
 //#region src/core/error-catalog.ts
 const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
 const DiagnosticTemplate = z.object({
@@ -1759,1774 +1699,176 @@ function diagnosticVariant(context, detail) {
 }
 const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG);
 z.enum(DIAGNOSTIC_CODE_VALUES);
-//#endregion
-//#region i18n/en.json
-var en_default = {
-	_meta: {
-		"schema_version": 1,
-		"lang": "en",
-		"note": "All keys mirror schemas.ts stable IDs. Diagnostic templates use mustache-style {var} placeholders matched to gate-diagnostic.failures[].vars."
-	},
-	evidence_kind: {
-		"task-summary": "Task summary",
-		"verify-review": "Code review",
-		"spec-review": "Spec review",
-		"acceptance": "Acceptance check",
-		"visual-review": "Visual review",
-		"gate-decision": "Gate decision",
-		"local-check": "Local check",
-		"manual": "Manual verification",
-		"waiver": "Risk waiver",
-		"spike-finding": "Spike finding"
-	},
-	phase: {
-		"TRIAGE": "Triage",
-		"SPEC": "Spec",
-		"EXECUTE": "Execute",
-		"VERIFY": "Verify",
-		"SETTLE": "Settle",
-		"DONE": "Done"
-	},
-	sub_state: {
-		"TRIAGE": {
-			"score": "Triage / score",
-			"confirm": "Triage / confirm profile"
-		},
-		"SPEC": {
-			"proposal": "Spec / proposal",
-			"spec": "Spec / author EARS+Gherkin",
-			"plan": "Spec / plan",
-			"design": "Spec / design + tasks"
-		},
-		"EXECUTE": {
-			"plan": "Execute / plan policies",
-			"work": "Execute / running task",
-			"done": "Execute / all tasks final"
-		},
-		"VERIFY": {
-			"plan": "Verify / applicable checks",
-			"run": "Verify / running checks",
-			"review": "Verify / review",
-			"acceptance": "Verify / acceptance",
-			"visual": "Verify / visual",
-			"accept": "Verify / accept gate"
-		},
-		"SETTLE": { "lessons": "Settle / lessons" },
-		"DONE": {
-			"delivered": "Done · delivered",
-			"archived": "Done · archived",
-			"abandoned": "Done · abandoned"
-		}
-	},
-	task_kind: {
-		"behavioral": "Behavioral",
-		"structural": "Structural",
-		"visual-ui": "Visual UI",
-		"docs": "Docs",
-		"spike": "Spike",
-		"chore": "Chore"
-	},
-	task_status: {
-		"pending": "pending",
-		"ready": "ready",
-		"in_progress": "in_progress",
-		"done": "done",
-		"abandoned": "abandoned"
-	},
-	step: {
-		"red": "Red (failing test)",
-		"implement": "Implement",
-		"refactor": "Refactor",
-		"mockup": "Mockup",
-		"screenshot-compare": "Screenshot compare",
-		"draft": "Draft",
-		"review": "Review",
-		"explore": "Explore",
-		"prototype": "Prototype",
-		"record": "Record",
-		"execute": "Execute"
-	},
-	verify_check_kind: {
-		"run": "Run (test + lint + typecheck)",
-		"review": "Review",
-		"acceptance": "Acceptance (E2E)",
-		"visual": "Visual"
-	},
-	applicability: {
-		"must": "Must",
-		"optional": "Optional",
-		"na": "Not applicable"
-	},
-	step_status: {
-		"na": "N/A",
-		"pending": "Pending",
-		"running": "Running",
-		"passed": "Passed",
-		"failed": "Failed",
-		"waived": "Waived"
-	},
-	finding_category: {
-		"spec-gap": "Spec gap",
-		"spec-defect": "Spec defect",
-		"impl-defect": "Implementation defect",
-		"test-defect": "Test defect",
-		"new-scope": "New scope",
-		"risk-escalation": "Risk escalation"
-	},
-	finding_action: {
-		"amend-spec": "Amend spec",
-		"amend-tasks": "Amend tasks",
-		"fix-impl": "Fix implementation",
-		"fix-test": "Fix test",
-		"defer": "Defer (this run)",
-		"backlog": "Backlog (next feature)"
-	},
-	finding_status: {
-		"open": "open",
-		"closed": "closed"
-	},
-	gate: {
-		"spec-lock": "Spec lock",
-		"verify-accept": "Verify accept"
-	},
-	profile: {
-		"quick": "Quick",
-		"standard": "Standard",
-		"deep": "Deep"
-	},
-	pending_kind: {
-		"ask_user_question": "User input requested",
-		"gate_decision": "Gate awaiting human decision",
-		"spec_clarification": "Spec clarification needed",
-		"finding_decision": "Finding awaiting action",
-		"profile_escalation": "Profile escalation pending confirm"
-	},
-	board: {
-		"chrome": {
-			"app_title": "loaf board",
-			"brand": "loaf board",
-			"scope_label": "Scope",
-			"all_sessions": "All sessions",
-			"current_cwd": "Current cwd",
-			"refresh": "Refresh",
-			"theme_toggle": "Toggle theme",
-			"eyebrow": "Local board",
-			"heading": "Loaf Live Board",
-			"subtitle": "Reading local journal projections.",
-			"active": "Active",
-			"blocked": "Blocked",
-			"updated": "Updated",
-			"waiting": "Waiting",
-			"board_label": "Loaf session board",
-			"no_sessions": "No sessions.",
-			"none": "None.",
-			"session": "Session",
-			"session_detail": "Session detail",
-			"close_session_detail": "Close session detail",
-			"loading": "Loading...",
-			"session_error": "Session error",
-			"iteration_short": "iter"
-		},
-		"column": {
-			"TRIAGE": { "description": "Score and confirm ceremony" },
-			"SPEC": { "description": "Proposal, spec, plan, design" },
-			"EXECUTE": { "description": "Task work and fan-out" },
-			"VERIFY": { "description": "Run, review, acceptance, visual" },
-			"SETTLE": { "description": "Lessons" },
-			"DONE": { "description": "Delivered or terminal sessions" }
-		},
-		"status": {
-			"pending_decision": "human decision",
-			"pending_question": "question"
-		},
-		"detail": {
-			"phase": "Phase",
-			"sub_state": "Sub-state",
-			"tail_seq": "Tail seq",
-			"tasks": "Tasks",
-			"evidence": "Evidence",
-			"open_findings": "Open findings",
-			"pending": "Pending",
-			"task_done_suffix": "done",
-			"evidence_passing_suffix": "passing",
-			"steps_suffix": "steps"
-		}
-	},
-	diagnostic: {
-		"INPUT_FILE_NOT_FOUND": "input file does not exist: {path}",
-		"MISSING_INPUT": "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
-		"SPEC_EDIT_INPUT_REQUIRED": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
-		"SCHEMA_VALIDATION_FAILED": "validation failed: {reason}",
-		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
-		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
-		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
-		"CONFIG_ALREADY_INITIALIZED": "loaf config already exists at {config_path}; refusing to overwrite",
-		"ATTACHMENT_NOT_FOUND": "attachment path does not exist: {path}",
-		"ATTACHMENT_NOT_FILE": "attachment path is not a regular file: {path} ({kind})",
-		"FINDING_ACTION_UNUSUAL_REASON_REQUIRED": "finding category={category} × action={action} is 'unusual'; --reason of at least {min_reason_length} characters is required",
-		"FINDING_ACTION_INCOHERENT": "finding category={category} × action={action} is incoherent: no target task exists to apply this transition to",
-		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason})",
-		"PRUNE_RESTORE_NOT_FOUND": "no trashed session matches the given id",
-		"PRUNE_RESTORE_AMBIGUOUS": "the session id was trashed more than once; pass --at <ts> to pick one",
-		"PRUNE_RESTORE_INCOMPLETE": "the trash bucket is incomplete (missing a required artifact); not restoring",
-		"PRUNE_PATH_OCCUPIED": "a restore destination already exists; refusing to overwrite",
-		"PRUNE_PARTIAL_FAILURE": "prune partially failed: one or more sessions could not be removed",
-		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
-		"INVALID_ENV_VALUE": "environment variable {env_name}={value} is not in the accepted enum: {accepted}",
-		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
-		"INVALID_LOCALE": "invalid locale from {source} (expected {accepted})",
-		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
-		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
-		"TASK_STATUS_WITHOUT_PROOF": "task {task_id} status change requires evidence: status={status} has no PASSING covering evidence proof in evidence.jsonl",
-		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
-		"VAGUE_NO_SCENARIO": "requirement {req_id} reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
-		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
-		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
-		"LOCK_TIMEOUT": "could not acquire the write lock within {timeout_seconds}s",
-		"LOCK_INVALID": "feature write lease at {lock_path} is malformed or incomplete",
-		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
-		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
-		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
-		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
-		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry",
-		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
-		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
-		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
-		"ACTOR_AUTHORITY_VIOLATION": "actor {actor} is not allowed for journal kind {kind}",
-		"FROM_CURSOR_MISMATCH": "entry payload.from={payload_from} does not match current sub_state={current_sub_state}",
-		"INVALID_ENVELOPE": "journal entry failed envelope validation: {reason}",
-		"INVALID_PAYLOAD": "payload for kind {kind} failed validation: {reason}",
-		"SEQ_NOT_MONOTONIC": "entry seq {got} does not extend journal tail {tail_seq}; expected {expected}",
-		"SETTLE_PHASE_BYPASS": "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase={settle_phase}",
-		"SETTLE_PHASE_DISABLED": "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
-		"SPEC_PHASE_FORK_VIOLATION": "transition {from} → {to} violates ceremony.spec_phase={spec_phase}",
-		"SUB_STATE_AUTHORITY_VIOLATION": "kind {kind} is not allowed in sub_state {sub_state}",
-		"TRANSITION_ILLEGAL": "cannot transition {from} → {to}",
-		"VERIFY_PHASE_FORK_VIOLATION": "transition {from} → {to} violates ceremony.verify_phase={verify_phase}",
-		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
-		"ALREADY_STARTED": "session bootstrap kind {kind} cannot run after state already exists",
-		"FINDING_NOT_FOUND": "finding close references unknown finding id {id}",
-		"NO_SESSION": "no started session — run `loaf start` first",
-		"PENDING_NOT_FOUND": "pending resolve failed: {reason}",
-		"REDUCER_NOT_IMPLEMENTED": "reducer has no handler for journal kind {kind}",
-		"ENTRY_OVERSIZE": "journal entry serialized to {bytes} bytes; limit is {limit}",
-		"SHORT_WRITE": "journal append wrote {wrote} of {want} bytes",
-		"TAIL_CORRUPTION": "journal tail is corrupt: {reason}",
-		"INVALID_ACTOR_FORMAT": "human actor value is invalid: {reason}",
-		"NO_HUMAN_ACTOR": "no human actor could be resolved for a human-only command",
-		"DUPLICATE_REQ_ID": "REQ id {id} is already in the spec projection",
-		"DUPLICATE_SCEN_ID": "SCEN id {id} is already in the spec projection",
-		"DUPLICATE_VIS_ID": "VIS id {id} is already in the spec projection",
-		"SPEC_FRONTMATTER_INVALID": "spec frontmatter failed gate check 1 (subcode={subcode})",
-		"SPEC_HAS_UNCLARIFIED": "spec has {count} unresolved needs_clarification entries (ids={ids}); resolve or remove them before spec-lock can pass",
-		"TASK_NOT_FOUND": "task {task_id} is not in the current tasks projection",
-		"TASK_STEP_NOT_FOUND": "step {step} is not seeded on task {task_id} — seeded steps are derived from the task's kind execution schema (§14)",
-		"DUPLICATE_TASK_ID": "task id {task_id} appears more than once in tasks_planned payload",
-		"TASKS_NOT_PLANNED": "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
-		"TASKS_BASED_ON_STALE": "gate task-graph check: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
-		"REQ_NOT_DRIVEN": "spec-lock check 4: requirement {req_id} is not referenced by any task.drives[]",
-		"E2E_SCENARIO_UNBOUND": "spec-lock check 6: e2e scenario {scenario_id} has no binding task (requires task with requires_acceptance=true AND drives includes {scenario_id})",
-		"VISUAL_CONTRACT_UNBOUND": "spec-lock check 7: visual_contract {visual_id} has no visual-ui task whose visual_contract_refs includes it",
-		"TASK_KIND_SCHEMA_VIOLATION": "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
-		"GATE_PRECONDITION_VIOLATION": "gate:decided {gate} approval rejected at the mutate layer: {failure_count} check(s) failed",
-		"MULTIPLE_GATE_DECISIONS": "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
-		"GATE_NOT_IMPLEMENTED": "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
-		"VERIFY_LANE_NOT_PASSED": "verify-accept check 1: applicable VERIFY lane={lane} has no evidence with passing/approved/waived result",
-		"OPEN_FINDINGS_PRESENT": "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
-		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
-		"TASK_DONE_NO_EVIDENCE": "verify-accept check 4: task {task_id} is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
-		"SPEC_REVIEW_MISSING": "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
-		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
-		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
-		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
-		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
-		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
-		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
-		"DELIVER_SPIKE_TASKS": "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
-		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
-		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
-		"TASK_NOT_CLAIMABLE": "task {task_id} cannot be claimed (status={status} — terminal state)",
-		"TASK_ALREADY_CLAIMED": "task {task_id} is already claimed (status=in_progress)",
-		"TASK_DEP_NOT_FOUND": "task {task_id} field {field} references missing task {ref}",
-		"TASK_DEP_SELF": "task {task_id} cannot depend on itself",
-		"TASK_DEP_DUPLICATE": "task {task_id} repeats dependency {ref} at indexes {indexes}",
-		"TASK_DEP_CYCLE": "task dependency graph contains cycle {cycle}",
-		"TASK_DEP_ABANDONED": "task {task_id} field {field} references abandoned task {ref}; {hint}",
-		"TASK_DEPS_NOT_SATISFIED": "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
-		"TASK_NOT_CLAIMED": "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
-		"TASK_NOT_ABANDONABLE": "task {task_id} cannot be abandoned (status={status} — already in a final status)",
-		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it; abandon or complete the dependents first",
-		"SESSION_REASON_REQUIRED": "{kind}: --reason is required (the session-terminal entry must record why)",
-		"PROJECTION_WRITE_FAILED": "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
-		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
-		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
-		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
-		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
-		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
-		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
-		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
-		"SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
-		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
-		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
-		"INVALID_PRESET": "invalid ceremony preset",
-		"USAGE": "invalid CLI usage",
-		"DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
-		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
-		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
-		"REDUCER_ERROR": "internal reducer invariant failed",
-		"APPEND_ERROR": "journal append failed",
-		"SIDECAR_ERROR": "sidecar finalize failed: {err}",
-		"INVALID_BATCH": "mutation batch is invalid",
-		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded batch is invalid: {reason}",
-		"SCOPE_RECORDED_ITERATION_DUPLICATE": "scope:recorded already exists for iteration {iteration}",
-		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
-		"WRITE_PATH_VIOLATION": "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
-		"PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable"
-	},
-	diagnostic_fix: {
-		"INPUT_FILE_NOT_FOUND": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
-		"MISSING_INPUT": "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
-		"SPEC_EDIT_INPUT_REQUIRED": "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
-		"SCHEMA_VALIDATION_FAILED": "inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract",
-		"SPEC_LOCKED_NO_DIRECT_EDIT": "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
-		"SPEC_NOT_INITIALIZED": "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
-		"SPEC_ALREADY_INITIALIZED": "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
-		"CONFIG_ALREADY_INITIALIZED": "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
-		"ATTACHMENT_NOT_FOUND": "verify the path is reachable from the working directory and readable by the current user",
-		"ATTACHMENT_NOT_FILE": "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
-		"FINDING_ACTION_UNUSUAL_REASON_REQUIRED": "rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)",
-		"FINDING_ACTION_INCOHERENT": "amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task",
-		"FINDING_TARGET_REQUIRED": "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
-		"PRUNE_RESTORE_NOT_FOUND": "run `loaf prune --history` to list trashed sessions (slice 6b)",
-		"PRUNE_RESTORE_AMBIGUOUS": "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
-		"PRUNE_RESTORE_INCOMPLETE": "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
-		"PRUNE_PATH_OCCUPIED": "move or remove the occupying registry entry / feature dir, then retry restore",
-		"PRUNE_PARTIAL_FAILURE": "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
-		"MUTUALLY_EXCLUSIVE_FLAGS": "pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list",
-		"INVALID_ENV_VALUE": "unset {env_name} or set it to one of: {accepted}",
-		"INVALID_FORMAT": "pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted",
-		"INVALID_LOCALE": "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
-		"DRY_RUN_NOT_APPLICABLE": "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
-		"HOOK_EVENT_NOT_IMPLEMENTED": "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
-		"TASK_STATUS_WITHOUT_PROOF": "emit `loaf evidence add` covering task_id={task_id} before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)",
-		"MISSING_VERIFIABILITY": "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
-		"VAGUE_NO_SCENARIO": "either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios",
-		"DRIVES_NOT_BOUND": "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
-		"MUTATION_OUT_OF_RIGHTS": "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
-		"LOCK_TIMEOUT": "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
-		"LOCK_INVALID": "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
-		"FEATURE_NOT_FOUND": "run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree",
-		"FEATURE_AMBIGUOUS": "disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment",
-		"SESSION_CWD_MISMATCH": "cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd",
-		"SESSION_SHORT_AMBIGUOUS": "pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID",
-		"SESSION_NOT_FOUND": "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
-		"PENDING_BLOCKS_ADVANCE": "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
-		"GATE_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
-		"ESCALATION_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
-		"ACTOR_AUTHORITY_VIOLATION": "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
-		"FROM_CURSOR_MISMATCH": "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
-		"INVALID_ENVELOPE": "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
-		"INVALID_PAYLOAD": "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
-		"SEQ_NOT_MONOTONIC": "refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`",
-		"SETTLE_PHASE_BYPASS": "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
-		"SETTLE_PHASE_DISABLED": "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
-		"SPEC_PHASE_FORK_VIOLATION": "follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan",
-		"SUB_STATE_AUTHORITY_VIOLATION": "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
-		"TRANSITION_ILLEGAL": "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
-		"VERIFY_PHASE_FORK_VIOLATION": "follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification",
-		"EXECUTE_DONE_TASKS_NOT_FINAL": "finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress",
-		"ALREADY_STARTED": "resume the existing session or create a new feature directory instead of starting over initialized state",
-		"FINDING_NOT_FOUND": "list open findings and close an existing id, or raise the finding before closing it",
-		"NO_SESSION": "run `loaf start` before emitting non-bootstrap journal entries",
-		"PENDING_NOT_FOUND": "resolve the current pending head only; list pending items and retry with the head id",
-		"REDUCER_NOT_IMPLEMENTED": "implement the journal kind in the exhaustive reducer switch before appending it",
-		"ENTRY_OVERSIZE": "move long text into sidecar form via LongTextField instead of embedding it inline",
-		"SHORT_WRITE": "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
-		"TAIL_CORRUPTION": "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
-		"INVALID_ACTOR_FORMAT": "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
-		"NO_HUMAN_ACTOR": "run interactively with git user.email configured, or set LOAF_USER explicitly",
-		"DUPLICATE_REQ_ID": "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
-		"DUPLICATE_SCEN_ID": "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
-		"DUPLICATE_VIS_ID": "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
-		"SPEC_FRONTMATTER_INVALID": "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy either gate.",
-		"SPEC_HAS_UNCLARIFIED": "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
-		"TASK_NOT_FOUND": "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
-		"TASK_STEP_NOT_FOUND": "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
-		"DUPLICATE_TASK_ID": "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
-		"TASKS_NOT_PLANNED": "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
-		"TASKS_BASED_ON_STALE": "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
-		"REQ_NOT_DRIVEN": "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
-		"E2E_SCENARIO_UNBOUND": "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
-		"VISUAL_CONTRACT_UNBOUND": "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
-		"TASK_KIND_SCHEMA_VIOLATION": "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
-		"GATE_PRECONDITION_VIOLATION": "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
-		"MULTIPLE_GATE_DECISIONS": "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
-		"GATE_NOT_IMPLEMENTED": "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
-		"VERIFY_LANE_NOT_PASSED": "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
-		"OPEN_FINDINGS_PRESENT": "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
-		"COVERAGE_NOT_SATISFIED": "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
-		"TASK_DONE_NO_EVIDENCE": "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
-		"SPEC_REVIEW_MISSING": "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
-		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
-		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
-		"DELIVER_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
-		"DELIVER_SETTLE_PHASE_BYPASS": "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
-		"DELIVER_VERIFY_MIN_UNAVAILABLE": "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
-		"DELIVER_VERIFY_MIN_INCOMPLETE": "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
-		"DELIVER_SPIKE_TASKS": "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
-		"SETTLE_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
-		"SPEC_LOCK_NOT_SATISFIED": "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
-		"TASK_NOT_CLAIMABLE": "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
-		"TASK_ALREADY_CLAIMED": "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
-		"TASK_DEP_NOT_FOUND": "add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry",
-		"TASK_DEP_SELF": "remove the self-reference from depends_on, then retry the task graph mutation",
-		"TASK_DEP_DUPLICATE": "keep each dependency id only once in depends_on, then retry",
-		"TASK_DEP_CYCLE": "remove or redirect one dependency in the reported closed path, then retry",
-		"TASK_DEP_ABANDONED": "use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry",
-		"TASK_DEPS_NOT_SATISFIED": "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
-		"TASK_NOT_CLAIMED": "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
-		"TASK_NOT_ABANDONABLE": "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
-		"TASK_ABANDON_BLOCKED_DEPENDENTS": "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
-		"SESSION_REASON_REQUIRED": "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
-		"PROJECTION_WRITE_FAILED": "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
-		"FINDING_AMEND_SPEC_NOT_LOCKED": "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
-		"SPEC_VERSION_NOT_MONOTONIC": "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
-		"SPEC_VERSION_BATCH_MISMATCH": "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
-		"TASK_COMPLETE_PRECONDITION_VIOLATED": "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
-		"BUG_TASK_REQUIRES_RED": "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
-		"BUG_TASK_FLAG_MISUSE": "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
-		"BUG_TASK_RED_NOT_REGISTERED": "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
-		"SPIKE_CONVERT_NO_SPIKE_TASK": "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
-		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
-		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
-		"INVALID_PRESET": "Use one of quick, light, standard, or deep.",
-		"USAGE": "Run the command with --help and retry with the required flags/arguments.",
-		"DOCTOR_MODE_NOT_IMPLEMENTED": "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
-		"DOCTOR_FEATURE_REQUIRED": "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
-		"DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
-		"REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
-		"APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
-		"SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
-		"INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
-		"SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
-		"SCOPE_RECORDED_ITERATION_DUPLICATE": "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",
-		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.",
-		"WRITE_PATH_VIOLATION": "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
-		"PROTECTED_FILE_WRITE": "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file"
-	},
-	diagnostic_variant: { "failure": {
-		"check": {
-			"path_missing": "file not found: {path}",
-			"selector_conflict": "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
-			"kind_required": "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
-			"kind_invalid": "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}"
-		},
-		"profile": {
-			"input_file_missing": "input file does not exist: {path}",
-			"input_file_unreadable": "cannot read input file {path}: {error}"
-		},
-		"lessons": {
-			"file_missing": "lesson file not found: {path}",
-			"text_too_short": "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
-			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
-			"text_file_mutex": "exactly one of --text or --file required ({provided_state})"
-		},
-		"hook": {
-			"stdin_parse_failed": "{reason}",
-			"missing_event": "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
-			"unknown_event": "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
-			"write_path_missing": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)"
-		},
-		"schema": {
-			"validation": "{kind} at {path} failed schema validation ({error_count} {error_word})",
-			"selector_conflict": "{subject} does not accept {conflicting} — schema dumps are feature-agnostic"
-		},
-		"handoff": {
-			"pack_validation_failed": "ResumePack failed runtime validation (builder bug or schema drift)",
-			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})"
-		},
-		"tasks_add": { "empty_array": "tasks add input is an empty array" },
-		"write_guard": { "config_invalid": "write-guard blocked: {reason}" },
-		"no_session": {
-			"status": "run `loaf start {feature}` first",
-			"advance": "run `loaf start {feature}` first",
-			"tasks": "run `loaf start {feature}` first",
-			"pending": "run `loaf start {feature}` first",
-			"finding": "run `loaf start {feature}` first",
-			"verify": "run `loaf start {feature}` first",
-			"generic": "run `loaf start {feature}` first"
-		},
-		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
-		"tui": {
-			"selector_conflict": "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
-			"interactive_only": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output"
-		},
-		"dispatch": {
-			"session_feature_dir_conflict": "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
-			"feature_dir_requires_feature": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature"
-		},
-		"start": {
-			"label_too_short": "--label must be at least {min_length} characters",
-			"workspace_empty": "--workspace must not be empty"
-		},
-		"finding": { "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})" },
-		"journal": {
-			"integer_invalid": "{flag} must be an integer >= {minimum} (got {value})",
-			"kind_invalid": "--kind must be a registered journal kind (got {value})",
-			"actor_invalid": "--actor must be a non-empty actor prefix or full actor string"
-		},
-		"evidence": {
-			"covers_invalid": "--covers must be a valid coverage id (got {value})",
-			"task_invalid": "--task must be a valid task id (got {value})",
-			"kind_invalid": "--kind must be one of: {allowed_kinds_human}"
-		}
-	} },
-	diagnostic_variant_fix: { "failure": {
-		"check": {
-			"path_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
-			"selector_conflict": "Run the command with --help and retry with the required flags/arguments.",
-			"kind_required": "Run the command with --help and retry with the required flags/arguments.",
-			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"profile": {
-			"input_file_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
-			"input_file_unreadable": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples"
-		},
-		"lessons": {
-			"file_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
-			"text_too_short": "Run the command with --help and retry with the required flags/arguments.",
-			"reason_too_short": "Run the command with --help and retry with the required flags/arguments.",
-			"text_file_mutex": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"hook": {
-			"stdin_parse_failed": "pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook",
-			"missing_event": "Run the command with --help and retry with the required flags/arguments.",
-			"unknown_event": "Run the command with --help and retry with the required flags/arguments.",
-			"write_path_missing": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"schema": {
-			"validation": "fix the reported fields in {path}, then rerun `loaf check {path} --kind {kind}`",
-			"selector_conflict": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"handoff": {
-			"pack_validation_failed": "preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version",
-			"reason_too_short": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"tasks_add": { "empty_array": "provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input" },
-		"write_guard": { "config_invalid": "repair .loaf/.config/loaf.config.json, then retry the write-side hook" },
-		"no_session": {
-			"status": "run `loaf start` before emitting non-bootstrap journal entries",
-			"advance": "run `loaf start` before emitting non-bootstrap journal entries",
-			"tasks": "run `loaf start` before emitting non-bootstrap journal entries",
-			"pending": "run `loaf start` before emitting non-bootstrap journal entries",
-			"finding": "run `loaf start` before emitting non-bootstrap journal entries",
-			"verify": "run `loaf start` before emitting non-bootstrap journal entries",
-			"generic": "run `loaf start` before emitting non-bootstrap journal entries"
-		},
-		"sessions_list": { "selector_conflict": "Run the command with --help and retry with the required flags/arguments." },
-		"tui": {
-			"selector_conflict": "Run the command with --help and retry with the required flags/arguments.",
-			"interactive_only": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"dispatch": {
-			"session_feature_dir_conflict": "Run the command with --help and retry with the required flags/arguments.",
-			"feature_dir_requires_feature": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"start": {
-			"label_too_short": "Run the command with --help and retry with the required flags/arguments.",
-			"workspace_empty": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"finding": { "status_invalid": "Run the command with --help and retry with the required flags/arguments." },
-		"journal": {
-			"integer_invalid": "Run the command with --help and retry with the required flags/arguments.",
-			"kind_invalid": "Run the command with --help and retry with the required flags/arguments.",
-			"actor_invalid": "Run the command with --help and retry with the required flags/arguments."
-		},
-		"evidence": {
-			"covers_invalid": "Run the command with --help and retry with the required flags/arguments.",
-			"task_invalid": "Run the command with --help and retry with the required flags/arguments.",
-			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
-		}
-	} },
-	success: {
-		"next": {
-			"full_command_pointer": "run `{command}` for the full command",
-			"deliver": "loaf deliver",
-			"settle": "loaf settle",
-			"settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
-		},
-		"start": { "state_change": "start: '{feature}' created → TRIAGE.score" },
-		"advance": { "state_change": "advance: {from} → {to}" },
-		"gate": {
-			"spec_lock_approved_state_change": "gate decide: spec-lock approved by {actor}",
-			"verify_accept_approved_state_change": "gate decide: verify-accept approved by {actor}",
-			"rejected_state_change": "gate decide: {gate} rejected by {actor}"
-		},
-		"deliver": {
-			"state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
-			"next": "session complete — `loaf start <feature>` to begin another"
-		},
-		"archive": { "state_change": "archive: {feature} — {from} → DONE.archived by {actor}" },
-		"abandon": { "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor} (reason='{reason}')" },
-		"spike": { "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}" },
-		"profile": { "escalate_state_change": "profile escalate: ceremony updated, {pending_id} resolved" },
-		"tasks": {
-			"submit_text_one": "submitted {count} task: {task_ids}",
-			"submit_text_many": "submitted {count} tasks: {task_ids}",
-			"submit_state_change": "tasks submit: {count} tasks",
-			"add_text_one": "added {count} task: {task_ids}",
-			"add_text_many": "added {count} tasks: {task_ids}",
-			"add_sponsored_text_one": "added {count} task (sponsored by {finding}): {task_ids}",
-			"add_sponsored_text_many": "added {count} tasks (sponsored by {finding}): {task_ids}",
-			"add_state_change": "tasks add: +{count} tasks (allocated {task_ids})",
-			"claim_state_change": "tasks claim: {task_id} (status={status})",
-			"abandon_state_change": "tasks abandon: {task_id} (status={status})",
-			"register_red_state_change": "tasks register-red: {task_id}"
-		},
-		"doctor": {
-			"rebuild_text_one": "rebuilt {count} projection file for {feature}:",
-			"rebuild_text_many": "rebuilt {count} projection files for {feature}:",
-			"rebuild_state_change_one": "doctor rebuild: rebuilt {count} projection file for {feature}",
-			"rebuild_state_change_many": "doctor rebuild: rebuilt {count} projection files for {feature}"
-		},
-		"snapshot": { "as_of_seq": "# snapshot as-of seq={seq}" },
-		"amend": {
-			"sponsored_text": "amended {task_id} (sponsored by {finding_id})",
-			"policy_text": "amended {task_id} ({applied})",
-			"state_change": "amend: {task_id}"
-		},
-		"step": {
-			"start_state_change": "step start: {task_id} {step} (running)",
-			"done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
-			"done_evidence_suffix": " evidence={evidence_id}",
-			"done_promote_suffix": " (task auto-promoted to done)",
-			"done_state_change": "step done: {task_id} {step} ({result})"
-		},
-		"settle": {
-			"text": "",
-			"state_change": "settle: {from} → SETTLE.lessons"
-		},
-		"resume": { "state_change": "resume: session {session_id} (sub_state={sub_state} unchanged)" },
-		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
-		"pending": {
-			"raise_state_change": "pending raise: {pending_id} (kind={kind})",
-			"resolve_text": "resolved {pending_id} (kind={kind})",
-			"resolve_state_change": "pending resolve: {pending_id} cleared"
-		},
-		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
-		"lessons": { "add_state_change": "lessons add: {lesson_id} recorded (kind=lesson:recorded; lessons.md updated)" },
-		"evidence": {
-			"covers_none": "<none>",
-			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
-			"add_state_change_batch_homogeneous": "evidence add: +{count} evidence ({evidence_ids}; kind={kind}, covers={covers})",
-			"add_state_change_batch_mixed": "evidence add: +{count} evidence ({evidence_ids})"
-		},
-		"finding": {
-			"close_text": "closed {finding_id}",
-			"close_state_change": "finding close: {finding_id} → closed"
-		},
-		"spec": {
-			"submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
-			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
-			"submit_next": "loaf gate decide spec-lock",
-			"init_state_change": "spec init: wrote scaffold to {path}",
-			"init_next": "edit, then `loaf spec edit --input <json>`",
-			"edit_text": "spec edit: spec_version={spec_version}",
-			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
-			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
-			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
-			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
-			"add_req_state_change_one": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
-			"add_req_state_change_many": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
-			"add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
-			"add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
-			"add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO (spec_version={spec_version}; allocated {ids})",
-			"add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO (spec_version={spec_version}; allocated {ids})",
-			"add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
-			"add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
-			"add_visual_state_change_one": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})",
-			"add_visual_state_change_many": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})"
-		}
-	},
-	chrome: {
-		"status": {
-			"feature": "feature: {feature}",
-			"phase": "phase:   {phase}",
-			"cursor": "cursor:  {cursor}",
-			"tail": "tail:    seq={seq}",
-			"counts": "tasks={tasks_count} evidence={evidence_count} findings={findings_count} pending={pending_count}",
-			"snapshot_as_of_projection_loader": "# snapshot as-of seq={seq} (projection-loader, Phase 15 SC3)"
-		},
-		"tasks": {
-			"list_empty_filtered": "no tasks match --status={status}",
-			"list_empty": "no tasks in projection (run `loaf tasks submit` first)",
-			"ready_marker": "ready",
-			"list_row": "{task_id} {kind} {status}",
-			"list_row_ready": "{task_id} {kind} {status} [{ready}]",
-			"complete_text": "{task_id} complete (status={status})"
-		},
-		"pending": {
-			"list_row": "{pending_id} {kind} {status} {head}",
-			"no_open": "no open pending",
-			"open": "open",
-			"resolved": "resolved",
-			"head": "head",
-			"non_head": "-"
-		},
-		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
-		"journal": {
-			"list_row": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind}",
-			"list_row_batch": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind} batch_id={batch_id} batch_index={batch_index} batch_count={batch_count}",
-			"list_empty": "No journal entries."
-		},
-		"evidence": {
-			"list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
-			"list_empty": "No evidence entries.",
-			"compatibility_warning": "evidence kind {kind} cannot satisfy {covered_id}; use one of: {allowed_kinds} (entry written)"
-		},
-		"spec_status": {
-			"pass": "spec-lock: PASS",
-			"failure_row": "check {check}: FAIL {code} — {message}",
-			"suppressed_row": "check {check}: SUPPRESSED (blocked by check {blocked_by})"
-		},
-		"sessions": {
-			"empty": "(no sessions found)",
-			"warning": "registry entry {file} {action} ({reason}{detail_suffix})",
-			"action_skipped": "skipped",
-			"action_filtered_out": "filtered out",
-			"action_orphan_cwd": "has orphan cwd"
-		},
-		"relative": {
-			"just_now": "just now",
-			"minute_one": "{count} minute ago",
-			"minute_many": "{count} minutes ago",
-			"hour_one": "{count} hour ago",
-			"hour_many": "{count} hours ago",
-			"day_one": "{count} day ago",
-			"day_many": "{count} days ago"
-		},
-		"check": { "ok": "ok: {kind} at {path}" },
-		"verify_status": {
-			"pass": "pass",
-			"fail": "fail",
-			"na": "na",
-			"check_lane_status": "lane_status",
-			"check_open_findings": "open_findings",
-			"check_coverage": "coverage",
-			"check_task_evidence": "task_evidence",
-			"check_spec_review": "spec_review",
-			"check_deferred_findings": "deferred_findings",
-			"info": "info",
-			"deferred_summary": " {findings} (non-blocking)",
-			"failure_summary_one": " {code}",
-			"failure_summary_many": " {count} failures ({code}, …)",
-			"diagnostic_only": "(diagnostic only — gate verdict not implied)",
-			"lane_label": "lane.{lane}",
-			"lane_reason": " — {reason}",
-			"lane_reason_no_done_tasks": "no done tasks require run verification",
-			"lane_reason_no_review_obligations": "no non-NA requirements or done tasks require review verification",
-			"lane_reason_no_e2e_scenarios": "no applicable e2e scenarios require acceptance verification",
-			"lane_reason_no_visual_contracts": "no applicable visual contracts require visual verification"
-		},
-		"tui": {
-			"list": {
-				"title": "loaf sessions ({active_count} active / {total_count} total)",
-				"sort": "sort: {sort}",
-				"sort_time": "time",
-				"sort_status": "status",
-				"reloading": "reloading…",
-				"empty": "(no sessions found)",
-				"help": "[↑/↓] move · [Enter] detail · [space] fold · [a] active/all · [s] sort · [r] reload · [q] quit",
-				"row_iteration": "iter {value}"
-			},
-			"detail": {
-				"title": "loaf detail",
-				"help": "[Esc] back · [q] quit",
-				"no_selected": "(no detail selected)",
-				"loading": "loading…",
-				"missing_title": "missing: {feature}",
-				"missing_message": "run `loaf start {feature}` first",
-				"stale_title": "stale: {feature}",
-				"stale_message": "snapshot stale (reason={reason})",
-				"error_title": "error: {feature}",
-				"none": "(none)",
-				"boolean_true": "true",
-				"boolean_false": "false",
-				"field_feature": "feature: {value}",
-				"field_session": "session: {value}",
-				"field_label": "label: {value}",
-				"field_workspace": "workspace: {value}",
-				"field_ceremony": "ceremony: {value}",
-				"field_phase": "phase: {value}",
-				"field_iteration": "iteration: {value}",
-				"field_complexity": "complexity: {value}",
-				"field_based_on": "based_on: spec {spec} / tasks {tasks}",
-				"field_created": "created: {value}",
-				"field_updated": "updated: {value}",
-				"field_spec_locked": "spec_locked: {value}",
-				"field_verify_accepted": "verify_accepted: {value}",
-				"field_spec_version": "spec_version: {value}",
-				"field_tail_seq": "tail_seq: {value}",
-				"section_tasks": "tasks ({count})",
-				"section_evidence": "evidence ({count})",
-				"section_open_findings": "open findings ({count})",
-				"section_pending": "pending ({count})",
-				"evidence_badge_pass": "pass",
-				"evidence_badge_fail": "fail",
-				"evidence_badge_waived": "waived",
-				"sidecar_summary": "sidecar:{path}",
-				"step_summary": "{done}/{total} done",
-				"row_steps": "steps {value}",
-				"row_iteration": "iter {value}",
-				"row_task": "task {value}",
-				"row_target": "target {value}",
-				"row_blocks": "blocks={value}",
-				"row_options": "options={value}"
-			}
-		}
-	},
-	help: {
-		"start": "Begin a new feature session in .loaf/<feature>/",
-		"status": "Print current state.json + artifact health summary",
-		"next": "Compute the next owner command for the current session",
-		"advance": "Run next transition + diff guard (git status + write_paths AND-merge)",
-		"resume": "Resume session from a handoff pack",
-		"handoff": "Write resume-pack.json for context overflow handoff",
-		"spec_submit": "Validate spec.md against SpecFrontmatter schema and record (strict).",
-		"spec_init": "Scaffold a spec.md template ready for $EDITOR",
-		"spec_schema": "Dump SpecFrontmatter JSON Schema",
-		"tasks_submit": "Validate tasks.json against discriminated-union TaskKind schema",
-		"tasks_register_red": "Register failing test for a behavioral-bug task (required before implement)",
-		"evidence_add": "Append a new evidence entry; auto-assign EV-id",
-		"evidence_schema": "Dump EvidenceEntry JSON Schema",
-		"waive": "Record a waiver evidence; actor must start with human: and reason must be >=10 chars",
-		"finding_raise": "Raise a finding (VERIFY.* always, EXECUTE.* only post-spec-lock)",
-		"verify_status": "Compute current verify check applicability + status (real-time)",
-		"gate_decide": "Record human gate decision; writes evidence kind=gate-decision",
-		"settle": "Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)",
-		"amend": "Edit spec or tasks pre-lock (rejected post-lock; use findings instead)",
-		"profile_escalate": "Confirm pending profile escalation",
-		"deliver": "Close session as DONE.delivered (advisory only; no git/gh side effects)",
-		"archive": "Close session as DONE.archived",
-		"abandon": "Close session as DONE.abandoned (reason required)",
-		"tui": "Launch session manager TUI (reads ~/.loaf/registry/)",
-		"sessions_list": "List all sessions (non-TUI form)",
-		"check": "Schema-only check for a given artifact or path (CI usage)",
-		"check_tasks": "Reconcile tasks.execution.status (cache) with evidence.jsonl (proof)",
-		"hook": "Claude Code hook entrypoint",
-		"doctor": "Self-diagnose loaf-cli installation, repo layout, config"
-	},
-	status_indicator: {
-		"ask": "‖ ask",
-		"gate": "‖ gate",
-		"run": "▶ run",
-		"done": "✓ done",
-		"fail": "✗ fail",
-		"wait": "⏳ wait",
-		"idle": "idle"
-	}
+/** Canonical event list — frozen order for stable `--list-events` output
+*  and unknown-event did-you-mean ranking. */
+const HOOK_EVENTS = z.enum([
+	"session-start",
+	"write-guard",
+	"scope-track",
+	"closure-check"
+]).options;
+/** Map each hook event to its Claude Code wire-protocol event name.
+*  Canonical Claude Code protocol mapping. */
+const HOOK_EVENT_TO_CLAUDE_CODE = {
+	"session-start": "SessionStart",
+	"write-guard": "PreToolUse(Write,Edit)",
+	"scope-track": "PostToolUse(Write,Edit)",
+	"closure-check": "Stop"
 };
 //#endregion
-//#region i18n/zh.json
-var zh_default = {
-	_meta: {
-		"schema_version": 1,
-		"lang": "zh",
-		"note": "所有 key 对应 schemas.ts 稳定英文 ID。diagnostic 模板用 mustache 风格 {var} 占位,从 gate-diagnostic.failures[].vars 取值。"
-	},
-	evidence_kind: {
-		"task-summary": "任务总结",
-		"verify-review": "代码评审",
-		"spec-review": "规格评审",
-		"acceptance": "验收检查",
-		"visual-review": "视觉评审",
-		"gate-decision": "Gate 决策",
-		"local-check": "本地检查",
-		"manual": "人工验证",
-		"waiver": "风险豁免",
-		"spike-finding": "Spike 发现"
-	},
-	phase: {
-		"TRIAGE": "分诊",
-		"SPEC": "规格",
-		"EXECUTE": "执行",
-		"VERIFY": "验证",
-		"SETTLE": "结算",
-		"DONE": "完成"
-	},
-	sub_state: {
-		"TRIAGE": {
-			"score": "分诊 / 打分",
-			"confirm": "分诊 / 确认 profile"
-		},
-		"SPEC": {
-			"proposal": "规格 / 提案",
-			"spec": "规格 / 编写 EARS+Gherkin",
-			"plan": "规格 / 计划",
-			"design": "规格 / 设计 + tasks"
-		},
-		"EXECUTE": {
-			"plan": "执行 / 推导策略",
-			"work": "执行 / 任务进行中",
-			"done": "执行 / 所有任务终态"
-		},
-		"VERIFY": {
-			"plan": "验证 / 计算适用检查",
-			"run": "验证 / 检查进行中",
-			"review": "验证 / 评审",
-			"acceptance": "验证 / 验收",
-			"visual": "验证 / 视觉",
-			"accept": "验证 / 接收 gate"
-		},
-		"SETTLE": { "lessons": "结算 / 经验沉淀" },
-		"DONE": {
-			"delivered": "完成 · 已交付",
-			"archived": "完成 · 已归档",
-			"abandoned": "完成 · 已弃置"
-		}
-	},
-	task_kind: {
-		"behavioral": "行为",
-		"structural": "结构",
-		"visual-ui": "视觉 UI",
-		"docs": "文档",
-		"spike": "探索",
-		"chore": "杂务"
-	},
-	task_status: {
-		"pending": "待处理",
-		"ready": "就绪",
-		"in_progress": "进行中",
-		"done": "完成",
-		"abandoned": "已放弃"
-	},
-	step: {
-		"red": "红测(失败用例)",
-		"implement": "实现",
-		"refactor": "重构",
-		"mockup": "模拟图",
-		"screenshot-compare": "截图对比",
-		"draft": "草稿",
-		"review": "评审",
-		"explore": "探索",
-		"prototype": "原型",
-		"record": "记录",
-		"execute": "执行"
-	},
-	verify_check_kind: {
-		"run": "运行(测试 + lint + 类型检查)",
-		"review": "评审",
-		"acceptance": "验收(E2E)",
-		"visual": "视觉"
-	},
-	applicability: {
-		"must": "必须",
-		"optional": "可选",
-		"na": "不适用"
-	},
-	step_status: {
-		"na": "不适用",
-		"pending": "待处理",
-		"running": "进行中",
-		"passed": "通过",
-		"failed": "失败",
-		"waived": "已豁免"
-	},
-	finding_category: {
-		"spec-gap": "规格缺漏",
-		"spec-defect": "规格错误",
-		"impl-defect": "实现缺陷",
-		"test-defect": "测试缺陷",
-		"new-scope": "范围外新议",
-		"risk-escalation": "风险升级"
-	},
-	finding_action: {
-		"amend-spec": "修订规格",
-		"amend-tasks": "修订任务",
-		"fix-impl": "修实现",
-		"fix-test": "修测试",
-		"defer": "本轮延迟",
-		"backlog": "进 backlog(下个 feature)"
-	},
-	finding_status: {
-		"open": "开放",
-		"closed": "已关闭"
-	},
-	gate: {
-		"spec-lock": "规格锁定",
-		"verify-accept": "验证接收"
-	},
-	profile: {
-		"quick": "Quick(快速)",
-		"standard": "Standard(标准)",
-		"deep": "Deep(深度)"
-	},
-	pending_kind: {
-		"ask_user_question": "等待用户输入",
-		"gate_decision": "Gate 等待人工决策",
-		"spec_clarification": "规格待澄清",
-		"finding_decision": "Finding 等待 action",
-		"profile_escalation": "Profile 升级待确认"
-	},
-	board: {
-		"chrome": {
-			"app_title": "loaf 看板",
-			"brand": "loaf 看板",
-			"scope_label": "范围",
-			"all_sessions": "全部会话",
-			"current_cwd": "当前 cwd",
-			"refresh": "刷新",
-			"theme_toggle": "切换主题",
-			"eyebrow": "本地看板",
-			"heading": "Loaf 实时看板",
-			"subtitle": "读取本地 journal projection。",
-			"active": "活跃",
-			"blocked": "阻塞",
-			"updated": "更新于",
-			"waiting": "等待中",
-			"board_label": "Loaf 会话看板",
-			"no_sessions": "暂无会话。",
-			"none": "无。",
-			"session": "会话",
-			"session_detail": "会话详情",
-			"close_session_detail": "关闭会话详情",
-			"loading": "加载中...",
-			"session_error": "会话错误",
-			"iteration_short": "迭代"
-		},
-		"column": {
-			"TRIAGE": { "description": "打分并确认 ceremony" },
-			"SPEC": { "description": "提案、规格、计划、设计" },
-			"EXECUTE": { "description": "任务执行与并行展开" },
-			"VERIFY": { "description": "运行、评审、验收、视觉" },
-			"SETTLE": { "description": "经验沉淀" },
-			"DONE": { "description": "已交付或终态会话" }
-		},
-		"status": {
-			"pending_decision": "人工决策",
-			"pending_question": "问题"
-		},
-		"detail": {
-			"phase": "阶段",
-			"sub_state": "子状态",
-			"tail_seq": "尾序号",
-			"tasks": "任务",
-			"evidence": "证据",
-			"open_findings": "开放发现",
-			"pending": "待处理",
-			"task_done_suffix": "完成",
-			"evidence_passing_suffix": "通过",
-			"steps_suffix": "步骤"
-		}
-	},
-	diagnostic: {
-		"SPEC_EDIT_INPUT_REQUIRED": "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
-		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
-		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
-		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
-		"CONFIG_ALREADY_INITIALIZED": "loaf config 已存在于 {config_path};拒绝覆盖",
-		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason})",
-		"PRUNE_RESTORE_NOT_FOUND": "没有匹配该 id 的已回收 session",
-		"PRUNE_RESTORE_AMBIGUOUS": "该 session id 被回收过多次;用 --at <ts> 指定其一",
-		"PRUNE_RESTORE_INCOMPLETE": "trash 桶不完整(缺必要文件),不予恢复",
-		"PRUNE_PATH_OCCUPIED": "恢复目标已存在,拒绝覆盖",
-		"PRUNE_PARTIAL_FAILURE": "prune 部分失败:有 session 未能删除",
-		"MUTUALLY_EXCLUSIVE_FLAGS": "同一次调用使用了互斥的 flags:{flags}",
-		"INVALID_FORMAT": "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
-		"INVALID_LOCALE": "locale 来源 {source} 的值无效(期望:{accepted})",
-		"DRY_RUN_NOT_APPLICABLE": "--dry-run 不适用于{command_type}命令 `{command}`",
-		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
-		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
-		"DRIVES_NOT_BOUND": "需求 {req_id} 没有被任何 task.drives[] 引用",
-		"MUTATION_OUT_OF_RIGHTS": "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
-		"FEATURE_NOT_FOUND": "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
-		"FEATURE_AMBIGUOUS": "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
-		"SESSION_CWD_MISMATCH": "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
-		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
-		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
-		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
-		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
-		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
-		"EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
-		"OPEN_FINDINGS_PRESENT": "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
-		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
-		"DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
-		"DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
-		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
-		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
-		"DELIVER_SPIKE_TASKS": "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
-		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
-		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
-		"TASK_NOT_CLAIMABLE": "task {task_id} 无法 claim(status={status} — 终态)",
-		"TASK_ALREADY_CLAIMED": "task {task_id} 已被 claim(status=in_progress)",
-		"TASK_DEP_NOT_FOUND": "task {task_id} 的 {field} 引用了不存在的 task {ref}",
-		"TASK_DEP_SELF": "task {task_id} 不能依赖自身",
-		"TASK_DEP_DUPLICATE": "task {task_id} 在下标 {indexes} 重复声明依赖 {ref}",
-		"TASK_DEP_CYCLE": "task 依赖图包含环 {cycle}",
-		"TASK_DEP_ABANDONED": "task {task_id} 的 {field} 引用了已 abandoned 的 task {ref};{hint}",
-		"TASK_DEPS_NOT_SATISFIED": "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
-		"TASK_NOT_CLAIMED": "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
-		"TASK_NOT_ABANDONABLE": "task {task_id} 无法 abandon(status={status} — 已处于终态)",
-		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
-		"SESSION_REASON_REQUIRED": "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
-		"PROJECTION_WRITE_FAILED": "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
-		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
-		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
-		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
-		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
-		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
-		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
-		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
-		"SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
-		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason});跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
-		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
-		"INVALID_PRESET": "ceremony preset 不合法",
-		"USAGE": "CLI 用法不合法",
-		"DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
-		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild 必须带 --feature <name>",
-		"DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
-		"REDUCER_ERROR": "reducer 内部不变量失败",
-		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
-		"SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
-		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
-		"WRITE_PATH_VIOLATION": "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
-		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
-	},
-	diagnostic_fix: {
-		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
-		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。"
-	},
-	diagnostic_variant: { "failure": {
-		"check": {
-			"path_missing": "input file 不存在:{path}",
-			"selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
-			"kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
-			"kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
-		},
-		"profile": {
-			"input_file_missing": "input file 不存在:{path}",
-			"input_file_unreadable": "无法读取 input file {path}:{error}"
-		},
-		"lessons": {
-			"file_missing": "lesson file 不存在:{path}",
-			"text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
-			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
-			"text_file_mutex": "--text 和 --file 必须二选一({provided_state})"
-		},
-		"hook": {
-			"stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
-			"missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
-			"unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
-			"write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
-		},
-		"schema": {
-			"validation": "{kind} at {path} 校验失败({error_count} {error_word})",
-			"selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关"
-		},
-		"handoff": {
-			"pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)",
-			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
-		},
-		"tasks_add": { "empty_array": "tasks add 输入不能为空数组" },
-		"write_guard": { "config_invalid": "write-guard 被拦截:{reason}" },
-		"no_session": {
-			"status": "先跑 `loaf start {feature}`",
-			"advance": "先跑 `loaf start {feature}`",
-			"tasks": "先跑 `loaf start {feature}`",
-			"pending": "先跑 `loaf start {feature}`",
-			"finding": "先跑 `loaf start {feature}`",
-			"verify": "先跑 `loaf start {feature}`",
-			"generic": "先跑 `loaf start {feature}`"
-		},
-		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
-		"tui": {
-			"selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
-			"interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
-		},
-		"dispatch": {
-			"session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
-			"feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
-		},
-		"start": {
-			"label_too_short": "--label 至少需要 {min_length} 个字符",
-			"workspace_empty": "--workspace 不能为空"
-		},
-		"finding": { "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})" },
-		"journal": {
-			"integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
-			"kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
-			"actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
-		},
-		"evidence": {
-			"covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
-			"task_invalid": "--task 必须是有效的 task id(当前 {value})",
-			"kind_invalid": "--kind 必须是:{allowed_kinds_human}"
-		}
-	} },
-	diagnostic_variant_fix: {},
-	success: {
-		"next": {
-			"full_command_pointer": "运行 `{command}` 获取完整命令",
-			"deliver": "loaf deliver",
-			"settle": "loaf settle",
-			"settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
-		},
-		"start": { "state_change": "start: '{feature}' 已创建 → TRIAGE.score" },
-		"advance": { "state_change": "advance: {from} → {to}" },
-		"gate": {
-			"spec_lock_approved_state_change": "gate decide: spec-lock 已由 {actor} approve",
-			"verify_accept_approved_state_change": "gate decide: verify-accept 已由 {actor} approve",
-			"rejected_state_change": "gate decide: {gate} 已由 {actor} reject"
-		},
-		"deliver": {
-			"state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
-			"next": "session complete — 运行 `loaf start <feature>` 开始下一个 feature"
-		},
-		"archive": { "state_change": "archive: {feature} — {from} → DONE.archived by {actor}" },
-		"abandon": { "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor}(reason='{reason}')" },
-		"spike": { "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}" },
-		"profile": { "escalate_state_change": "profile escalate: ceremony 已更新,{pending_id} 已 resolved" },
-		"tasks": {
-			"submit_text_one": "已提交 {count} 个 task:{task_ids}",
-			"submit_text_many": "已提交 {count} 个 task:{task_ids}",
-			"submit_state_change": "tasks submit: {count} tasks",
-			"add_text_one": "已添加 {count} 个 task:{task_ids}",
-			"add_text_many": "已添加 {count} 个 task:{task_ids}",
-			"add_sponsored_text_one": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
-			"add_sponsored_text_many": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
-			"add_state_change": "tasks add: +{count} tasks(allocated {task_ids})",
-			"claim_state_change": "tasks claim: {task_id}(status={status})",
-			"abandon_state_change": "tasks abandon: {task_id}(status={status})",
-			"register_red_state_change": "tasks register-red: {task_id}"
-		},
-		"doctor": {
-			"rebuild_text_one": "已为 {feature} 重建 {count} 个 projection file:",
-			"rebuild_text_many": "已为 {feature} 重建 {count} 个 projection file:",
-			"rebuild_state_change_one": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file",
-			"rebuild_state_change_many": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file"
-		},
-		"snapshot": { "as_of_seq": "# snapshot as-of seq={seq}" },
-		"amend": {
-			"sponsored_text": "已修订 {task_id}(由 {finding_id} sponsor)",
-			"policy_text": "已修订 {task_id}({applied})",
-			"state_change": "amend: {task_id}"
-		},
-		"step": {
-			"start_state_change": "step start: {task_id} {step}(running)",
-			"done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
-			"done_evidence_suffix": " evidence={evidence_id}",
-			"done_promote_suffix": " (task auto-promoted to done)",
-			"done_state_change": "step done: {task_id} {step}({result})"
-		},
-		"settle": {
-			"text": "",
-			"state_change": "settle: {from} → SETTLE.lessons"
-		},
-		"resume": { "state_change": "resume: session {session_id}(sub_state={sub_state} unchanged)" },
-		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
-		"pending": {
-			"raise_state_change": "pending raise: {pending_id}(kind={kind})",
-			"resolve_text": "已 resolve {pending_id}(kind={kind})",
-			"resolve_state_change": "pending resolve: {pending_id} cleared"
-		},
-		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
-		"lessons": { "add_state_change": "lessons add: {lesson_id} 已记录(kind=lesson:recorded; lessons.md 已更新)" },
-		"evidence": {
-			"covers_none": "<none>",
-			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
-			"add_state_change_batch_homogeneous": "evidence add: +{count} evidence({evidence_ids}; kind={kind}, covers={covers})",
-			"add_state_change_batch_mixed": "evidence add: +{count} evidence({evidence_ids})"
-		},
-		"finding": {
-			"close_text": "已关闭 {finding_id}",
-			"close_state_change": "finding close: {finding_id} → closed"
-		},
-		"spec": {
-			"submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
-			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
-			"submit_next": "loaf gate decide spec-lock",
-			"init_state_change": "spec init: 已写 scaffold 到 {path}",
-			"init_next": "编辑后运行 `loaf spec edit --input <json>`",
-			"edit_text": "spec edit: spec_version={spec_version}",
-			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
-			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
-			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
-			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
-			"add_req_state_change_one": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
-			"add_req_state_change_many": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
-			"add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
-			"add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
-			"add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
-			"add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
-			"add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
-			"add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
-			"add_visual_state_change_one": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})",
-			"add_visual_state_change_many": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})"
-		}
-	},
-	chrome: {
-		"status": {
-			"feature": "功能: {feature}",
-			"phase": "阶段: {phase}",
-			"cursor": "游标: {cursor}",
-			"tail": "尾部: seq={seq}",
-			"counts": "任务={tasks_count} 证据={evidence_count} 发现={findings_count} 待决={pending_count}",
-			"snapshot_as_of_projection_loader": "# snapshot 当前 seq={seq}(projection-loader, Phase 15 SC3)"
-		},
-		"tasks": {
-			"list_empty_filtered": "没有任务匹配 --status={status}",
-			"list_empty": "projection 中没有任务(先运行 `loaf tasks submit`)",
-			"ready_marker": "就绪",
-			"list_row": "{task_id} {kind} {status}",
-			"list_row_ready": "{task_id} {kind} {status} [{ready}]",
-			"complete_text": "任务 {task_id} 已完成(status={status})"
-		},
-		"pending": {
-			"list_row": "{pending_id} {kind} {status} {head}",
-			"no_open": "没有未处理待决项",
-			"open": "未处理",
-			"resolved": "已解决",
-			"head": "队首",
-			"non_head": "-"
-		},
-		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
-		"journal": {
-			"list_row": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind}",
-			"list_row_batch": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind} 批次={batch_id} 批次索引={batch_index} 批次数量={batch_count}",
-			"list_empty": "没有日志条目。"
-		},
-		"evidence": {
-			"list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
-			"list_empty": "没有证据条目。",
-			"compatibility_warning": "证据类型 {kind} 无法满足 {covered_id};请改用以下类型之一:{allowed_kinds}(条目已写入)"
-		},
-		"spec_status": {
-			"pass": "spec-lock：通过",
-			"failure_row": "检查 {check}：失败 {code} — {message}",
-			"suppressed_row": "检查 {check}：已抑制（由检查 {blocked_by} 阻塞）"
-		},
-		"sessions": {
-			"empty": "(没有 session)",
-			"warning": "registry 条目 {file} {action}({reason}{detail_suffix})",
-			"action_skipped": "已跳过",
-			"action_filtered_out": "被过滤",
-			"action_orphan_cwd": "cwd 已孤立"
-		},
-		"relative": {
-			"just_now": "刚刚",
-			"minute_one": "{count} 分钟前",
-			"minute_many": "{count} 分钟前",
-			"hour_one": "{count} 小时前",
-			"hour_many": "{count} 小时前",
-			"day_one": "{count} 天前",
-			"day_many": "{count} 天前"
-		},
-		"check": { "ok": "通过: {kind} 于 {path}" },
-		"verify_status": {
-			"pass": "通过",
-			"fail": "失败",
-			"na": "不适用",
-			"check_lane_status": "泳道状态",
-			"check_open_findings": "未关闭发现",
-			"check_coverage": "覆盖",
-			"check_task_evidence": "任务证据",
-			"check_spec_review": "规格评审",
-			"check_deferred_findings": "延期发现",
-			"info": "信息",
-			"deferred_summary": " {findings}(不阻塞)",
-			"failure_summary_one": " {code}",
-			"failure_summary_many": " {count} 个失败({code}, …)",
-			"diagnostic_only": "(仅诊断 —— 不代表 gate 结论)",
-			"lane_label": "泳道.{lane}",
-			"lane_reason": " —— {reason}",
-			"lane_reason_no_done_tasks": "没有已完成任务需要运行验证",
-			"lane_reason_no_review_obligations": "没有非 NA 需求或已完成任务需要评审验证",
-			"lane_reason_no_e2e_scenarios": "没有适用的 e2e 场景需要验收验证",
-			"lane_reason_no_visual_contracts": "没有适用的视觉合约需要视觉验证"
-		},
-		"tui": {
-			"list": {
-				"title": "loaf sessions ({active_count} 活跃 / {total_count} 总计)",
-				"sort": "排序: {sort}",
-				"sort_time": "时间",
-				"sort_status": "状态",
-				"reloading": "刷新中…",
-				"empty": "(没有会话)",
-				"help": "[↑/↓] 移动 · [Enter] 详情 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 重新加载 · [q] 退出",
-				"row_iteration": "迭代 {value}"
-			},
-			"detail": {
-				"title": "loaf 详情",
-				"help": "[Esc] 返回 · [q] 退出",
-				"no_selected": "(未选择详情)",
-				"loading": "加载中…",
-				"missing_title": "缺失: {feature}",
-				"missing_message": "先运行 `loaf start {feature}`",
-				"stale_title": "过期: {feature}",
-				"stale_message": "快照过期(reason={reason})",
-				"error_title": "错误: {feature}",
-				"none": "(无)",
-				"boolean_true": "是",
-				"boolean_false": "否",
-				"field_feature": "功能: {value}",
-				"field_session": "会话: {value}",
-				"field_label": "标签: {value}",
-				"field_workspace": "工作区: {value}",
-				"field_ceremony": "仪式: {value}",
-				"field_phase": "阶段: {value}",
-				"field_iteration": "迭代: {value}",
-				"field_complexity": "复杂度: {value}",
-				"field_based_on": "基于: spec {spec} / tasks {tasks}",
-				"field_created": "创建: {value}",
-				"field_updated": "更新: {value}",
-				"field_spec_locked": "规格已锁定: {value}",
-				"field_verify_accepted": "验证已接收: {value}",
-				"field_spec_version": "规格版本: {value}",
-				"field_tail_seq": "尾部 seq: {value}",
-				"section_tasks": "任务 ({count})",
-				"section_evidence": "证据 ({count})",
-				"section_open_findings": "未关闭发现 ({count})",
-				"section_pending": "待决 ({count})",
-				"evidence_badge_pass": "通过",
-				"evidence_badge_fail": "失败",
-				"evidence_badge_waived": "已豁免",
-				"sidecar_summary": "旁载:{path}",
-				"step_summary": "{done}/{total} 已完成",
-				"row_steps": "步骤 {value}",
-				"row_iteration": "迭代 {value}",
-				"row_task": "任务 {value}",
-				"row_target": "目标 {value}",
-				"row_blocks": "阻塞={value}",
-				"row_options": "选项={value}"
-			}
-		}
-	},
-	help: {
-		"start": "在 .loaf/<feature>/ 开启新 feature session",
-		"status": "打印当前 state.json + artifact 健康摘要",
-		"next": "计算当前 session 的下一条 owner command",
-		"advance": "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
-		"resume": "从 handoff pack 恢复 session",
-		"handoff": "写 resume-pack.json,context overflow 接力",
-		"spec_submit": "严格按 SpecFrontmatter schema 校验并落 spec.md",
-		"spec_init": "生成 spec.md 模板(适合 $EDITOR 跟进)",
-		"spec_schema": "dump SpecFrontmatter JSON Schema",
-		"tasks_submit": "严格按 TaskKind discriminated union 校验 tasks.json",
-		"tasks_register_red": "为 behavioral+bug 任务登记失败测试(implement 之前必做)",
-		"evidence_add": "追加一条 evidence;自动分配 EV-id",
-		"evidence_schema": "dump EvidenceEntry JSON Schema",
-		"waive": "记录一条 waiver 证据;actor 必须 human:* 起始,reason ≥10 字符",
-		"finding_raise": "raise 一条 finding(VERIFY.* 始终允许,EXECUTE.* 仅 post-spec-lock 允许)",
-		"verify_status": "实时计算各 verify check 的 applicability + status",
-		"gate_decide": "记录人工 gate 决策;写 evidence kind=gate-decision",
-		"settle": "推进 VERIFY.accept → SETTLE.lessons(仅 deep ceremony)",
-		"amend": "spec-lock 前编辑 spec / tasks(post-lock 拒绝,改走 finding)",
-		"profile_escalate": "确认 pending profile 升级",
-		"deliver": "标记 session 为 DONE.delivered(advisory only,不碰 git/gh)",
-		"archive": "关闭 session 为 DONE.archived",
-		"abandon": "关闭 session 为 DONE.abandoned(必须带 --reason)",
-		"tui": "启动 session manager TUI(读取 ~/.loaf/registry/)",
-		"sessions_list": "列出所有 session(非 TUI 形式)",
-		"check": "纯 schema 校验(CI 用)",
-		"check_tasks": "校验 tasks.execution.status(cache)与 evidence.jsonl(证据)一致性",
-		"hook": "Claude Code hook 入口",
-		"doctor": "自检 loaf-cli 安装、仓库结构、配置"
-	},
-	status_indicator: {
-		"ask": "‖ 询问",
-		"gate": "‖ Gate",
-		"run": "▶ 运行",
-		"done": "✓ 完成",
-		"fail": "✗ 失败",
-		"wait": "⏳ 等待",
-		"idle": "空闲"
-	}
-};
-//#endregion
-//#region src/cli/i18n.ts
-const LOCALES = ["en", "zh"];
-const BUILTIN_BUNDLES = {
-	en: en_default,
-	zh: zh_default
-};
-const DEFAULT_I18N = createI18n("en", BUILTIN_BUNDLES);
-function isLocale(value) {
-	return typeof value === "string" && LOCALES.includes(value);
-}
-function invalidLocale(source, value) {
-	return {
-		ok: false,
-		code: "INVALID_LOCALE",
-		detail: {
-			source,
-			value,
-			accepted: [...LOCALES]
-		}
-	};
-}
-function parseLangArg(argv) {
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === "--lang") return argv[i + 1];
-		if (arg.startsWith("--lang=")) return arg.slice(7);
-	}
-}
-function parseAmbientLocale(env) {
-	const raw = env.LC_ALL ?? env.LC_MESSAGES ?? env.LANG;
-	if (!raw || raw === "C" || raw === "POSIX") return null;
-	const normalized = raw.toLowerCase();
-	if (normalized.startsWith("zh")) return "zh";
-	if (normalized.startsWith("en")) return "en";
-	return null;
-}
-function resolveLocale(input) {
-	const argvLocale = parseLangArg(input.argv);
-	if (argvLocale !== void 0) {
-		if (!isLocale(argvLocale)) return invalidLocale("--lang", argvLocale);
-		return {
-			ok: true,
-			locale: argvLocale,
-			source: "argv"
+//#region src/core/argv-scanner.ts
+/** Keep every raw token, including option-looking values and duplicates.
+* No command recognition, validation, alias expansion or shell parsing occurs.
+*/
+function scanArgv(argv, valueFlags = /* @__PURE__ */ new Set()) {
+	return argv.map((raw, index) => {
+		if (raw === "--") return {
+			kind: "terminator",
+			index,
+			raw
 		};
-	}
-	const envLocale = input.env.LOAF_LANG;
-	if (envLocale !== void 0) {
-		if (!isLocale(envLocale)) return invalidLocale("LOAF_LANG", envLocale);
-		return {
-			ok: true,
-			locale: envLocale,
-			source: "env"
+		if (!raw.startsWith("-") || raw === "-") return {
+			kind: "positional",
+			index,
+			raw
 		};
-	}
-	if (input.userConfig?.status === "invalid") return {
-		ok: false,
-		code: "INVALID_LOCALE",
-		detail: {
-			source: "user-config",
-			accepted: [...LOCALES],
-			path: input.userConfig.path,
-			reason: input.userConfig.reason
-		}
-	};
-	if (input.userConfig?.status === "ok") {
-		if (!isLocale(input.userConfig.locale)) return invalidLocale("user-config", input.userConfig.locale);
+		const equals = raw.startsWith("--") ? raw.indexOf("=") : -1;
+		const flag = equals === -1 ? raw : raw.slice(0, equals);
+		const arity = equals !== -1 || valueFlags.has(flag) ? 1 : 0;
 		return {
-			ok: true,
-			locale: input.userConfig.locale,
-			source: "user-config"
+			kind: "option",
+			index,
+			raw,
+			flag,
+			arity,
+			value: equals !== -1 ? raw.slice(equals + 1) : arity === 1 ? argv[index + 1] : void 0,
+			valueIndex: equals !== -1 ? index : arity === 1 && index + 1 < argv.length ? index + 1 : void 0
 		};
-	}
-	if (input.projectConfig?.locale !== void 0) return {
-		ok: true,
-		locale: input.projectConfig.locale,
-		source: "project-config"
-	};
-	const ambient = parseAmbientLocale(input.env);
-	if (ambient !== null) return {
-		ok: true,
-		locale: ambient,
-		source: "ambient"
-	};
-	return {
-		ok: true,
-		locale: "en",
-		source: "default"
-	};
-}
-function lookup(bundle, keyPath) {
-	let cur = bundle;
-	for (const part of keyPath.split(".")) {
-		if (typeof cur === "string") return void 0;
-		if (typeof cur !== "object" || cur === null) return void 0;
-		cur = cur[part];
-		if (cur === void 0) return void 0;
-	}
-	return typeof cur === "string" ? cur : void 0;
-}
-function interpolate(template, vars) {
-	return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
-		const value = vars?.[key];
-		return value === void 0 ? match : String(value);
 	});
 }
-function createI18n(locale, bundles) {
-	return {
-		locale,
-		t(keyPath, vars) {
-			return interpolate(lookup(bundles[locale], keyPath) ?? lookup(bundles.en, keyPath) ?? keyPath, vars);
+//#endregion
+//#region src/cli/argv-bootstrap.ts
+/** Preserve the bootstrap's positional view, including its legacy treatment
+* of `--` and unconditional consumption of a value-taking flag's next token.
+*/
+function bootstrapCommandTokens(argv, max, valueFlags) {
+	const out = [];
+	let consumedThrough = 1;
+	for (const token of scanArgv(argv, valueFlags)) {
+		if (token.index <= consumedThrough) continue;
+		if (token.kind === "option") {
+			if (token.raw.startsWith("--") && token.arity === 1 && !token.raw.includes("=")) consumedThrough = token.index + 1;
+			continue;
 		}
-	};
+		if (token.kind === "terminator") continue;
+		out.push(token.raw);
+		if (out.length >= max) break;
+	}
+	return out;
 }
 //#endregion
-//#region src/cli/diagnostic-failure.ts
-function catalogVars(template, detail) {
-	const vars = {};
-	for (const key of template.template_keys) {
-		const field = template.adapter?.[key] ?? key;
-		const value = detail[field];
-		if (value === void 0) throw new Error(`diagnostic contract missing detail.${field}`);
-		vars[key] = Array.isArray(value) ? value.map((item) => String(item)).join(template.list_separator?.[key] ?? ", ") : typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
-	}
-	return vars;
+//#region src/cli/selectors.ts
+function collectPresentSelectors(argv, env) {
+	const selectors = [];
+	const tokens = scanArgv(argv);
+	if (tokens.some((token) => token.kind === "option" && token.flag === "--session")) selectors.push("--session");
+	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature")) selectors.push("--feature");
+	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir")) selectors.push("--feature-dir");
+	if (env["LOAF_SESSION"] !== void 0 && env["LOAF_SESSION"].length > 0) selectors.push("$LOAF_SESSION");
+	if (env["LOAF_FEATURE"] !== void 0 && env["LOAF_FEATURE"].length > 0) selectors.push("$LOAF_FEATURE");
+	return selectors;
 }
-/** Project nested domain check records only at the presentation boundary. */
-function presentedDetail(detail, i18n) {
-	if (!Array.isArray(detail["checks"])) return detail;
-	const checks = detail["checks"];
-	return {
-		...detail,
-		checks: checks.map((check) => ({
-			...check,
-			message: diagnosticMessage(check, i18n)
+//#endregion
+//#region src/cli/command-policy.ts
+const policies = /* @__PURE__ */ new WeakMap();
+/** Attach policy to the actual registered command; aliases share its identity. */
+function declareCommandPolicy(command, policy) {
+	if (policies.has(command)) throw new Error(`command policy declared twice: ${command.name()}`);
+	policies.set(command, policy);
+	return command;
+}
+function commandPolicy(command) {
+	return policies.get(command);
+}
+function commandPolicyInventory(program) {
+	const rows = [];
+	function visit(parent, prefix) {
+		for (const command of parent.commands) {
+			const path = `${prefix}${command.name()}`;
+			rows.push({
+				command,
+				path,
+				policy: commandPolicy(command)
+			});
+			visit(command, `${path} `);
+		}
+	}
+	visit(program, "");
+	return rows;
+}
+function assertLeafCommandPolicies(program) {
+	const missing = commandPolicyInventory(program).filter(({ command, policy }) => command.commands.length === 0 && policy === void 0);
+	if (missing.length > 0) throw new Error(`missing command policy: ${missing.map(({ path }) => path).join(", ")}`);
+}
+/** Preserve the existing bootstrap view's arities, derived from registrations.
+* Other command-local options do not become global bootstrap options.
+*/
+function bootstrapValueFlags(program) {
+	const flags = /* @__PURE__ */ new Set();
+	for (const command of [program, ...program.commands.filter((command) => commandPolicy(command)?.selectors === "start")]) for (const option of command.options) if (option.required && option.long) flags.add(option.long);
+	for (const { command, policy } of commandPolicyInventory(program)) {
+		if (policy?.selectors !== "selected") continue;
+		for (const option of command.options) if (option.required && (option.long === "--feature" || option.long === "--feature-dir")) flags.add(option.long);
+	}
+	return flags;
+}
+/** Command-specific pre-parse checks, ordered ahead of generic dispatch misuse. */
+function evaluateCommandPreparse(program, argv, env) {
+	const tokens = bootstrapCommandTokens(argv, 2, bootstrapValueFlags(program));
+	const root = program.commands.find((command) => command.name() === tokens[0] || command.aliases().includes(tokens[0] ?? ""));
+	const selected = root?.commands.find((command) => command.name() === tokens[1] || command.aliases().includes(tokens[1] ?? "")) ?? root;
+	const policy = selected === void 0 ? void 0 : commandPolicy(selected);
+	const selectors = collectPresentSelectors(argv, env);
+	const fail = (diagnostic) => ({
+		kind: "failure",
+		diagnostic
+	});
+	if (policy?.selectorFailure && selectors.length > 0) return fail(diagnosticVariant(policy.selectorFailure, { conflicting: selectors }));
+	if (policy?.interactiveFormat && argv.some((arg) => arg === "--format" || arg.startsWith("--format="))) return fail(diagnosticVariant("failure.tui.interactive_only", { reason: "tui-interactive-only" }));
+	if (policy?.selectors === "optional-hook") {
+		if (argv.includes("--list-events")) return { kind: "hook-events" };
+		const event = tokens[1];
+		if (event === void 0) return fail(diagnosticVariant("failure.hook.missing_event", { events: HOOK_EVENTS }));
+		if (!HOOK_EVENTS.includes(event)) return fail(diagnosticVariant("failure.hook.unknown_event", {
+			event,
+			allowed: HOOK_EVENTS,
+			suggestion: HOOK_EVENTS.find((known) => known.startsWith(event.slice(0, 4))) ?? HOOK_EVENTS[0]
+		}));
+	}
+	if ((policy?.schema?.kind === "artifact" || policy?.schema?.kind === "input" && argv.includes("--schema")) && selectors.length > 0) return fail(diagnosticVariant("failure.schema.selector_conflict", {
+		subject: `${tokens.join(" ")}${policy?.schema?.kind === "input" ? " --schema" : ""}`,
+		conflicting: selectors
+	}));
+	if (selectors.includes("--feature-dir") && policy?.selectors !== "start") {
+		const conflicting = selectors.filter((selector) => selector === "--session" || selector === "$LOAF_SESSION");
+		if (conflicting.length > 0) return fail(diagnosticVariant("failure.dispatch.session_feature_dir_conflict", { conflicting: [...conflicting, "--feature-dir"] }));
+		if (!selectors.includes("--feature") && !selectors.includes("$LOAF_FEATURE")) return fail(diagnosticVariant("failure.dispatch.feature_dir_requires_feature", { conflicting: ["--feature-dir"] }));
+	}
+	return { kind: "continue" };
+}
+function renderHookEvents(json) {
+	return json ? `${JSON.stringify({
+		ok: true,
+		count: HOOK_EVENTS.length,
+		events: HOOK_EVENTS.map((event) => ({
+			event,
+			claude_code: HOOK_EVENT_TO_CLAUDE_CODE[event]
 		}))
-	};
-}
-function diagnosticContextRows(detail) {
-	const lines = [];
-	if (typeof detail["parser_code"] === "string" && typeof detail["reason"] === "string") lines.push(`  [${detail["parser_code"]}] ${detail["reason"]}\n`);
-	const checks = detail["checks"];
-	if (Array.isArray(checks)) for (const c of checks) lines.push(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
-	const errors = detail["errors"];
-	if (Array.isArray(errors)) {
-		for (const e of errors) lines.push(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
-		if (detail["truncated"] === true) {
-			const count = detail["error_count"];
-			lines.push(`  ... (${typeof count === "number" ? count : "?"} errors total; first ${errors.length} shown)\n`);
-		}
-	}
-	return lines.join("");
-}
-/** Canonical message for nested replay diagnostics at existing presentation boundaries. */
-function diagnosticMessage(diagnostic, i18n = DEFAULT_I18N) {
-	return renderDiagnostic(diagnostic, i18n).message;
-}
-function renderDiagnostic(diagnostic, i18n) {
-	const parent = ERROR_CATALOG[diagnostic.code];
-	const context = diagnostic.detail["context"];
-	const variant = context === void 0 ? void 0 : DIAGNOSTIC_VARIANTS[context];
-	if (context !== void 0 && (variant === void 0 || variant.code !== diagnostic.code)) throw new Error(`diagnostic context ${context} does not belong to ${diagnostic.code}`);
-	const template = variant?.template ?? parent;
-	const vars = catalogVars(template, diagnostic.detail);
-	const key = context === void 0 ? `diagnostic.${diagnostic.code}` : `diagnostic_variant.${context}`;
-	return {
-		parent,
-		context,
-		template,
-		vars,
-		message: i18n.t(key, vars)
-	};
-}
-/** Sole recoverable exit-2 outlet; no CLI/context dependency or error fallback. */
-function writeDiagnosticFailure(diagnostic, presentation) {
-	const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
-	const { parent, context, template, vars, message } = renderDiagnostic(diagnostic, i18n);
-	const detail = presentedDetail(diagnostic.detail, i18n);
-	if (presentation.format === "json") presentation.writeStderr(JSON.stringify({
-		ok: false,
-		code: diagnostic.code,
-		message,
-		detail
-	}) + "\n");
-	else {
-		let output = `error: ${diagnostic.code} — ${message}\n` + diagnosticContextRows(detail);
-		if (template.fix_template !== void 0) {
-			const fixKey = context === void 0 ? `diagnostic_fix.${diagnostic.code}` : `diagnostic_variant_fix.${context}`;
-			output += `  fix: ${i18n.t(fixKey, vars)}\n`;
-		}
-		if (template.doc_anchor !== void 0) output += `  see: ${template.doc_anchor}\n`;
-		presentation.writeStderr(output);
-	}
-	return parent.exit_code;
+	})}\n` : HOOK_EVENTS.map((event) => `${event}\t${HOOK_EVENT_TO_CLAUDE_CODE[event]}\n`).join("");
 }
 //#endregion
 //#region package.json
 var version = "0.10.0";
-//#endregion
-//#region src/core/crash-log.ts
-/** Sentinel code stamped into the JSON envelope and (when
-*  `--format json` is set) onto the boundary stderr payload. Lives
-*  here, not in src/cli.tsx, so the SC-0 inventory regex
-*  (`code: "CODE"` scan over cli.tsx) does NOT pick it up as an
-*  uncataloged DiagnosticCode emit. */
-const UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
-z.object({
-	iso: z.string(),
-	version: z.string(),
-	argv: z.array(z.string()),
-	cwd: z.string(),
-	feature: z.string().nullable(),
-	phase: z.string().nullable(),
-	sub_state: z.string().nullable(),
-	exitCode: z.literal(1),
-	error: z.object({
-		name: z.string(),
-		message: z.string(),
-		stack: z.string().nullable()
-	})
-});
-const DEFAULT_DEPS = {
-	now: () => /* @__PURE__ */ new Date(),
-	homeDir: () => os.homedir(),
-	writeStderr: (s) => process.stderr.write(s)
-};
-/** Best-effort `--feature <NAME>` extractor. Stays in this module so the
-*  boundary doesn't have to know argv shape; null on miss. */
-function extractFeature$1(argv) {
-	const i = argv.indexOf("--feature");
-	if (i < 0 || i + 1 >= argv.length) return null;
-	const v = argv[i + 1];
-	return v && !v.startsWith("--") ? v : null;
-}
-/** ISO 8601 with `:` replaced so the filename is portable across
-*  Windows/macOS/Linux without escaping. */
-function safeIso(d) {
-	return d.toISOString().replace(/:/g, "-");
-}
-/** Write a crash log envelope and return its absolute path. On any IO
-*  failure (EACCES, ENOSPC, unwritable parent), emit a one-line stderr
-*  diagnostic via `deps.writeStderr` and return null. Never throws —
-*  the caller is already in an error boundary and a second fault would
-*  obscure the original cause. */
-async function writeCrashLog(input, depsPartial) {
-	const deps = {
-		...DEFAULT_DEPS,
-		...depsPartial
-	};
-	const now = deps.now();
-	const envelope = {
-		iso: now.toISOString(),
-		version: input.version,
-		argv: [...input.argv],
-		cwd: input.cwd,
-		feature: extractFeature$1(input.argv),
-		phase: input.context?.phase ?? null,
-		sub_state: input.context?.sub_state ?? null,
-		exitCode: 1,
-		error: {
-			name: input.error.name,
-			message: input.error.message,
-			stack: input.error.stack ?? null
-		}
-	};
-	const dir = path.join(deps.homeDir(), ".loaf", "crashes");
-	const file = path.join(dir, `${safeIso(now)}.json`);
-	try {
-		await promises.mkdir(dir, {
-			recursive: true,
-			mode: 448
-		});
-		await promises.chmod(dir, 448);
-		await promises.writeFile(file, JSON.stringify(envelope, null, 2) + "\n", {
-			encoding: "utf8",
-			mode: 384
-		});
-		await promises.chmod(file, 384);
-		return file;
-	} catch (err) {
-		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
-		return null;
-	}
-}
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
@@ -4554,462 +2896,6 @@ const SpecVisualAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
 	visual: VisualContract
 }).passthrough();
-const SchemaVersionLiteral = z.literal(2);
-const SessionRuntimeFile = z.object({
-	schema_version: SchemaVersionLiteral,
-	session_id: z.string().min(1),
-	cwd: z.string(),
-	debug: z.boolean(),
-	heartbeat_at: z.string().datetime(),
-	pending_scope: z.object({
-		iteration: z.number().int().positive(),
-		paths: CanonicalScopePaths
-	}).strict().nullable()
-}).strict();
-const TasksJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	version: z.number().int().positive(),
-	based_on: z.object({ spec: z.number().int().positive() }),
-	tasks: z.array(TaskFullPayload)
-}).strict();
-const EvidenceEntry = EvidenceFullShape.extend({
-	schema_version: SchemaVersionLiteral,
-	at: z.string().datetime()
-}).strict();
-const EvidenceJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	evidence: z.array(EvidenceEntry)
-}).strict();
-const FindingStateShape = z.object({
-	id: z.string().regex(/^FND-\d{3,}$/),
-	category: FindingCategory,
-	action: FindingAction,
-	status: z.enum(["open", "closed"]),
-	summary: z.string().optional(),
-	reason: z.string().optional(),
-	target: z.object({
-		task_id: z.string().regex(/^T-\d{3,}$/),
-		step: z.string().min(1)
-	}).strict().optional()
-}).strict();
-const FindingsJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	findings: z.array(FindingStateShape)
-}).strict();
-const PendingQueueEntry = z.object({
-	pending_id: PendingId,
-	kind: PendingPromptKind,
-	question: z.string().min(3),
-	options: z.array(z.string()).optional(),
-	blocks: z.enum([
-		"advance",
-		"gate",
-		"deliver",
-		"all"
-	]),
-	raised_at: z.string().datetime(),
-	raised_by: z.string().min(1),
-	at: z.string().datetime(),
-	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
-}).strict();
-const PendingProjectionEntry = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
-const PendingJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	pending: z.array(PendingProjectionEntry)
-}).strict();
-const StateProjectionPhase = z.enum([
-	"TRIAGE",
-	"SPEC",
-	"EXECUTE",
-	"VERIFY",
-	"SETTLE",
-	"DONE"
-]);
-const StateProjection = z.object({
-	schema_version: SchemaVersionLiteral,
-	session_id: z.string().min(1),
-	session_label: z.string().min(3).nullable(),
-	workspace: z.string().min(1),
-	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
-	phase: StateProjectionPhase,
-	sub_state: SubState,
-	iteration: z.number().int().positive(),
-	spec_locked: z.boolean(),
-	verify_accepted: z.boolean(),
-	pending: z.array(PendingQueueEntry),
-	ceremony: Ceremony,
-	ceremony_label: z.string(),
-	complexity_score: z.number().int().min(0).max(100).nullable(),
-	based_on: z.object({
-		spec: z.number().int().nonnegative(),
-		tasks: z.number().int().nonnegative()
-	}).strict(),
-	spec_version: z.number().int().nonnegative(),
-	created_at: z.string().datetime(),
-	updated_at: z.string().datetime()
-}).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
-const RegistryFile = z.object({
-	schema_version: SchemaVersionLiteral,
-	at: z.string().datetime(),
-	session_id: z.string().uuid(),
-	session_label: z.string(),
-	feature: z.string().min(1),
-	cwd: z.string(),
-	workspace: z.string().min(1),
-	phase: StateProjectionPhase,
-	sub_state: SubState,
-	iteration: z.number().int().positive(),
-	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)),
-	pending: PendingQueueEntry.nullable(),
-	pending_queue_depth: z.number().int().nonnegative(),
-	ceremony_label: z.string()
-}).strict();
-//#endregion
-//#region src/core/snapshot.ts
-const HEX64 = /^[a-f0-9]{64}$/;
-const ZERO_HASH = "0".repeat(64);
-const SnapshotMeta = z.object({
-	last_applied_seq: z.number().int().gte(-1),
-	last_entry_offset: z.number().int().nonnegative(),
-	last_entry_line_hash: z.string().regex(HEX64),
-	rolling_checksum: z.string().regex(HEX64),
-	feature_schema_version: z.number().int().positive(),
-	written_at: z.string().datetime()
-}).strict().refine((m) => m.last_applied_seq !== -1 || m.last_entry_offset === 0 && m.last_entry_line_hash === ZERO_HASH && m.rolling_checksum === ZERO_HASH && m.feature_schema_version === 2, { message: "last_applied_seq=-1 (empty sentinel) requires last_entry_offset=0 + line_hash/rolling_checksum=ZERO_HASH + feature_schema_version=current" });
-function emptyMeta() {
-	return {
-		last_applied_seq: -1,
-		last_entry_offset: 0,
-		last_entry_line_hash: ZERO_HASH,
-		rolling_checksum: ZERO_HASH,
-		feature_schema_version: 2,
-		written_at: (/* @__PURE__ */ new Date(0)).toISOString()
-	};
-}
-/**
-* True iff `meta` is the empty-journal sentinel — every structural field
-* equals `emptyMeta()` (`written_at`, a free timestamp, is ignored).
-*
-* `appendMany` / `mutateBatch` require this when the journal tail is empty
-* (seq -1): a fresh-prefix prior meta carrying a non-empty `rolling_checksum`
-* or `last_entry_offset` would be folded into a post-append meta that no
-* longer matches `replayJournal` (codex r171 BLOCK 2).
-*/
-function isEmptyMeta(meta) {
-	const e = emptyMeta();
-	return meta.last_applied_seq === e.last_applied_seq && meta.last_entry_offset === e.last_entry_offset && meta.last_entry_line_hash === e.last_entry_line_hash && meta.rolling_checksum === e.rolling_checksum && meta.feature_schema_version === e.feature_schema_version;
-}
-function computeLineHash(line) {
-	return createHash("sha256").update(line, "utf8").digest("hex");
-}
-function extendRollingChecksum(prev, line) {
-	return createHash("sha256").update(prev, "hex").update(line, "utf8").digest("hex");
-}
-async function writeMeta(metaPath, meta, fsync = true) {
-	const tmp = `${metaPath}.tmp-${randomBytes(6).toString("hex")}`;
-	const body = JSON.stringify(meta, null, 2);
-	await promises.writeFile(tmp, body, { mode: 420 });
-	if (fsync) {
-		const fh = await promises.open(tmp, "r+");
-		try {
-			await fh.sync();
-		} finally {
-			await fh.close();
-		}
-	}
-	await promises.rename(tmp, metaPath);
-	if (fsync) {
-		const dir = path.dirname(metaPath);
-		try {
-			const dh = await promises.open(dir, "r");
-			try {
-				await dh.sync();
-			} finally {
-				await dh.close();
-			}
-		} catch {}
-	}
-}
-//#endregion
-//#region src/core/snapshot-reader.ts
-/**
-* Verify that the given SnapshotMeta agrees with the on-disk journal tail.
-* Caller (CLI command consuming snapshots) treats `fresh: false` as exit 2
-* SNAPSHOT_STALE_REBUILD_REQUIRED; no silent fallback to cached snapshot.
-*/
-async function checkSnapshotFresh(meta, journalPath) {
-	let stat;
-	try {
-		stat = await promises.stat(journalPath);
-	} catch (err) {
-		if (err.code === "ENOENT") return {
-			fresh: false,
-			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-			reason: "journal_missing",
-			detail: {
-				feature_dir: path.dirname(journalPath),
-				reason: "journal_missing",
-				journal_path: journalPath
-			}
-		};
-		throw err;
-	}
-	if (stat.size === 0) {
-		if (meta.last_applied_seq === -1) return {
-			fresh: true,
-			last_applied_seq: -1
-		};
-		return {
-			fresh: false,
-			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-			reason: "journal_empty",
-			detail: {
-				feature_dir: path.dirname(journalPath),
-				reason: "journal_empty",
-				meta_last_applied_seq: meta.last_applied_seq
-			}
-		};
-	}
-	const tailRead = Math.min(stat.size, ENTRY_BYTE_LIMIT);
-	const fh = await promises.open(journalPath, "r");
-	try {
-		const buf = Buffer.alloc(tailRead);
-		await fh.read(buf, 0, tailRead, stat.size - tailRead);
-		const trailingText = buf.toString("utf8");
-		if (!trailingText.endsWith("\n")) return {
-			fresh: false,
-			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-			reason: "trailing_partial_line",
-			detail: {
-				feature_dir: path.dirname(journalPath),
-				reason: "trailing_partial_line",
-				tail_bytes: trailingText.length
-			}
-		};
-		const withoutTrailingNl = trailingText.slice(0, -1);
-		const lastNl = withoutTrailingNl.lastIndexOf("\n");
-		const tailLine = lastNl === -1 ? withoutTrailingNl : withoutTrailingNl.slice(lastNl + 1);
-		const tailLineBytes = Buffer.byteLength(tailLine + "\n", "utf8");
-		const tailLineOffset = stat.size - tailLineBytes;
-		if (tailLineOffset !== meta.last_entry_offset) return {
-			fresh: false,
-			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-			reason: "tail_offset_mismatch",
-			detail: {
-				feature_dir: path.dirname(journalPath),
-				reason: "tail_offset_mismatch",
-				journal_tail_offset: tailLineOffset,
-				meta_last_entry_offset: meta.last_entry_offset
-			}
-		};
-		const actualHash = computeLineHash(tailLine);
-		if (actualHash !== meta.last_entry_line_hash) return {
-			fresh: false,
-			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-			reason: "tail_hash_mismatch",
-			detail: {
-				feature_dir: path.dirname(journalPath),
-				reason: "tail_hash_mismatch",
-				actual: actualHash,
-				expected: meta.last_entry_line_hash
-			}
-		};
-		return {
-			fresh: true,
-			last_applied_seq: meta.last_applied_seq
-		};
-	} finally {
-		await fh.close();
-	}
-}
-//#endregion
-//#region src/core/projection-loader.ts
-var SnapshotStaleError = class extends Error {
-	code = "SNAPSHOT_STALE_REBUILD_REQUIRED";
-	reason;
-	detail;
-	constructor(reason, detail) {
-		super(`${reason}: ${JSON.stringify(detail)}`);
-		this.name = "SnapshotStaleError";
-		this.reason = reason;
-		this.detail = {
-			reason,
-			...detail
-		};
-	}
-};
-var NoSessionError = class extends Error {
-	code = "NO_SESSION";
-	detail;
-	constructor(detail) {
-		super(`NO_SESSION: ${JSON.stringify(detail)}`);
-		this.name = "NoSessionError";
-		this.detail = detail;
-	}
-};
-const LEAF_SCHEMA = {
-	state: StateProjection,
-	tasks: TasksJson,
-	evidence: EvidenceJson,
-	findings: FindingsJson,
-	pending: PendingJson
-};
-function fixForFeatureDir(featureDir) {
-	return `run \`loaf doctor --rebuild --feature ${path.basename(featureDir)}\``;
-}
-/**
-* Read + parse `snapshots/_meta.json`. Classifies meta-level failures
-* upstream of `checkSnapshotFresh` so a malformed-empty-sentinel meta
-* (`seq=-1` with non-empty offset/hash/checksum — runtime SnapshotMeta
-* refine, codex r175) becomes `meta_invalid cause=schema`, never
-* silent NO_SESSION.
-*/
-async function readMetaOrThrow(metaPath, featureDir) {
-	let raw;
-	try {
-		raw = await promises.readFile(metaPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return { missing: true };
-		throw err;
-	}
-	let parsed;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		throw new SnapshotStaleError("meta_invalid", {
-			feature_dir: featureDir,
-			fix: fixForFeatureDir(featureDir),
-			meta_path: metaPath,
-			cause: "json_parse"
-		});
-	}
-	const result = SnapshotMeta.safeParse(parsed);
-	if (!result.success) throw new SnapshotStaleError("meta_invalid", {
-		feature_dir: featureDir,
-		fix: fixForFeatureDir(featureDir),
-		meta_path: metaPath,
-		cause: "schema"
-	});
-	return result.data;
-}
-/**
-* Translate `checkSnapshotFresh` result to a SnapshotStaleError carrying
-* the loader's full detail envelope (feature_dir + fix + reader detail).
-*/
-function staleFromReader(result, featureDir) {
-	if (result.fresh) return null;
-	return new SnapshotStaleError(result.reason, {
-		...result.detail,
-		feature_dir: featureDir,
-		fix: fixForFeatureDir(featureDir)
-	});
-}
-/**
-* Read + parse one projection leaf. ENOENT → projection_missing. JSON
-* parse fail → projection_invalid cause=json_parse. Schema fail →
-* projection_invalid cause=schema.
-*/
-async function readLeafOrThrow(kind, snapshotsDir, featureDir) {
-	const leafPath = path.join(snapshotsDir, `${kind}.json`);
-	let raw;
-	try {
-		raw = await promises.readFile(leafPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") throw new SnapshotStaleError("projection_missing", {
-			feature_dir: featureDir,
-			fix: fixForFeatureDir(featureDir),
-			projection_kind: kind,
-			projection_path: leafPath
-		});
-		throw err;
-	}
-	let parsed;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		throw new SnapshotStaleError("projection_invalid", {
-			feature_dir: featureDir,
-			fix: fixForFeatureDir(featureDir),
-			projection_kind: kind,
-			projection_path: leafPath,
-			cause: "json_parse"
-		});
-	}
-	const result = LEAF_SCHEMA[kind].safeParse(parsed);
-	if (!result.success) throw new SnapshotStaleError("projection_invalid", {
-		feature_dir: featureDir,
-		fix: fixForFeatureDir(featureDir),
-		projection_kind: kind,
-		projection_path: leafPath,
-		cause: "schema"
-	});
-	return result.data;
-}
-async function journalIsEmptyOrMissing(journalPath) {
-	try {
-		return (await promises.stat(journalPath)).size === 0;
-	} catch (err) {
-		if (err.code === "ENOENT") return true;
-		throw err;
-	}
-}
-/**
-* Public canonical loader — no hooks, used by production callers.
-* See `loadProjectionsWithHooks` for the test-only seam.
-*/
-async function loadProjections(input) {
-	return _loadProjectionsImpl(input);
-}
-async function _loadProjectionsImpl(input, hooks) {
-	const { feature_dir: featureDir, kinds } = input;
-	const snapshotsDir = path.join(featureDir, "snapshots");
-	const metaPath = path.join(snapshotsDir, "_meta.json");
-	const journalPath = path.join(featureDir, "journal.jsonl");
-	const metaResult = await readMetaOrThrow(metaPath, featureDir);
-	if ("missing" in metaResult) {
-		if (await journalIsEmptyOrMissing(journalPath)) throw new NoSessionError({
-			feature_dir: featureDir,
-			fix: `run \`loaf start <feature>\` first`
-		});
-		throw new SnapshotStaleError("meta_missing", {
-			feature_dir: featureDir,
-			fix: fixForFeatureDir(featureDir),
-			meta_path: metaPath
-		});
-	}
-	const M0 = metaResult;
-	if (isEmptyMeta(M0)) {
-		if (await journalIsEmptyOrMissing(journalPath)) throw new NoSessionError({
-			feature_dir: featureDir,
-			fix: `run \`loaf start <feature>\` first`
-		});
-	}
-	const stale1 = staleFromReader(await checkSnapshotFresh(M0, journalPath), featureDir);
-	if (stale1) throw stale1;
-	if (hooks?.afterFirstFastCheck) await hooks.afterFirstFastCheck();
-	const kindsList = kinds;
-	const needsTasks = kindsList.includes("tasks");
-	const needsState = kindsList.includes("state");
-	let stateImplicit;
-	if (needsTasks && !needsState) stateImplicit = await readLeafOrThrow("state", snapshotsDir, featureDir);
-	const result = {};
-	for (const kind of kindsList) if (kind === "tasks") try {
-		result.tasks = await readLeafOrThrow("tasks", snapshotsDir, featureDir);
-	} catch (err) {
-		if (err instanceof SnapshotStaleError && err.reason === "projection_missing") {
-			if ((result.state ?? stateImplicit ?? await readLeafOrThrow("state", snapshotsDir, featureDir)).based_on.tasks === 0) {
-				result.tasks = null;
-				continue;
-			}
-		}
-		throw err;
-	}
-	else result[kind] = await readLeafOrThrow(kind, snapshotsDir, featureDir);
-	const stale2 = staleFromReader(await checkSnapshotFresh(M0, journalPath), featureDir);
-	if (stale2) throw stale2;
-	result.meta = M0;
-	return result;
-}
 //#endregion
 //#region src/core/machine.ts
 /** Preserve literal inference while rejecting missing and extra state keys. */
@@ -7802,6 +5688,72 @@ function admitEntry(prev, entry, options = {}) {
 	return result;
 }
 //#endregion
+//#region src/core/snapshot.ts
+const HEX64 = /^[a-f0-9]{64}$/;
+const ZERO_HASH = "0".repeat(64);
+const SnapshotMeta = z.object({
+	last_applied_seq: z.number().int().gte(-1),
+	last_entry_offset: z.number().int().nonnegative(),
+	last_entry_line_hash: z.string().regex(HEX64),
+	rolling_checksum: z.string().regex(HEX64),
+	feature_schema_version: z.number().int().positive(),
+	written_at: z.string().datetime()
+}).strict().refine((m) => m.last_applied_seq !== -1 || m.last_entry_offset === 0 && m.last_entry_line_hash === ZERO_HASH && m.rolling_checksum === ZERO_HASH && m.feature_schema_version === 2, { message: "last_applied_seq=-1 (empty sentinel) requires last_entry_offset=0 + line_hash/rolling_checksum=ZERO_HASH + feature_schema_version=current" });
+function emptyMeta() {
+	return {
+		last_applied_seq: -1,
+		last_entry_offset: 0,
+		last_entry_line_hash: ZERO_HASH,
+		rolling_checksum: ZERO_HASH,
+		feature_schema_version: 2,
+		written_at: (/* @__PURE__ */ new Date(0)).toISOString()
+	};
+}
+/**
+* True iff `meta` is the empty-journal sentinel — every structural field
+* equals `emptyMeta()` (`written_at`, a free timestamp, is ignored).
+*
+* `appendMany` / `mutateBatch` require this when the journal tail is empty
+* (seq -1): a fresh-prefix prior meta carrying a non-empty `rolling_checksum`
+* or `last_entry_offset` would be folded into a post-append meta that no
+* longer matches `replayJournal` (codex r171 BLOCK 2).
+*/
+function isEmptyMeta(meta) {
+	const e = emptyMeta();
+	return meta.last_applied_seq === e.last_applied_seq && meta.last_entry_offset === e.last_entry_offset && meta.last_entry_line_hash === e.last_entry_line_hash && meta.rolling_checksum === e.rolling_checksum && meta.feature_schema_version === e.feature_schema_version;
+}
+function computeLineHash(line) {
+	return createHash("sha256").update(line, "utf8").digest("hex");
+}
+function extendRollingChecksum(prev, line) {
+	return createHash("sha256").update(prev, "hex").update(line, "utf8").digest("hex");
+}
+async function writeMeta(metaPath, meta, fsync = true) {
+	const tmp = `${metaPath}.tmp-${randomBytes(6).toString("hex")}`;
+	const body = JSON.stringify(meta, null, 2);
+	await promises.writeFile(tmp, body, { mode: 420 });
+	if (fsync) {
+		const fh = await promises.open(tmp, "r+");
+		try {
+			await fh.sync();
+		} finally {
+			await fh.close();
+		}
+	}
+	await promises.rename(tmp, metaPath);
+	if (fsync) {
+		const dir = path.dirname(metaPath);
+		try {
+			const dh = await promises.open(dir, "r");
+			try {
+				await dh.sync();
+			} finally {
+				await dh.close();
+			}
+		} catch {}
+	}
+}
+//#endregion
 //#region src/core/journal-bootstrap.ts
 async function replayJournal(filePath, opts = {}) {
 	let contents;
@@ -7987,6 +5939,116 @@ function getGitEmail() {
 		return null;
 	}
 }
+const SchemaVersionLiteral = z.literal(2);
+const SessionRuntimeFile = z.object({
+	schema_version: SchemaVersionLiteral,
+	session_id: z.string().min(1),
+	cwd: z.string(),
+	debug: z.boolean(),
+	heartbeat_at: z.string().datetime(),
+	pending_scope: z.object({
+		iteration: z.number().int().positive(),
+		paths: CanonicalScopePaths
+	}).strict().nullable()
+}).strict();
+const TasksJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	version: z.number().int().positive(),
+	based_on: z.object({ spec: z.number().int().positive() }),
+	tasks: z.array(TaskFullPayload)
+}).strict();
+const EvidenceEntry = EvidenceFullShape.extend({
+	schema_version: SchemaVersionLiteral,
+	at: z.string().datetime()
+}).strict();
+const EvidenceJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	evidence: z.array(EvidenceEntry)
+}).strict();
+const FindingStateShape = z.object({
+	id: z.string().regex(/^FND-\d{3,}$/),
+	category: FindingCategory,
+	action: FindingAction,
+	status: z.enum(["open", "closed"]),
+	summary: z.string().optional(),
+	reason: z.string().optional(),
+	target: z.object({
+		task_id: z.string().regex(/^T-\d{3,}$/),
+		step: z.string().min(1)
+	}).strict().optional()
+}).strict();
+const FindingsJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	findings: z.array(FindingStateShape)
+}).strict();
+const PendingQueueEntry = z.object({
+	pending_id: PendingId,
+	kind: PendingPromptKind,
+	question: z.string().min(3),
+	options: z.array(z.string()).optional(),
+	blocks: z.enum([
+		"advance",
+		"gate",
+		"deliver",
+		"all"
+	]),
+	raised_at: z.string().datetime(),
+	raised_by: z.string().min(1),
+	at: z.string().datetime(),
+	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
+}).strict();
+const PendingProjectionEntry = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
+const PendingJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	pending: z.array(PendingProjectionEntry)
+}).strict();
+const StateProjectionPhase = z.enum([
+	"TRIAGE",
+	"SPEC",
+	"EXECUTE",
+	"VERIFY",
+	"SETTLE",
+	"DONE"
+]);
+const StateProjection = z.object({
+	schema_version: SchemaVersionLiteral,
+	session_id: z.string().min(1),
+	session_label: z.string().min(3).nullable(),
+	workspace: z.string().min(1),
+	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
+	phase: StateProjectionPhase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	spec_locked: z.boolean(),
+	verify_accepted: z.boolean(),
+	pending: z.array(PendingQueueEntry),
+	ceremony: Ceremony,
+	ceremony_label: z.string(),
+	complexity_score: z.number().int().min(0).max(100).nullable(),
+	based_on: z.object({
+		spec: z.number().int().nonnegative(),
+		tasks: z.number().int().nonnegative()
+	}).strict(),
+	spec_version: z.number().int().nonnegative(),
+	created_at: z.string().datetime(),
+	updated_at: z.string().datetime()
+}).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
+const RegistryFile = z.object({
+	schema_version: SchemaVersionLiteral,
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	session_label: z.string(),
+	feature: z.string().min(1),
+	cwd: z.string(),
+	workspace: z.string().min(1),
+	phase: StateProjectionPhase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)),
+	pending: PendingQueueEntry.nullable(),
+	pending_queue_depth: z.number().int().nonnegative(),
+	ceremony_label: z.string()
+}).strict();
 //#endregion
 //#region src/core/task-history.ts
 /**
@@ -8650,6 +6712,2199 @@ async function writeRegistryFile(sessionId, file, opts = {}) {
 	}
 }
 //#endregion
+//#region src/core/session-runtime.ts
+const RuntimeLockFile = z.object({
+	pid: z.number().int().positive(),
+	acquired_at: z.string().datetime(),
+	operation: z.string().min(1).max(200),
+	owner: z.string().regex(/^[0-9a-f]{32}$/).optional()
+}).strict();
+var RuntimeStoreError = class extends Error {
+	code;
+	holder;
+	lockDetail;
+	constructor(...args) {
+		const [code, message, holder, lockDetail] = args;
+		super(message);
+		this.name = "RuntimeStoreError";
+		this.code = code;
+		if (holder !== void 0) this.holder = holder;
+		if (lockDetail !== void 0) this.lockDetail = lockDetail;
+	}
+};
+const DEFAULT_LOCK_TIMEOUT_MS = 2e3;
+const DEFAULT_RETRY_DELAY_MS$1 = 20;
+const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+function defaultRuntimeDir(homeDir) {
+	return path.join(homeDir, ".loaf", "runtime");
+}
+function checkedSessionId(sessionId) {
+	if (!SAFE_SESSION_ID.test(sessionId)) throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `unsafe runtime session_id ${JSON.stringify(sessionId)}`);
+	return sessionId;
+}
+function sessionRuntimeFilePath(sessionId, options) {
+	return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.json`);
+}
+function sessionRuntimeLockPath(sessionId, options) {
+	return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.lock`);
+}
+async function canonicalIdentity(identity) {
+	checkedSessionId(identity.session_id);
+	let cwd;
+	try {
+		cwd = await promises.realpath(identity.cwd);
+	} catch (error) {
+		throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `selected runtime cwd cannot be canonicalized: ${error.message}`);
+	}
+	return {
+		session_id: identity.session_id,
+		cwd
+	};
+}
+async function ensureRuntimeDir(runtimeDir) {
+	await promises.mkdir(runtimeDir, {
+		recursive: true,
+		mode: 448
+	});
+	await promises.chmod(runtimeDir, 448);
+}
+async function validateFileIdentity(file, identity) {
+	let fileCwd;
+	try {
+		fileCwd = await promises.realpath(file.cwd);
+	} catch (error) {
+		throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `runtime file cwd cannot be canonicalized: ${error.message}`);
+	}
+	if (file.session_id !== identity.session_id || fileCwd !== identity.cwd) throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `runtime identity mismatch: selected session=${identity.session_id} cwd=${identity.cwd}, file session=${file.session_id} cwd=${fileCwd}; refusing to merge`);
+	return file;
+}
+async function readSessionRuntimeFileUnlocked(identity, options) {
+	const target = sessionRuntimeFilePath(identity.session_id, options);
+	let raw;
+	try {
+		raw = await promises.readFile(target, "utf8");
+	} catch (error) {
+		if (error.code === "ENOENT") return null;
+		throw error;
+	}
+	let decoded;
+	try {
+		decoded = JSON.parse(raw);
+	} catch (error) {
+		throw new RuntimeStoreError("RUNTIME_FILE_INVALID", `runtime file is not valid JSON: ${error.message}`);
+	}
+	const parsed = SessionRuntimeFile.safeParse(decoded);
+	if (!parsed.success) throw new RuntimeStoreError("RUNTIME_FILE_INVALID", `runtime file failed SessionRuntimeFile validation: ${parsed.error.message}`);
+	return await validateFileIdentity(parsed.data, identity);
+}
+/** Lock-free read is safe because writers publish only through atomic rename. */
+async function readSessionRuntimeFile(identity, options) {
+	return await readSessionRuntimeFileUnlocked(await canonicalIdentity(identity), options);
+}
+async function writeSessionRuntimeFileUnlocked(file, identity, options) {
+	const runtimeDir = options.runtimeDir;
+	await ensureRuntimeDir(runtimeDir);
+	const target = sessionRuntimeFilePath(identity.session_id, options);
+	const tmp = `${target}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
+	let handle = null;
+	try {
+		handle = await promises.open(tmp, "wx", 384);
+		await handle.writeFile(JSON.stringify(file));
+		await handle.sync();
+		await handle.close();
+		handle = null;
+		await promises.chmod(tmp, 384);
+		await promises.rename(tmp, target);
+		try {
+			const directory = await promises.open(runtimeDir, "r");
+			try {
+				await directory.sync();
+			} finally {
+				await directory.close();
+			}
+		} catch {}
+	} catch (error) {
+		if (handle !== null) await handle.close().catch(() => void 0);
+		await promises.unlink(tmp).catch(() => void 0);
+		throw error;
+	}
+}
+function isPidAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		const code = error.code;
+		if (code === "ESRCH") return false;
+		if (code === "EPERM") return true;
+		throw error;
+	}
+}
+async function readLock(lockPath) {
+	try {
+		const parsed = RuntimeLockFile.safeParse(JSON.parse(await promises.readFile(lockPath, "utf8")));
+		return parsed.success ? parsed.data : null;
+	} catch (error) {
+		if (error.code === "ENOENT") return null;
+		if (error instanceof SyntaxError) return null;
+		throw error;
+	}
+}
+function isSameLockGeneration(observed, current) {
+	return observed.pid === current.pid && observed.acquired_at === current.acquired_at && observed.operation === current.operation && observed.owner === current.owner;
+}
+async function createLock(lockPath, lock) {
+	let handle = null;
+	try {
+		handle = await promises.open(lockPath, "wx", 384);
+		await handle.writeFile(JSON.stringify(lock));
+		await handle.sync();
+		await handle.close();
+		handle = null;
+		await promises.chmod(lockPath, 384);
+	} catch (error) {
+		if (handle !== null) await handle.close().catch(() => void 0);
+		if (error.code !== "EEXIST") await promises.unlink(lockPath).catch(() => void 0);
+		throw error;
+	}
+}
+async function acquireRuntimeLock(identity, operation, options) {
+	const runtimeDir = options.runtimeDir;
+	await ensureRuntimeDir(runtimeDir);
+	const lockPath = sessionRuntimeLockPath(identity.session_id, options);
+	const lock = RuntimeLockFile.parse({
+		pid: process.pid,
+		acquired_at: options.now().toISOString(),
+		operation,
+		owner: randomBytes(16).toString("hex")
+	});
+	const timeoutMs = Math.max(0, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS$1);
+	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
+	let attempts = 0;
+	while (true) {
+		try {
+			await createLock(lockPath, lock);
+			const confirmed = await readLock(lockPath);
+			if (confirmed?.owner !== lock.owner) {
+				attempts += 1;
+				if (attempts >= maxAttempts) throw new RuntimeStoreError(confirmed === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", `runtime lock ownership changed before acquisition completed`, confirmed ?? void 0, {
+					lock_path: lockPath,
+					timeout_seconds: timeoutMs / 1e3
+				});
+				await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+				continue;
+			}
+			return async () => {
+				if ((await readLock(lockPath))?.owner !== lock.owner) return;
+				await promises.unlink(lockPath).catch((error) => {
+					if (error.code !== "ENOENT") throw error;
+				});
+			};
+		} catch (error) {
+			if (error.code !== "EEXIST") throw error;
+		}
+		const holder = await readLock(lockPath);
+		attempts += 1;
+		if (holder !== null && !isPidAlive(holder.pid)) {
+			const current = await readLock(lockPath);
+			if (current !== null && isSameLockGeneration(holder, current) && !isPidAlive(current.pid)) await promises.unlink(lockPath).catch((error) => {
+				if (error.code !== "ENOENT") throw error;
+			});
+			if (attempts >= maxAttempts) throw new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", `runtime lock stale recovery exceeded its bounded retry budget`, current ?? holder, {
+				lock_path: lockPath,
+				timeout_seconds: timeoutMs / 1e3
+			});
+			continue;
+		}
+		if (attempts >= maxAttempts) throw new RuntimeStoreError(holder === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", holder === null ? `runtime lock ${lockPath} is malformed or incomplete; refusing stale removal` : `runtime lock held by live PID ${holder.pid} during ${holder.operation}`, holder ?? void 0, {
+			lock_path: lockPath,
+			timeout_seconds: timeoutMs / 1e3
+		});
+		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+	}
+}
+/**
+* The only read-modify-write API: acquire → validated read → mutate → atomic
+* write → unlock. Identity comes from the already journal-selected session;
+* malformed/mismatched files fail closed and are never silently merged or
+* replaced. An explicit future quarantine flow must present that identity.
+*/
+async function withRuntimeLock(identityInput, operation, mutate, options) {
+	const identity = await canonicalIdentity(identityInput);
+	const release = await acquireRuntimeLock(identity, operation, options);
+	try {
+		const current = await readSessionRuntimeFileUnlocked(identity, options);
+		const canonical = {
+			...await validateFileIdentity(SessionRuntimeFile.parse(await mutate(current)), identity),
+			cwd: identity.cwd
+		};
+		await writeSessionRuntimeFileUnlocked(canonical, identity, options);
+		return canonical;
+	} finally {
+		await release();
+	}
+}
+//#endregion
+//#region i18n/en.json
+var en_default = {
+	_meta: {
+		"schema_version": 1,
+		"lang": "en",
+		"note": "All keys mirror schemas.ts stable IDs. Diagnostic templates use mustache-style {var} placeholders matched to gate-diagnostic.failures[].vars."
+	},
+	evidence_kind: {
+		"task-summary": "Task summary",
+		"verify-review": "Code review",
+		"spec-review": "Spec review",
+		"acceptance": "Acceptance check",
+		"visual-review": "Visual review",
+		"gate-decision": "Gate decision",
+		"local-check": "Local check",
+		"manual": "Manual verification",
+		"waiver": "Risk waiver",
+		"spike-finding": "Spike finding"
+	},
+	phase: {
+		"TRIAGE": "Triage",
+		"SPEC": "Spec",
+		"EXECUTE": "Execute",
+		"VERIFY": "Verify",
+		"SETTLE": "Settle",
+		"DONE": "Done"
+	},
+	sub_state: {
+		"TRIAGE": {
+			"score": "Triage / score",
+			"confirm": "Triage / confirm profile"
+		},
+		"SPEC": {
+			"proposal": "Spec / proposal",
+			"spec": "Spec / author EARS+Gherkin",
+			"plan": "Spec / plan",
+			"design": "Spec / design + tasks"
+		},
+		"EXECUTE": {
+			"plan": "Execute / plan policies",
+			"work": "Execute / running task",
+			"done": "Execute / all tasks final"
+		},
+		"VERIFY": {
+			"plan": "Verify / applicable checks",
+			"run": "Verify / running checks",
+			"review": "Verify / review",
+			"acceptance": "Verify / acceptance",
+			"visual": "Verify / visual",
+			"accept": "Verify / accept gate"
+		},
+		"SETTLE": { "lessons": "Settle / lessons" },
+		"DONE": {
+			"delivered": "Done · delivered",
+			"archived": "Done · archived",
+			"abandoned": "Done · abandoned"
+		}
+	},
+	task_kind: {
+		"behavioral": "Behavioral",
+		"structural": "Structural",
+		"visual-ui": "Visual UI",
+		"docs": "Docs",
+		"spike": "Spike",
+		"chore": "Chore"
+	},
+	task_status: {
+		"pending": "pending",
+		"ready": "ready",
+		"in_progress": "in_progress",
+		"done": "done",
+		"abandoned": "abandoned"
+	},
+	step: {
+		"red": "Red (failing test)",
+		"implement": "Implement",
+		"refactor": "Refactor",
+		"mockup": "Mockup",
+		"screenshot-compare": "Screenshot compare",
+		"draft": "Draft",
+		"review": "Review",
+		"explore": "Explore",
+		"prototype": "Prototype",
+		"record": "Record",
+		"execute": "Execute"
+	},
+	verify_check_kind: {
+		"run": "Run (test + lint + typecheck)",
+		"review": "Review",
+		"acceptance": "Acceptance (E2E)",
+		"visual": "Visual"
+	},
+	applicability: {
+		"must": "Must",
+		"optional": "Optional",
+		"na": "Not applicable"
+	},
+	step_status: {
+		"na": "N/A",
+		"pending": "Pending",
+		"running": "Running",
+		"passed": "Passed",
+		"failed": "Failed",
+		"waived": "Waived"
+	},
+	finding_category: {
+		"spec-gap": "Spec gap",
+		"spec-defect": "Spec defect",
+		"impl-defect": "Implementation defect",
+		"test-defect": "Test defect",
+		"new-scope": "New scope",
+		"risk-escalation": "Risk escalation"
+	},
+	finding_action: {
+		"amend-spec": "Amend spec",
+		"amend-tasks": "Amend tasks",
+		"fix-impl": "Fix implementation",
+		"fix-test": "Fix test",
+		"defer": "Defer (this run)",
+		"backlog": "Backlog (next feature)"
+	},
+	finding_status: {
+		"open": "open",
+		"closed": "closed"
+	},
+	gate: {
+		"spec-lock": "Spec lock",
+		"verify-accept": "Verify accept"
+	},
+	profile: {
+		"quick": "Quick",
+		"standard": "Standard",
+		"deep": "Deep"
+	},
+	pending_kind: {
+		"ask_user_question": "User input requested",
+		"gate_decision": "Gate awaiting human decision",
+		"spec_clarification": "Spec clarification needed",
+		"finding_decision": "Finding awaiting action",
+		"profile_escalation": "Profile escalation pending confirm"
+	},
+	board: {
+		"chrome": {
+			"app_title": "loaf board",
+			"brand": "loaf board",
+			"scope_label": "Scope",
+			"all_sessions": "All sessions",
+			"current_cwd": "Current cwd",
+			"refresh": "Refresh",
+			"theme_toggle": "Toggle theme",
+			"eyebrow": "Local board",
+			"heading": "Loaf Live Board",
+			"subtitle": "Reading local journal projections.",
+			"active": "Active",
+			"blocked": "Blocked",
+			"updated": "Updated",
+			"waiting": "Waiting",
+			"board_label": "Loaf session board",
+			"no_sessions": "No sessions.",
+			"none": "None.",
+			"session": "Session",
+			"session_detail": "Session detail",
+			"close_session_detail": "Close session detail",
+			"loading": "Loading...",
+			"session_error": "Session error",
+			"iteration_short": "iter"
+		},
+		"column": {
+			"TRIAGE": { "description": "Score and confirm ceremony" },
+			"SPEC": { "description": "Proposal, spec, plan, design" },
+			"EXECUTE": { "description": "Task work and fan-out" },
+			"VERIFY": { "description": "Run, review, acceptance, visual" },
+			"SETTLE": { "description": "Lessons" },
+			"DONE": { "description": "Delivered or terminal sessions" }
+		},
+		"status": {
+			"pending_decision": "human decision",
+			"pending_question": "question"
+		},
+		"detail": {
+			"phase": "Phase",
+			"sub_state": "Sub-state",
+			"tail_seq": "Tail seq",
+			"tasks": "Tasks",
+			"evidence": "Evidence",
+			"open_findings": "Open findings",
+			"pending": "Pending",
+			"task_done_suffix": "done",
+			"evidence_passing_suffix": "passing",
+			"steps_suffix": "steps"
+		}
+	},
+	diagnostic: {
+		"INPUT_FILE_NOT_FOUND": "input file does not exist: {path}",
+		"MISSING_INPUT": "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
+		"SPEC_EDIT_INPUT_REQUIRED": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
+		"SCHEMA_VALIDATION_FAILED": "validation failed: {reason}",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
+		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
+		"CONFIG_ALREADY_INITIALIZED": "loaf config already exists at {config_path}; refusing to overwrite",
+		"ATTACHMENT_NOT_FOUND": "attachment path does not exist: {path}",
+		"ATTACHMENT_NOT_FILE": "attachment path is not a regular file: {path} ({kind})",
+		"FINDING_ACTION_UNUSUAL_REASON_REQUIRED": "finding category={category} × action={action} is 'unusual'; --reason of at least {min_reason_length} characters is required",
+		"FINDING_ACTION_INCOHERENT": "finding category={category} × action={action} is incoherent: no target task exists to apply this transition to",
+		"FINDING_TARGET_REQUIRED": "finding action={action} target validation failed ({reason})",
+		"PRUNE_RESTORE_NOT_FOUND": "no trashed session matches the given id",
+		"PRUNE_RESTORE_AMBIGUOUS": "the session id was trashed more than once; pass --at <ts> to pick one",
+		"PRUNE_RESTORE_INCOMPLETE": "the trash bucket is incomplete (missing a required artifact); not restoring",
+		"PRUNE_PATH_OCCUPIED": "a restore destination already exists; refusing to overwrite",
+		"PRUNE_PARTIAL_FAILURE": "prune partially failed: one or more sessions could not be removed",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "mutually exclusive flags in the same invocation: {flags}",
+		"INVALID_ENV_VALUE": "environment variable {env_name}={value} is not in the accepted enum: {accepted}",
+		"INVALID_FORMAT": "invalid --format value '{value}'; allowed: {allowed_values_human}",
+		"INVALID_LOCALE": "invalid locale from {source} (expected {accepted})",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run not applicable to {command_type} command `{command}`",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` is not implemented in this loaf version (Phase 16 SC-15{sub_cycle} pending; see protocol §11)",
+		"TASK_STATUS_WITHOUT_PROOF": "task {task_id} status change requires evidence: status={status} has no PASSING covering evidence proof in evidence.jsonl",
+		"MISSING_VERIFIABILITY": "REQ {req_id} must declare measurable, verified_by_scenarios[], or acceptance_na+reason",
+		"VAGUE_NO_SCENARIO": "requirement {req_id} reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
+		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
+		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
+		"LOCK_TIMEOUT": "could not acquire the write lock within {timeout_seconds}s",
+		"LOCK_INVALID": "feature write lease at {lock_path} is malformed or incomplete",
+		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
+		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
+		"SESSION_CWD_MISMATCH": "--session {uuid} is registered against cwd={registered_cwd}, but the current cwd is {current_cwd}",
+		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} matches {match_count} sessions in the registry: {candidate_list}",
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} matches no entry in the registry",
+		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id} (kind={kind}) blocks `loaf advance` until resolved",
+		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` requires pending head kind=gate_decision; current head kind: {head_kind}",
+		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
+		"ACTOR_AUTHORITY_VIOLATION": "actor {actor} is not allowed for journal kind {kind}",
+		"FROM_CURSOR_MISMATCH": "entry payload.from={payload_from} does not match current sub_state={current_sub_state}",
+		"INVALID_ENVELOPE": "journal entry failed envelope validation: {reason}",
+		"INVALID_PAYLOAD": "payload for kind {kind} failed validation: {reason}",
+		"SEQ_NOT_MONOTONIC": "entry seq {got} does not extend journal tail {tail_seq}; expected {expected}",
+		"SETTLE_PHASE_BYPASS": "VERIFY.accept → DONE.delivered requires ceremony.settle_phase=false (quick / light / standard); deep profile must enter SETTLE.lessons first; current settle_phase={settle_phase}",
+		"SETTLE_PHASE_DISABLED": "VERIFY.accept → SETTLE.lessons requires ceremony.settle_phase=true (deep profile only after rev 5.x); current settle_phase={settle_phase}",
+		"SPEC_PHASE_FORK_VIOLATION": "transition {from} → {to} violates ceremony.spec_phase={spec_phase}",
+		"SUB_STATE_AUTHORITY_VIOLATION": "kind {kind} is not allowed in sub_state {sub_state}",
+		"TRANSITION_ILLEGAL": "cannot transition {from} → {to}",
+		"VERIFY_PHASE_FORK_VIOLATION": "transition {from} → {to} violates ceremony.verify_phase={verify_phase}",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "cannot advance EXECUTE.work → EXECUTE.done: {count} task(s) are not in a final status (done or abandoned); finish their remaining steps or abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`",
+		"ALREADY_STARTED": "session bootstrap kind {kind} cannot run after state already exists",
+		"FINDING_NOT_FOUND": "finding close references unknown finding id {id}",
+		"NO_SESSION": "no started session — run `loaf start` first",
+		"PENDING_NOT_FOUND": "pending resolve failed: {reason}",
+		"REDUCER_NOT_IMPLEMENTED": "reducer has no handler for journal kind {kind}",
+		"ENTRY_OVERSIZE": "journal entry serialized to {bytes} bytes; limit is {limit}",
+		"SHORT_WRITE": "journal append wrote {wrote} of {want} bytes",
+		"TAIL_CORRUPTION": "journal tail is corrupt: {reason}",
+		"INVALID_ACTOR_FORMAT": "human actor value is invalid: {reason}",
+		"NO_HUMAN_ACTOR": "no human actor could be resolved for a human-only command",
+		"DUPLICATE_REQ_ID": "REQ id {id} is already in the spec projection",
+		"DUPLICATE_SCEN_ID": "SCEN id {id} is already in the spec projection",
+		"DUPLICATE_VIS_ID": "VIS id {id} is already in the spec projection",
+		"SPEC_FRONTMATTER_INVALID": "spec frontmatter failed gate check 1 (subcode={subcode})",
+		"SPEC_HAS_UNCLARIFIED": "spec has {count} unresolved needs_clarification entries (ids={ids}); resolve or remove them before spec-lock can pass",
+		"TASK_NOT_FOUND": "task {task_id} is not in the current tasks projection",
+		"TASK_STEP_NOT_FOUND": "step {step} is not seeded on task {task_id} — seeded steps are derived from the task's kind execution schema (§14)",
+		"DUPLICATE_TASK_ID": "task id {task_id} appears more than once in tasks_planned payload",
+		"TASKS_NOT_PLANNED": "gate task-graph check: tasks have not been planned (snapshot.tasks_based_on is null)",
+		"TASKS_BASED_ON_STALE": "gate task-graph check: tasks_based_on.spec={tasks_based_on_spec} but current spec.spec_version={current_spec_version} — the task graph was planned against an older spec",
+		"REQ_NOT_DRIVEN": "spec-lock check 4: requirement {req_id} is not referenced by any task.drives[]",
+		"E2E_SCENARIO_UNBOUND": "spec-lock check 6: e2e scenario {scenario_id} has no binding task (requires task with requires_acceptance=true AND drives includes {scenario_id})",
+		"VISUAL_CONTRACT_UNBOUND": "spec-lock check 7: visual_contract {visual_id} has no visual-ui task whose visual_contract_refs includes it",
+		"TASK_KIND_SCHEMA_VIOLATION": "spec-lock check 8: task {task_id} (kind={kind}) violates projected kind-specific obligations: {reasons}",
+		"GATE_PRECONDITION_VIOLATION": "gate:decided {gate} approval rejected at the mutate layer: {failure_count} check(s) failed",
+		"MULTIPLE_GATE_DECISIONS": "batch contains {count} approved gate:decided entries (gate_kinds={gate_kinds}); protocol §10.8 requires one gate decision per atomic operation",
+		"GATE_NOT_IMPLEMENTED": "gate={gate} is not recognized; protocol GateName enum is closed at `spec-lock` or `verify-accept` for v0.1.0",
+		"VERIFY_LANE_NOT_PASSED": "verify-accept check 1: applicable VERIFY lane={lane} has no evidence with passing/approved/waived result",
+		"OPEN_FINDINGS_PRESENT": "verify-accept check 2: {count} actionable finding(s) still open (ids={open_ids}); resolve or close before verify-accept",
+		"COVERAGE_NOT_SATISFIED": "{covered_id} has no evidence that satisfies it (canSatisfy failed for all candidates)",
+		"TASK_DONE_NO_EVIDENCE": "verify-accept check 4: task {task_id} is status=done but has no evidence covering it (kind one of `task-summary`, `local-check`, `manual`, or `waiver`)",
+		"SPEC_REVIEW_MISSING": "verify-accept check 5: ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review with result `passed` or `approved` from an actor ≠ implementer; none found",
+		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
+		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
+		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
+		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
+		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
+		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
+		"DELIVER_SPIKE_TASKS": "cannot deliver: task {task_id} is kind=spike (status={status}); spike tasks block delivery for the entire session",
+		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons requires verify_accepted=true; run `loaf gate decide verify-accept --approve` before `loaf settle`",
+		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan requires spec_locked=true; run `loaf gate decide spec-lock --approve` before `loaf advance EXECUTE.plan`",
+		"TASK_NOT_CLAIMABLE": "task {task_id} cannot be claimed (status={status} — terminal state)",
+		"TASK_ALREADY_CLAIMED": "task {task_id} is already claimed (status=in_progress)",
+		"TASK_DEP_NOT_FOUND": "task {task_id} field {field} references missing task {ref}",
+		"TASK_DEP_SELF": "task {task_id} cannot depend on itself",
+		"TASK_DEP_DUPLICATE": "task {task_id} repeats dependency {ref} at indexes {indexes}",
+		"TASK_DEP_CYCLE": "task dependency graph contains cycle {cycle}",
+		"TASK_DEP_ABANDONED": "task {task_id} field {field} references abandoned task {ref}; {hint}",
+		"TASK_DEPS_NOT_SATISFIED": "task {task_id} cannot be claimed: dependency {blocking_dep} is not done (status={blocking_status})",
+		"TASK_NOT_CLAIMED": "task {task_id} step {step} mutation requires task.status=in_progress (got status={status}); claim the task first",
+		"TASK_NOT_ABANDONABLE": "task {task_id} cannot be abandoned (status={status} — already in a final status)",
+		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} cannot be abandoned: non-terminal task(s) {blocking_dependents} depend on it; abandon or complete the dependents first",
+		"SESSION_REASON_REQUIRED": "{kind}: --reason is required (the session-terminal entry must record why)",
+		"PROJECTION_WRITE_FAILED": "{projection} projection write failed after journal append at last_seq={last_seq} (spec_version={spec_version}): {error}",
+		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec requires state.spec_locked=true; spec is not locked at sub_state={current_sub_state}, edit directly via `loaf spec submit / add-*`",
+		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
+		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
+		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
+		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
+		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
+		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
+		"SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
+		"INVALID_PRESET": "invalid ceremony preset",
+		"USAGE": "invalid CLI usage",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
+		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
+		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
+		"REDUCER_ERROR": "internal reducer invariant failed",
+		"APPEND_ERROR": "journal append failed",
+		"SIDECAR_ERROR": "sidecar finalize failed: {err}",
+		"INVALID_BATCH": "mutation batch is invalid",
+		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded batch is invalid: {reason}",
+		"SCOPE_RECORDED_ITERATION_DUPLICATE": "scope:recorded already exists for iteration {iteration}",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope history is incomplete: EXECUTE closure transition(s) at seq {transition_seqs} have no same-batch scope:recorded marker",
+		"WRITE_PATH_VIOLATION": "write blocked: `{normalized_path}` is outside the allowed write paths for sub_state `{sub_state}`",
+		"PROTECTED_FILE_WRITE": "write blocked: `{normalized_path}` matches protected_files entry `{matched_deny}` — protected files are never writable"
+	},
+	diagnostic_fix: {
+		"INPUT_FILE_NOT_FOUND": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+		"MISSING_INPUT": "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
+		"SPEC_EDIT_INPUT_REQUIRED": "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
+		"SCHEMA_VALIDATION_FAILED": "inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
+		"SPEC_NOT_INITIALIZED": "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
+		"SPEC_ALREADY_INITIALIZED": "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
+		"CONFIG_ALREADY_INITIALIZED": "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
+		"ATTACHMENT_NOT_FOUND": "verify the path is reachable from the working directory and readable by the current user",
+		"ATTACHMENT_NOT_FILE": "attachments must be regular files; directories, symlinks to directories, sockets, and FIFOs are rejected",
+		"FINDING_ACTION_UNUSUAL_REASON_REQUIRED": "rerun with --reason explaining why this non-typical combination applies (see references/finding-matrix-rationale.md)",
+		"FINDING_ACTION_INCOHERENT": "amend the spec first (category=spec-gap / new-scope × action=amend-spec) so a target task can be planned, then raise the fix-impl / fix-test finding against that task",
+		"FINDING_TARGET_REQUIRED": "fix-impl/fix-test require --target-task + --target-step matching the action's canonical step (fix-impl=implement, fix-test=red); amend-tasks accepts an optional but valid target; amend-spec / defer / backlog must not carry a target",
+		"PRUNE_RESTORE_NOT_FOUND": "run `loaf prune --history` to list trashed sessions (slice 6b)",
+		"PRUNE_RESTORE_AMBIGUOUS": "re-run `loaf prune restore <id> --at <ts>` with one of the listed timestamps",
+		"PRUNE_RESTORE_INCOMPLETE": "inspect the trash bucket; a complete bucket has manifest.json + registry.json",
+		"PRUNE_PATH_OCCUPIED": "move or remove the occupying registry entry / feature dir, then retry restore",
+		"PRUNE_PARTIAL_FAILURE": "inspect detail.failed; rerun prune for the failed sessions after resolving the error",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "pass at most one of the flags from each exclusion set; see `loaf <cmd> --help` for the canonical flag list",
+		"INVALID_ENV_VALUE": "unset {env_name} or set it to one of: {accepted}",
+		"INVALID_FORMAT": "pass --format text or --format json (the only allowed values for this release); --format=<value> equals form is accepted",
+		"INVALID_LOCALE": "unset the locale override or set it to one of: {accepted}; user preferences live in ~/.loaf/config.json locale.default_lang",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run only applies to mutating commands; re-run without --dry-run (or -n) to invoke the {command_type} command",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "upgrade to a loaf release that implements this hook event, OR skip this hook surface for now — `loaf hook --list-events` shows the canonical 4-event enum",
+		"TASK_STATUS_WITHOUT_PROOF": "emit `loaf evidence add` covering task_id={task_id} before advancing status (task-evidence is otherwise enforced later at verify-min / verify-accept)",
+		"MISSING_VERIFIABILITY": "add one of: measurable with metric, threshold, and optional unit/direction; verified_by_scenarios: [SCEN-...]; or acceptance_na: true with acceptance_na_reason of at least 10 characters",
+		"VAGUE_NO_SCENARIO": "either add measurable with a numeric threshold and direction, or add the verifying SCEN-id to verified_by_scenarios",
+		"DRIVES_NOT_BOUND": "add a task whose drives[] contains {req_id} (loaf tasks add --input ...), or remove the REQ if it is intentionally out-of-scope for this feature",
+		"MUTATION_OUT_OF_RIGHTS": "the mutation rights matrix (protocol.md §8.6) limits EXECUTE.plan `tasks amend` to execution[].applicability changes plus a status pending→ready advance; graph/kind-flag fields are frozen. To restructure the task graph, raise a `finding raise --action amend-tasks` back-edge, then run the sponsored `tasks add --finding` / `tasks amend --input --finding` at EXECUTE.work — a sponsored amend may change graph/definition fields but never erases execution progress (task/step status is frozen)",
+		"LOCK_TIMEOUT": "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
+		"LOCK_INVALID": "inspect the lease and active loaf processes; malformed leases fail closed and no loaf command deletes them. Remove or replace the file only after independently proving that no writer owns it.",
+		"FEATURE_NOT_FOUND": "run `loaf start <description>` to create a new feature, or cd into a directory that already has a .loaf/<feature>/ subtree",
+		"FEATURE_AMBIGUOUS": "disambiguate with --feature <name>, --session <UUID>, or set $LOAF_FEATURE / $LOAF_SESSION in the environment",
+		"SESSION_CWD_MISMATCH": "cd to the registered cwd before issuing the command, or pass a different --session, or drop --session to auto-pick a session in the current cwd",
+		"SESSION_SHORT_AMBIGUOUS": "pass a longer UUID prefix (≥8 chars are required; use more to disambiguate) or pass the full UUID",
+		"SESSION_NOT_FOUND": "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
+		"PENDING_BLOCKS_ADVANCE": "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
+		"GATE_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
+		"ESCALATION_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
+		"ACTOR_AUTHORITY_VIOLATION": "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
+		"FROM_CURSOR_MISMATCH": "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
+		"INVALID_ENVELOPE": "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",
+		"INVALID_PAYLOAD": "fix the payload to match the PER_KIND_PAYLOAD schema for this kind and retry the mutator",
+		"SEQ_NOT_MONOTONIC": "refresh tail_seq under the session lock and retry; if the tail is corrupt run `loaf doctor --check-tail`",
+		"SETTLE_PHASE_BYPASS": "for deep profile, advance from VERIFY.accept to SETTLE.lessons via `loaf settle`; if SETTLE is not desired, start/continue a standard ceremony flow instead",
+		"SETTLE_PHASE_DISABLED": "for non-deep profiles (quick / light / standard), advance from VERIFY.accept to DONE.delivered via `loaf deliver`; to enter SETTLE, escalate ceremony to deep",
+		"SPEC_PHASE_FORK_VIOLATION": "follow the ceremony fork: spec_phase=true traverses SPEC.*, spec_phase=false goes directly to EXECUTE.plan",
+		"SUB_STATE_AUTHORITY_VIOLATION": "advance/back-edge to a sub_state that permits this journal kind, or use the command valid for the current state",
+		"TRANSITION_ILLEGAL": "choose one of the allowed forward transitions for the current sub_state, or use an explicit terminal/archive path when supported",
+		"VERIFY_PHASE_FORK_VIOLATION": "follow the ceremony fork: verify_phase=true enters VERIFY.plan, verify_phase=false can deliver after minimal verification",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "finish the remaining steps — run each task's steps via `loaf tasks step` until it auto-promotes to status=done — OR abandon out-of-scope tasks with `loaf tasks abandon <T-N> --reason \"...\"`, then retry `loaf advance EXECUTE.done`; see detail.non_final for the tasks still pending or in progress",
+		"ALREADY_STARTED": "resume the existing session or create a new feature directory instead of starting over initialized state",
+		"FINDING_NOT_FOUND": "list open findings and close an existing id, or raise the finding before closing it",
+		"NO_SESSION": "run `loaf start` before emitting non-bootstrap journal entries",
+		"PENDING_NOT_FOUND": "resolve the current pending head only; list pending items and retry with the head id",
+		"REDUCER_NOT_IMPLEMENTED": "implement the journal kind in the exhaustive reducer switch before appending it",
+		"ENTRY_OVERSIZE": "move long text into sidecar form via LongTextField instead of embedding it inline",
+		"SHORT_WRITE": "stop writing, preserve the journal, and run `loaf doctor --check-tail` before retrying",
+		"TAIL_CORRUPTION": "run `loaf doctor --check-tail`; do not append until the tail has been repaired or quarantined",
+		"INVALID_ACTOR_FORMAT": "set LOAF_USER to the raw human identifier without a namespace prefix, or unset it to allow interactive git user.email fallback",
+		"NO_HUMAN_ACTOR": "run interactively with git user.email configured, or set LOAF_USER explicitly",
+		"DUPLICATE_REQ_ID": "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
+		"DUPLICATE_SCEN_ID": "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
+		"DUPLICATE_VIS_ID": "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
+		"SPEC_FRONTMATTER_INVALID": "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy either gate.",
+		"SPEC_HAS_UNCLARIFIED": "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
+		"TASK_NOT_FOUND": "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
+		"TASK_STEP_NOT_FOUND": "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
+		"DUPLICATE_TASK_ID": "tasks_planned is whole-replacement — each task id must be unique within the batch. Rename one or merge them in the planning input",
+		"TASKS_NOT_PLANNED": "run `loaf tasks submit --input <plan-file>` to emit event:tasks_planned and seed the task graph; spec-lock check 3 and verify-accept check 4 both require tasks_based_on.spec to match the current spec.spec_version",
+		"TASKS_BASED_ON_STALE": "either re-plan tasks against the current spec via `loaf tasks submit` (whole-replacement), or amend individual tasks via `loaf tasks add/amend` + raise a `loaf finding raise --category spec-gap --action amend-spec` if a spec roll-back is needed. Surfaces for spec-lock (check 3) and verify-accept (check 4 precondition).",
+		"REQ_NOT_DRIVEN": "add a task whose drives[] array includes {req_id}, or remove the requirement from spec.md if it is no longer in scope. Note: this is the REQ-side coverage code (distinct from legacy DRIVES_NOT_BOUND which named the inverse direction)",
+		"E2E_SCENARIO_UNBOUND": "either (a) add a task with requires_acceptance=true and drives including {scenario_id}, or (b) mark the scenario with acceptance_na=<reason ≥5 chars> in spec.md if e2e acceptance is intentionally skipped for this iteration",
+		"VISUAL_CONTRACT_UNBOUND": "either (a) add a visual-ui task with visual_contract_refs including {visual_id}, or (b) mark the visual_contract with visual_na=<reason ≥5 chars> in spec.md if visual verification is intentionally deferred",
+		"TASK_KIND_SCHEMA_VIOLATION": "amend the task to satisfy its kind contract: structural/docs/spike/chore require no_test_rationale (string ≥10 chars); visual-ui requires visual_contract_refs[] with ≥1 entry. Slice C R2: bug-task RED is execution discipline, not a spec-lock obligation — a behavioral task with labels=['bug'] is born unregistered, and RED registration is enforced at runtime by BUG_TASK_REQUIRES_RED (preflight, implement step) and BUG_TASK_RED_NOT_REGISTERED (verify-accept), never by this check",
+		"GATE_PRECONDITION_VIOLATION": "this is a mutate-layer envelope around the underlying gate checks (see detail.checks for the list). spec-lock failure codes: MISSING_VERIFIABILITY / REQ_NOT_DRIVEN / E2E_SCENARIO_UNBOUND / VISUAL_CONTRACT_UNBOUND / TASKS_NOT_PLANNED / TASKS_BASED_ON_STALE / TASK_KIND_SCHEMA_VIOLATION / SPEC_HAS_UNCLARIFIED. verify-accept failure codes: VERIFY_LANE_NOT_PASSED / OPEN_FINDINGS_PRESENT / COVERAGE_NOT_SATISFIED / TASK_DONE_NO_EVIDENCE / SPEC_REVIEW_MISSING / SPEC_REVIEW_IMPLEMENTER_CONFLICT / SPEC_REVIEW_IMPLEMENTER_UNKNOWN / TASKS_NOT_PLANNED (precondition) / TASKS_BASED_ON_STALE (precondition). Fix each listed check then retry the gate decision. Pass 1.5 runs after preflight + reducer dry-run + before sidecar promotion, so a rejected gate batch leaves no on-disk residue.",
+		"MULTIPLE_GATE_DECISIONS": "split the batch — emit each gate decision as its own mutation. A batch carrying ≥2 gate approvals (even with different gate_kinds, e.g. spec-lock + verify-accept) is not a valid atomic operation. Rejected gate decisions are not counted; only approvals trigger this rule",
+		"GATE_NOT_IMPLEMENTED": "use `loaf gate decide spec-lock` or `loaf gate decide verify-accept`. Future gates beyond v0.1.0 would extend the GateName enum in journal-entry.ts + evidence-schema.ts (lockstep) and wire here.",
+		"VERIFY_LANE_NOT_PASSED": "add an evidence:added entry with check={lane} (or a matching kind via the narrow fallback map: local-check/task-summary→run, verify-review/spec-review→review, acceptance→acceptance, visual-review→visual) and result one of `passed`, `approved`, or `waived`. Applicable lanes derive from spec: REQ ⇒ REVIEW, SCEN.tag=e2e ⇒ ACCEPTANCE, VIS ⇒ VISUAL, done task ⇒ RUN+REVIEW.",
+		"OPEN_FINDINGS_PRESENT": "complete the declared action for each listed finding, then run `loaf finding close <FND-id>`; if the honest disposition is carry-forward, raise it with action=defer or action=backlog instead. verify-accept excludes only open findings whose existing action declares deferral",
+		"COVERAGE_NOT_SATISFIED": "add evidence:added covering {covered_id} per protocol §5.4: REQ allows task-summary/verify-review/spec-review/manual+reason/waiver+reason; SCEN.tag=e2e allows acceptance/manual+reason/waiver+reason; VIS allows visual-review+attachment/manual+reason/waiver+reason. Result must be passed/approved/waived per §1035.",
+		"TASK_DONE_NO_EVIDENCE": "add evidence:added with covers including {task_id} and kind in the T-allowed set. Most commonly: a task-summary written on closing the task; alternatively local-check (test/lint/typecheck run), manual (human attest), or waiver (human waiver with reason ≥10 chars).",
+		"SPEC_REVIEW_MISSING": "have an independent reviewer (not the implementer of done tasks; not a cli:* automation actor) run a spec review and add an evidence:added with kind=spec-review and result `passed` or `approved`. Note: result=waived does NOT count for spec-review (kind=spec-review + result=waived bypasses the human+reason refine guarantee that kind=manual or kind=waiver provides).",
+		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
+		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
+		"DELIVER_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
+		"DELIVER_SETTLE_PHASE_BYPASS": "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
+		"DELIVER_VERIFY_MIN_UNAVAILABLE": "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
+		"DELIVER_VERIFY_MIN_INCOMPLETE": "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
+		"DELIVER_SPIKE_TASKS": "abandon the spike task (`loaf tasks abandon {task_id} --reason \"...\"`) or convert it to a feature (`loaf spike convert --to-feature F-N --reason \"...\"`); spike tasks must not remain in non-abandoned status when the session delivers",
+		"SETTLE_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` before `loaf settle`; the gate flips snapshot.state.verify_accepted before the transition validator will admit the SETTLE entry",
+		"SPEC_LOCK_NOT_SATISFIED": "run `loaf gate decide spec-lock --approve --reason \"...\"` before `loaf advance EXECUTE.plan`; the gate runs the 8 spec-lock checks and flips snapshot.state.spec_locked before the transition validator will admit the EXECUTE.plan entry",
+		"TASK_NOT_CLAIMABLE": "tasks with status=done are already complete; status=abandoned tasks cannot be reactivated. Run `loaf tasks list` to inspect the task graph, or `loaf tasks next` to pick a different ready task",
+		"TASK_ALREADY_CLAIMED": "another worker may already hold this task; run `loaf tasks list` to inspect active claims. Stale-claim release is handled in a future slice (no CLI surface for abandon in v0.1.0 yet) — raise a finding with action=fix-impl if needed",
+		"TASK_DEP_NOT_FOUND": "add the referenced task in the same atomic batch, or amend the dependency to an existing task, then retry",
+		"TASK_DEP_SELF": "remove the self-reference from depends_on, then retry the task graph mutation",
+		"TASK_DEP_DUPLICATE": "keep each dependency id only once in depends_on, then retry",
+		"TASK_DEP_CYCLE": "remove or redirect one dependency in the reported closed path, then retry",
+		"TASK_DEP_ABANDONED": "use an amend-tasks-sponsored task amendment to replace the abandoned dependency, then retry",
+		"TASK_DEPS_NOT_SATISFIED": "complete deps_on tasks first (run `loaf tasks list --status pending` to see what is blocking), or use `loaf tasks next` to pick a task with all deps satisfied",
+		"TASK_NOT_CLAIMED": "run `loaf tasks claim {task_id}` to move the task from pending/ready to in_progress before emitting task_step_started or task_step_done; once auto-promoted to done, steps cannot be re-mutated",
+		"TASK_NOT_ABANDONABLE": "tasks with status=done are already complete and status=abandoned tasks are already abandoned; run `loaf tasks list` to inspect the task graph and abandon a non-terminal task instead",
+		"TASK_ABANDON_BLOCKED_DEPENDENTS": "abandon or complete the dependent tasks first (see detail.blocking_dependents), then retry `loaf tasks abandon {task_id} --reason \"...\"`; abandoning a parent would strand a pending child",
+		"SESSION_REASON_REQUIRED": "re-run with `--reason \"...\"`; `loaf archive` and `loaf abandon` both require a rationale on the journal entry",
+		"PROJECTION_WRITE_FAILED": "the journal already records the change; do NOT retry the same command. Run `loaf doctor --rebuild` (when available) to resync derived projections from journal truth, or inspect `.loaf/<feature>/journal.jsonl` tail manually.",
+		"FINDING_AMEND_SPEC_NOT_LOCKED": "drop --action amend-spec and use `loaf spec submit` / `loaf spec add-req` / etc. directly while spec is unlocked; amend-spec is reserved for post-`gate decide spec-lock --approve` recovery.",
+		"SPEC_VERSION_NOT_MONOTONIC": "set spec_version to {expected_spec_version} in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).",
+		"SPEC_VERSION_BATCH_MISMATCH": "in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.",
+		"TASK_COMPLETE_PRECONDITION_VIOLATED": "finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.",
+		"BUG_TASK_REQUIRES_RED": "run `loaf tasks register-red {task_id}` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.",
+		"BUG_TASK_FLAG_MISUSE": "do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.",
+		"BUG_TASK_RED_NOT_REGISTERED": "a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.",
+		"SPIKE_CONVERT_NO_SPIKE_TASK": "run `loaf spike convert` only from a session that holds a kind=spike task; for a non-spike session close it with `loaf archive --reason \"...\"` or `loaf abandon --reason \"...\"`",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
+		"INVALID_PRESET": "Use one of quick, light, standard, or deep.",
+		"USAGE": "Run the command with --help and retry with the required flags/arguments.",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
+		"DOCTOR_FEATURE_REQUIRED": "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+		"DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
+		"REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
+		"APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+		"SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+		"INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
+		"SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
+		"SCOPE_RECORDED_ITERATION_DUPLICATE": "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "do not fabricate an empty actual_scope; preserve the journal and rerun the feature's EXECUTE work with an F-027-capable loaf version before auditing scope. Pre-F-027 closure scope cannot be reconstructed from journal history.",
+		"WRITE_PATH_VIOLATION": "write within the current step's contract, advance to the right sub_state/step first, or widen the matching `paths.*` category in .loaf/.config/loaf.config.json",
+		"PROTECTED_FILE_WRITE": "remove the entry from protected_files in .loaf/.config/loaf.config.json if the protection is wrong, otherwise write a different file"
+	},
+	diagnostic_variant: { "failure": {
+		"check": {
+			"path_missing": "file not found: {path}",
+			"selector_conflict": "check does not accept {conflicting} — it validates a file by path, independent of any feature session",
+			"kind_required": "`{subject}` is not a file path. To validate a {kind} artifact, pass its path: `{suggestion}` (noun-first `loaf {kind} check` is reserved for a future release)",
+			"kind_invalid": "--kind '{value}' is not recognized; expected one of {allowed_kinds_human}"
+		},
+		"profile": {
+			"input_file_missing": "input file does not exist: {path}",
+			"input_file_unreadable": "cannot read input file {path}: {error}"
+		},
+		"lessons": {
+			"file_missing": "lesson file not found: {path}",
+			"text_too_short": "lesson text must be ≥{min_length} chars (got {lesson_text_length})",
+			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})",
+			"text_file_mutex": "exactly one of --text or --file required ({provided_state})"
+		},
+		"hook": {
+			"stdin_parse_failed": "{reason}",
+			"missing_event": "loaf hook requires an event token; one of: {events}. Run `loaf hook --list-events` for the full enum",
+			"unknown_event": "unknown hook event '{event}'; expected one of: {allowed}. Did you mean '{suggestion}'?",
+			"write_path_missing": "write-side hook requires --path <P> or a non-TTY stdin hook payload (tool_input.file_path)"
+		},
+		"schema": {
+			"validation": "{kind} at {path} failed schema validation ({error_count} {error_word})",
+			"selector_conflict": "{subject} does not accept {conflicting} — schema dumps are feature-agnostic"
+		},
+		"handoff": {
+			"pack_validation_failed": "ResumePack failed runtime validation (builder bug or schema drift)",
+			"reason_too_short": "--reason must be ≥{min_length} chars (got {reason_length})"
+		},
+		"tasks_add": { "empty_array": "tasks add input is an empty array" },
+		"write_guard": { "config_invalid": "write-guard blocked: {reason}" },
+		"no_session": {
+			"status": "run `loaf start {feature}` first",
+			"advance": "run `loaf start {feature}` first",
+			"tasks": "run `loaf start {feature}` first",
+			"pending": "run `loaf start {feature}` first",
+			"finding": "run `loaf start {feature}` first",
+			"verify": "run `loaf start {feature}` first",
+			"generic": "run `loaf start {feature}` first"
+		},
+		"sessions_list": { "selector_conflict": "sessions list does not accept {conflicting} — it lists across all sessions; use --in-cwd to filter" },
+		"tui": {
+			"selector_conflict": "tui does not accept {conflicting} — it lists across all sessions; selectors are nonsensical for an interactive UI",
+			"interactive_only": "tui is interactive-only; use `loaf sessions list --format json` for scriptable session output"
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "{conflicting} cannot be combined with --feature-dir (session identity comes from registry; manual featureDir is contradictory)",
+			"feature_dir_requires_feature": "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature"
+		},
+		"start": {
+			"label_too_short": "--label must be at least {min_length} characters",
+			"workspace_empty": "--workspace must not be empty"
+		},
+		"finding": { "status_invalid": "--status must be one of: {allowed_statuses_human} (got {value})" },
+		"journal": {
+			"integer_invalid": "{flag} must be an integer >= {minimum} (got {value})",
+			"kind_invalid": "--kind must be a registered journal kind (got {value})",
+			"actor_invalid": "--actor must be a non-empty actor prefix or full actor string"
+		},
+		"evidence": {
+			"covers_invalid": "--covers must be a valid coverage id (got {value})",
+			"task_invalid": "--task must be a valid task id (got {value})",
+			"kind_invalid": "--kind must be one of: {allowed_kinds_human}"
+		}
+	} },
+	diagnostic_variant_fix: { "failure": {
+		"check": {
+			"path_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+			"selector_conflict": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_required": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"profile": {
+			"input_file_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+			"input_file_unreadable": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples"
+		},
+		"lessons": {
+			"file_missing": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
+			"text_too_short": "Run the command with --help and retry with the required flags/arguments.",
+			"reason_too_short": "Run the command with --help and retry with the required flags/arguments.",
+			"text_file_mutex": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"hook": {
+			"stdin_parse_failed": "pass --path <P> or a non-TTY hook payload containing tool_input.file_path, then retry the hook",
+			"missing_event": "Run the command with --help and retry with the required flags/arguments.",
+			"unknown_event": "Run the command with --help and retry with the required flags/arguments.",
+			"write_path_missing": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"schema": {
+			"validation": "fix the reported fields in {path}, then rerun `loaf check {path} --kind {kind}`",
+			"selector_conflict": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"handoff": {
+			"pack_validation_failed": "preserve the session journal and report the failed ResumePack runtime validation; retry with a corrected loaf version",
+			"reason_too_short": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"tasks_add": { "empty_array": "provide at least one task object; run `loaf tasks add --schema --format=json` to inspect the authoring input" },
+		"write_guard": { "config_invalid": "repair .loaf/.config/loaf.config.json, then retry the write-side hook" },
+		"no_session": {
+			"status": "run `loaf start` before emitting non-bootstrap journal entries",
+			"advance": "run `loaf start` before emitting non-bootstrap journal entries",
+			"tasks": "run `loaf start` before emitting non-bootstrap journal entries",
+			"pending": "run `loaf start` before emitting non-bootstrap journal entries",
+			"finding": "run `loaf start` before emitting non-bootstrap journal entries",
+			"verify": "run `loaf start` before emitting non-bootstrap journal entries",
+			"generic": "run `loaf start` before emitting non-bootstrap journal entries"
+		},
+		"sessions_list": { "selector_conflict": "Run the command with --help and retry with the required flags/arguments." },
+		"tui": {
+			"selector_conflict": "Run the command with --help and retry with the required flags/arguments.",
+			"interactive_only": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "Run the command with --help and retry with the required flags/arguments.",
+			"feature_dir_requires_feature": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"start": {
+			"label_too_short": "Run the command with --help and retry with the required flags/arguments.",
+			"workspace_empty": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"finding": { "status_invalid": "Run the command with --help and retry with the required flags/arguments." },
+		"journal": {
+			"integer_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"actor_invalid": "Run the command with --help and retry with the required flags/arguments."
+		},
+		"evidence": {
+			"covers_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"task_invalid": "Run the command with --help and retry with the required flags/arguments.",
+			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
+		}
+	} },
+	success: {
+		"next": {
+			"full_command_pointer": "run `{command}` for the full command",
+			"deliver": "loaf deliver",
+			"settle": "loaf settle",
+			"settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
+		},
+		"start": { "state_change": "start: '{feature}' created → TRIAGE.score" },
+		"advance": { "state_change": "advance: {from} → {to}" },
+		"gate": {
+			"spec_lock_approved_state_change": "gate decide: spec-lock approved by {actor}",
+			"verify_accept_approved_state_change": "gate decide: verify-accept approved by {actor}",
+			"rejected_state_change": "gate decide: {gate} rejected by {actor}"
+		},
+		"deliver": {
+			"state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
+			"next": "session complete — `loaf start <feature>` to begin another"
+		},
+		"archive": { "state_change": "archive: {feature} — {from} → DONE.archived by {actor}" },
+		"abandon": { "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor} (reason='{reason}')" },
+		"spike": { "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}" },
+		"profile": { "escalate_state_change": "profile escalate: ceremony updated, {pending_id} resolved" },
+		"tasks": {
+			"submit_text_one": "submitted {count} task: {task_ids}",
+			"submit_text_many": "submitted {count} tasks: {task_ids}",
+			"submit_state_change": "tasks submit: {count} tasks",
+			"add_text_one": "added {count} task: {task_ids}",
+			"add_text_many": "added {count} tasks: {task_ids}",
+			"add_sponsored_text_one": "added {count} task (sponsored by {finding}): {task_ids}",
+			"add_sponsored_text_many": "added {count} tasks (sponsored by {finding}): {task_ids}",
+			"add_state_change": "tasks add: +{count} tasks (allocated {task_ids})",
+			"claim_state_change": "tasks claim: {task_id} (status={status})",
+			"abandon_state_change": "tasks abandon: {task_id} (status={status})",
+			"register_red_state_change": "tasks register-red: {task_id}"
+		},
+		"doctor": {
+			"rebuild_text_one": "rebuilt {count} projection file for {feature}:",
+			"rebuild_text_many": "rebuilt {count} projection files for {feature}:",
+			"rebuild_state_change_one": "doctor rebuild: rebuilt {count} projection file for {feature}",
+			"rebuild_state_change_many": "doctor rebuild: rebuilt {count} projection files for {feature}"
+		},
+		"snapshot": { "as_of_seq": "# snapshot as-of seq={seq}" },
+		"amend": {
+			"sponsored_text": "amended {task_id} (sponsored by {finding_id})",
+			"policy_text": "amended {task_id} ({applied})",
+			"state_change": "amend: {task_id}"
+		},
+		"step": {
+			"start_state_change": "step start: {task_id} {step} (running)",
+			"done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
+			"done_evidence_suffix": " evidence={evidence_id}",
+			"done_promote_suffix": " (task auto-promoted to done)",
+			"done_state_change": "step done: {task_id} {step} ({result})"
+		},
+		"settle": {
+			"text": "",
+			"state_change": "settle: {from} → SETTLE.lessons"
+		},
+		"resume": { "state_change": "resume: session {session_id} (sub_state={sub_state} unchanged)" },
+		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
+		"pending": {
+			"raise_state_change": "pending raise: {pending_id} (kind={kind})",
+			"resolve_text": "resolved {pending_id} (kind={kind})",
+			"resolve_state_change": "pending resolve: {pending_id} cleared"
+		},
+		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
+		"lessons": { "add_state_change": "lessons add: {lesson_id} recorded (kind=lesson:recorded; lessons.md updated)" },
+		"evidence": {
+			"covers_none": "<none>",
+			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
+			"add_state_change_batch_homogeneous": "evidence add: +{count} evidence ({evidence_ids}; kind={kind}, covers={covers})",
+			"add_state_change_batch_mixed": "evidence add: +{count} evidence ({evidence_ids})"
+		},
+		"finding": {
+			"close_text": "closed {finding_id}",
+			"close_state_change": "finding close: {finding_id} → closed"
+		},
+		"spec": {
+			"submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
+			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
+			"submit_next": "loaf gate decide spec-lock",
+			"init_state_change": "spec init: wrote scaffold to {path}",
+			"init_next": "edit, then `loaf spec edit --input <json>`",
+			"edit_text": "spec edit: spec_version={spec_version}",
+			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
+			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
+			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
+			"add_req_state_change_one": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
+			"add_req_state_change_many": "spec add-req: +{count} REQ (spec_version={spec_version}; allocated {ids})",
+			"add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO (spec_version={spec_version}; allocated {ids})",
+			"add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO (spec_version={spec_version}; allocated {ids})",
+			"add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_state_change_one": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})",
+			"add_visual_state_change_many": "spec add-visual: +{count} VISUAL (spec_version={spec_version}; allocated {ids})"
+		}
+	},
+	chrome: {
+		"status": {
+			"feature": "feature: {feature}",
+			"phase": "phase:   {phase}",
+			"cursor": "cursor:  {cursor}",
+			"tail": "tail:    seq={seq}",
+			"counts": "tasks={tasks_count} evidence={evidence_count} findings={findings_count} pending={pending_count}",
+			"snapshot_as_of_projection_loader": "# snapshot as-of seq={seq} (projection-loader, Phase 15 SC3)"
+		},
+		"tasks": {
+			"list_empty_filtered": "no tasks match --status={status}",
+			"list_empty": "no tasks in projection (run `loaf tasks submit` first)",
+			"ready_marker": "ready",
+			"list_row": "{task_id} {kind} {status}",
+			"list_row_ready": "{task_id} {kind} {status} [{ready}]",
+			"complete_text": "{task_id} complete (status={status})"
+		},
+		"pending": {
+			"list_row": "{pending_id} {kind} {status} {head}",
+			"no_open": "no open pending",
+			"open": "open",
+			"resolved": "resolved",
+			"head": "head",
+			"non_head": "-"
+		},
+		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
+		"journal": {
+			"list_row": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind}",
+			"list_row_batch": "seq={seq} entry_id={entry_id} at={at} actor={actor} kind={kind} batch_id={batch_id} batch_index={batch_index} batch_count={batch_count}",
+			"list_empty": "No journal entries."
+		},
+		"evidence": {
+			"list_row": "id={id} kind={kind} covers={covers} task={task_id} at={at} actor={actor}",
+			"list_empty": "No evidence entries.",
+			"compatibility_warning": "evidence kind {kind} cannot satisfy {covered_id}; use one of: {allowed_kinds} (entry written)"
+		},
+		"spec_status": {
+			"pass": "spec-lock: PASS",
+			"failure_row": "check {check}: FAIL {code} — {message}",
+			"suppressed_row": "check {check}: SUPPRESSED (blocked by check {blocked_by})"
+		},
+		"sessions": {
+			"empty": "(no sessions found)",
+			"warning": "registry entry {file} {action} ({reason}{detail_suffix})",
+			"action_skipped": "skipped",
+			"action_filtered_out": "filtered out",
+			"action_orphan_cwd": "has orphan cwd"
+		},
+		"relative": {
+			"just_now": "just now",
+			"minute_one": "{count} minute ago",
+			"minute_many": "{count} minutes ago",
+			"hour_one": "{count} hour ago",
+			"hour_many": "{count} hours ago",
+			"day_one": "{count} day ago",
+			"day_many": "{count} days ago"
+		},
+		"check": { "ok": "ok: {kind} at {path}" },
+		"verify_status": {
+			"pass": "pass",
+			"fail": "fail",
+			"na": "na",
+			"check_lane_status": "lane_status",
+			"check_open_findings": "open_findings",
+			"check_coverage": "coverage",
+			"check_task_evidence": "task_evidence",
+			"check_spec_review": "spec_review",
+			"check_deferred_findings": "deferred_findings",
+			"info": "info",
+			"deferred_summary": " {findings} (non-blocking)",
+			"failure_summary_one": " {code}",
+			"failure_summary_many": " {count} failures ({code}, …)",
+			"diagnostic_only": "(diagnostic only — gate verdict not implied)",
+			"lane_label": "lane.{lane}",
+			"lane_reason": " — {reason}",
+			"lane_reason_no_done_tasks": "no done tasks require run verification",
+			"lane_reason_no_review_obligations": "no non-NA requirements or done tasks require review verification",
+			"lane_reason_no_e2e_scenarios": "no applicable e2e scenarios require acceptance verification",
+			"lane_reason_no_visual_contracts": "no applicable visual contracts require visual verification"
+		},
+		"tui": {
+			"list": {
+				"title": "loaf sessions ({active_count} active / {total_count} total)",
+				"sort": "sort: {sort}",
+				"sort_time": "time",
+				"sort_status": "status",
+				"reloading": "reloading…",
+				"empty": "(no sessions found)",
+				"help": "[↑/↓] move · [Enter] detail · [space] fold · [a] active/all · [s] sort · [r] reload · [q] quit",
+				"row_iteration": "iter {value}"
+			},
+			"detail": {
+				"title": "loaf detail",
+				"help": "[Esc] back · [q] quit",
+				"no_selected": "(no detail selected)",
+				"loading": "loading…",
+				"missing_title": "missing: {feature}",
+				"missing_message": "run `loaf start {feature}` first",
+				"stale_title": "stale: {feature}",
+				"stale_message": "snapshot stale (reason={reason})",
+				"error_title": "error: {feature}",
+				"none": "(none)",
+				"boolean_true": "true",
+				"boolean_false": "false",
+				"field_feature": "feature: {value}",
+				"field_session": "session: {value}",
+				"field_label": "label: {value}",
+				"field_workspace": "workspace: {value}",
+				"field_ceremony": "ceremony: {value}",
+				"field_phase": "phase: {value}",
+				"field_iteration": "iteration: {value}",
+				"field_complexity": "complexity: {value}",
+				"field_based_on": "based_on: spec {spec} / tasks {tasks}",
+				"field_created": "created: {value}",
+				"field_updated": "updated: {value}",
+				"field_spec_locked": "spec_locked: {value}",
+				"field_verify_accepted": "verify_accepted: {value}",
+				"field_spec_version": "spec_version: {value}",
+				"field_tail_seq": "tail_seq: {value}",
+				"section_tasks": "tasks ({count})",
+				"section_evidence": "evidence ({count})",
+				"section_open_findings": "open findings ({count})",
+				"section_pending": "pending ({count})",
+				"evidence_badge_pass": "pass",
+				"evidence_badge_fail": "fail",
+				"evidence_badge_waived": "waived",
+				"sidecar_summary": "sidecar:{path}",
+				"step_summary": "{done}/{total} done",
+				"row_steps": "steps {value}",
+				"row_iteration": "iter {value}",
+				"row_task": "task {value}",
+				"row_target": "target {value}",
+				"row_blocks": "blocks={value}",
+				"row_options": "options={value}"
+			}
+		}
+	},
+	help: {
+		"start": "Begin a new feature session in .loaf/<feature>/",
+		"status": "Print current state.json + artifact health summary",
+		"next": "Compute the next owner command for the current session",
+		"advance": "Run next transition + diff guard (git status + write_paths AND-merge)",
+		"resume": "Resume session from a handoff pack",
+		"handoff": "Write resume-pack.json for context overflow handoff",
+		"spec_submit": "Validate spec.md against SpecFrontmatter schema and record (strict).",
+		"spec_init": "Scaffold a spec.md template ready for $EDITOR",
+		"spec_schema": "Dump SpecFrontmatter JSON Schema",
+		"tasks_submit": "Validate tasks.json against discriminated-union TaskKind schema",
+		"tasks_register_red": "Register failing test for a behavioral-bug task (required before implement)",
+		"evidence_add": "Append a new evidence entry; auto-assign EV-id",
+		"evidence_schema": "Dump EvidenceEntry JSON Schema",
+		"waive": "Record a waiver evidence; actor must start with human: and reason must be >=10 chars",
+		"finding_raise": "Raise a finding (VERIFY.* always, EXECUTE.* only post-spec-lock)",
+		"verify_status": "Compute current verify check applicability + status (real-time)",
+		"gate_decide": "Record human gate decision; writes evidence kind=gate-decision",
+		"settle": "Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)",
+		"amend": "Edit spec or tasks pre-lock (rejected post-lock; use findings instead)",
+		"profile_escalate": "Confirm pending profile escalation",
+		"deliver": "Close session as DONE.delivered (advisory only; no git/gh side effects)",
+		"archive": "Close session as DONE.archived",
+		"abandon": "Close session as DONE.abandoned (reason required)",
+		"tui": "Launch session manager TUI (reads ~/.loaf/registry/)",
+		"sessions_list": "List all sessions (non-TUI form)",
+		"check": "Schema-only check for a given artifact or path (CI usage)",
+		"check_tasks": "Reconcile tasks.execution.status (cache) with evidence.jsonl (proof)",
+		"hook": "Claude Code hook entrypoint",
+		"doctor": "Self-diagnose loaf-cli installation, repo layout, config"
+	},
+	status_indicator: {
+		"ask": "‖ ask",
+		"gate": "‖ gate",
+		"run": "▶ run",
+		"done": "✓ done",
+		"fail": "✗ fail",
+		"wait": "⏳ wait",
+		"idle": "idle"
+	}
+};
+//#endregion
+//#region i18n/zh.json
+var zh_default = {
+	_meta: {
+		"schema_version": 1,
+		"lang": "zh",
+		"note": "所有 key 对应 schemas.ts 稳定英文 ID。diagnostic 模板用 mustache 风格 {var} 占位,从 gate-diagnostic.failures[].vars 取值。"
+	},
+	evidence_kind: {
+		"task-summary": "任务总结",
+		"verify-review": "代码评审",
+		"spec-review": "规格评审",
+		"acceptance": "验收检查",
+		"visual-review": "视觉评审",
+		"gate-decision": "Gate 决策",
+		"local-check": "本地检查",
+		"manual": "人工验证",
+		"waiver": "风险豁免",
+		"spike-finding": "Spike 发现"
+	},
+	phase: {
+		"TRIAGE": "分诊",
+		"SPEC": "规格",
+		"EXECUTE": "执行",
+		"VERIFY": "验证",
+		"SETTLE": "结算",
+		"DONE": "完成"
+	},
+	sub_state: {
+		"TRIAGE": {
+			"score": "分诊 / 打分",
+			"confirm": "分诊 / 确认 profile"
+		},
+		"SPEC": {
+			"proposal": "规格 / 提案",
+			"spec": "规格 / 编写 EARS+Gherkin",
+			"plan": "规格 / 计划",
+			"design": "规格 / 设计 + tasks"
+		},
+		"EXECUTE": {
+			"plan": "执行 / 推导策略",
+			"work": "执行 / 任务进行中",
+			"done": "执行 / 所有任务终态"
+		},
+		"VERIFY": {
+			"plan": "验证 / 计算适用检查",
+			"run": "验证 / 检查进行中",
+			"review": "验证 / 评审",
+			"acceptance": "验证 / 验收",
+			"visual": "验证 / 视觉",
+			"accept": "验证 / 接收 gate"
+		},
+		"SETTLE": { "lessons": "结算 / 经验沉淀" },
+		"DONE": {
+			"delivered": "完成 · 已交付",
+			"archived": "完成 · 已归档",
+			"abandoned": "完成 · 已弃置"
+		}
+	},
+	task_kind: {
+		"behavioral": "行为",
+		"structural": "结构",
+		"visual-ui": "视觉 UI",
+		"docs": "文档",
+		"spike": "探索",
+		"chore": "杂务"
+	},
+	task_status: {
+		"pending": "待处理",
+		"ready": "就绪",
+		"in_progress": "进行中",
+		"done": "完成",
+		"abandoned": "已放弃"
+	},
+	step: {
+		"red": "红测(失败用例)",
+		"implement": "实现",
+		"refactor": "重构",
+		"mockup": "模拟图",
+		"screenshot-compare": "截图对比",
+		"draft": "草稿",
+		"review": "评审",
+		"explore": "探索",
+		"prototype": "原型",
+		"record": "记录",
+		"execute": "执行"
+	},
+	verify_check_kind: {
+		"run": "运行(测试 + lint + 类型检查)",
+		"review": "评审",
+		"acceptance": "验收(E2E)",
+		"visual": "视觉"
+	},
+	applicability: {
+		"must": "必须",
+		"optional": "可选",
+		"na": "不适用"
+	},
+	step_status: {
+		"na": "不适用",
+		"pending": "待处理",
+		"running": "进行中",
+		"passed": "通过",
+		"failed": "失败",
+		"waived": "已豁免"
+	},
+	finding_category: {
+		"spec-gap": "规格缺漏",
+		"spec-defect": "规格错误",
+		"impl-defect": "实现缺陷",
+		"test-defect": "测试缺陷",
+		"new-scope": "范围外新议",
+		"risk-escalation": "风险升级"
+	},
+	finding_action: {
+		"amend-spec": "修订规格",
+		"amend-tasks": "修订任务",
+		"fix-impl": "修实现",
+		"fix-test": "修测试",
+		"defer": "本轮延迟",
+		"backlog": "进 backlog(下个 feature)"
+	},
+	finding_status: {
+		"open": "开放",
+		"closed": "已关闭"
+	},
+	gate: {
+		"spec-lock": "规格锁定",
+		"verify-accept": "验证接收"
+	},
+	profile: {
+		"quick": "Quick(快速)",
+		"standard": "Standard(标准)",
+		"deep": "Deep(深度)"
+	},
+	pending_kind: {
+		"ask_user_question": "等待用户输入",
+		"gate_decision": "Gate 等待人工决策",
+		"spec_clarification": "规格待澄清",
+		"finding_decision": "Finding 等待 action",
+		"profile_escalation": "Profile 升级待确认"
+	},
+	board: {
+		"chrome": {
+			"app_title": "loaf 看板",
+			"brand": "loaf 看板",
+			"scope_label": "范围",
+			"all_sessions": "全部会话",
+			"current_cwd": "当前 cwd",
+			"refresh": "刷新",
+			"theme_toggle": "切换主题",
+			"eyebrow": "本地看板",
+			"heading": "Loaf 实时看板",
+			"subtitle": "读取本地 journal projection。",
+			"active": "活跃",
+			"blocked": "阻塞",
+			"updated": "更新于",
+			"waiting": "等待中",
+			"board_label": "Loaf 会话看板",
+			"no_sessions": "暂无会话。",
+			"none": "无。",
+			"session": "会话",
+			"session_detail": "会话详情",
+			"close_session_detail": "关闭会话详情",
+			"loading": "加载中...",
+			"session_error": "会话错误",
+			"iteration_short": "迭代"
+		},
+		"column": {
+			"TRIAGE": { "description": "打分并确认 ceremony" },
+			"SPEC": { "description": "提案、规格、计划、设计" },
+			"EXECUTE": { "description": "任务执行与并行展开" },
+			"VERIFY": { "description": "运行、评审、验收、视觉" },
+			"SETTLE": { "description": "经验沉淀" },
+			"DONE": { "description": "已交付或终态会话" }
+		},
+		"status": {
+			"pending_decision": "人工决策",
+			"pending_question": "问题"
+		},
+		"detail": {
+			"phase": "阶段",
+			"sub_state": "子状态",
+			"tail_seq": "尾序号",
+			"tasks": "任务",
+			"evidence": "证据",
+			"open_findings": "开放发现",
+			"pending": "待处理",
+			"task_done_suffix": "完成",
+			"evidence_passing_suffix": "通过",
+			"steps_suffix": "步骤"
+		}
+	},
+	diagnostic: {
+		"SPEC_EDIT_INPUT_REQUIRED": "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
+		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
+		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
+		"CONFIG_ALREADY_INITIALIZED": "loaf config 已存在于 {config_path};拒绝覆盖",
+		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason})",
+		"PRUNE_RESTORE_NOT_FOUND": "没有匹配该 id 的已回收 session",
+		"PRUNE_RESTORE_AMBIGUOUS": "该 session id 被回收过多次;用 --at <ts> 指定其一",
+		"PRUNE_RESTORE_INCOMPLETE": "trash 桶不完整(缺必要文件),不予恢复",
+		"PRUNE_PATH_OCCUPIED": "恢复目标已存在,拒绝覆盖",
+		"PRUNE_PARTIAL_FAILURE": "prune 部分失败:有 session 未能删除",
+		"MUTUALLY_EXCLUSIVE_FLAGS": "同一次调用使用了互斥的 flags:{flags}",
+		"INVALID_FORMAT": "无效的 --format 值 '{value}';合法值:{allowed_values_human}",
+		"INVALID_LOCALE": "locale 来源 {source} 的值无效(期望:{accepted})",
+		"DRY_RUN_NOT_APPLICABLE": "--dry-run 不适用于{command_type}命令 `{command}`",
+		"HOOK_EVENT_NOT_IMPLEMENTED": "hook event `{event}` 在当前 loaf 版本未实装(Phase 16 SC-15{sub_cycle} 待实现;详 protocol §11)",
+		"MISSING_VERIFIABILITY": "需求 {req_id} 必须声明 measurable、verified_by_scenarios[] 或 acceptance_na+reason 三选一",
+		"DRIVES_NOT_BOUND": "需求 {req_id} 没有被任何 task.drives[] 引用",
+		"MUTATION_OUT_OF_RIGHTS": "task {task_id} 的 event:tasks_amended 在 sub_state {sub_state} 不被允许 —— §8.6 未授予该改动的 mutation right",
+		"FEATURE_NOT_FOUND": "当前 cwd 找不到 feature(.loaf/ 为空或缺失,或所有 projection 已 DONE)",
+		"FEATURE_AMBIGUOUS": "当前 cwd 有 {count} 个 active feature 但无 dispatch 上下文:{feature_list}",
+		"SESSION_CWD_MISMATCH": "--session {uuid} 注册的 cwd={registered_cwd},当前 cwd 是 {current_cwd}",
+		"SESSION_SHORT_AMBIGUOUS": "--session {prefix} 在 registry 匹配 {match_count} 个 session:{candidate_list}",
+		"SESSION_NOT_FOUND": "--session {uuid_or_prefix} 在 registry 找不到任何匹配",
+		"PENDING_BLOCKS_ADVANCE": "pending head {pending_id}(kind={kind})阻塞 `loaf advance`,需先 resolve",
+		"GATE_NOT_PENDING": "`loaf gate decide {gate_kind}` 要求 pending head kind=gate_decision;当前 head kind:{head_kind}",
+		"ESCALATION_NOT_PENDING": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
+		"EXECUTE_DONE_TASKS_NOT_FINAL": "无法从 EXECUTE.work 推进到 EXECUTE.done:{count} 个 task 未处于终态(done 或 abandoned);跑完剩余 step,或用 `loaf tasks abandon <T-N> --reason \"...\"` 放弃超出范围的 task",
+		"OPEN_FINDINGS_PRESENT": "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
+		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
+		"DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
+		"DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
+		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
+		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
+		"DELIVER_SPIKE_TASKS": "无法 deliver:task {task_id} 是 kind=spike(status={status});spike 任务阻塞整 session 的交付",
+		"SETTLE_NOT_ACCEPTED": "VERIFY.accept → SETTLE.lessons 要求 verify_accepted=true;先运行 `loaf gate decide verify-accept --approve` 再 `loaf settle`",
+		"SPEC_LOCK_NOT_SATISFIED": "SPEC.design → EXECUTE.plan 要求 spec_locked=true;先运行 `loaf gate decide spec-lock --approve` 再 `loaf advance EXECUTE.plan`",
+		"TASK_NOT_CLAIMABLE": "task {task_id} 无法 claim(status={status} — 终态)",
+		"TASK_ALREADY_CLAIMED": "task {task_id} 已被 claim(status=in_progress)",
+		"TASK_DEP_NOT_FOUND": "task {task_id} 的 {field} 引用了不存在的 task {ref}",
+		"TASK_DEP_SELF": "task {task_id} 不能依赖自身",
+		"TASK_DEP_DUPLICATE": "task {task_id} 在下标 {indexes} 重复声明依赖 {ref}",
+		"TASK_DEP_CYCLE": "task 依赖图包含环 {cycle}",
+		"TASK_DEP_ABANDONED": "task {task_id} 的 {field} 引用了已 abandoned 的 task {ref};{hint}",
+		"TASK_DEPS_NOT_SATISFIED": "task {task_id} 无法 claim:依赖 {blocking_dep} 未 done(status={blocking_status})",
+		"TASK_NOT_CLAIMED": "task {task_id} step {step} 变更要求 task.status=in_progress(实际 status={status});先 `loaf tasks claim`",
+		"TASK_NOT_ABANDONABLE": "task {task_id} 无法 abandon(status={status} — 已处于终态)",
+		"TASK_ABANDON_BLOCKED_DEPENDENTS": "task {task_id} 无法 abandon:非终态 task {blocking_dependents} 依赖它;先 abandon 或完成这些依赖方",
+		"SESSION_REASON_REQUIRED": "{kind}:必须提供 --reason(会话终态 entry 必须记录原因)",
+		"PROJECTION_WRITE_FAILED": "{projection} 派生投影在 journal append (last_seq={last_seq}, spec_version={spec_version}) 后写盘失败:{error}",
+		"FINDING_AMEND_SPEC_NOT_LOCKED": "finding raise action=amend-spec 要求 state.spec_locked=true;当前 sub_state={current_sub_state} 下 spec 未锁,请直接使用 `loaf spec submit / add-*`",
+		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
+		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
+		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
+		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
+		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
+		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
+		"SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason});跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
+		"INVALID_PRESET": "ceremony preset 不合法",
+		"USAGE": "CLI 用法不合法",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
+		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild 必须带 --feature <name>",
+		"DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
+		"REDUCER_ERROR": "reducer 内部不变量失败",
+		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
+		"SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "actual scope 历史不完整:seq {transition_seqs} 的 EXECUTE closure transition 缺少同批 scope:recorded marker",
+		"WRITE_PATH_VIOLATION": "写入被拦截:`{normalized_path}` 不在 sub_state `{sub_state}` 的允许写入路径内",
+		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
+	},
+	diagnostic_fix: {
+		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
+		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。"
+	},
+	diagnostic_variant: { "failure": {
+		"check": {
+			"path_missing": "input file 不存在:{path}",
+			"selector_conflict": "check 不接受 {conflicting} —— 它按路径校验文件,独立于 feature session",
+			"kind_required": "`{subject}` 不是文件路径. 如需校验 {kind} artifact,需要显式路径: `{suggestion}`(noun-first `loaf {kind} check` 预留给未来版本)",
+			"kind_invalid": "--kind 必须是 {allowed_kinds_human};当前为 '{value}'"
+		},
+		"profile": {
+			"input_file_missing": "input file 不存在:{path}",
+			"input_file_unreadable": "无法读取 input file {path}:{error}"
+		},
+		"lessons": {
+			"file_missing": "lesson file 不存在:{path}",
+			"text_too_short": "lesson text 必须 ≥{min_length} 字符(当前 {lesson_text_length})",
+			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})",
+			"text_file_mutex": "--text 和 --file 必须二选一({provided_state})"
+		},
+		"hook": {
+			"stdin_parse_failed": "hook stdin payload 解析失败:{reason}",
+			"missing_event": "loaf hook 需要 event token;可选值:{events}. 运行 `loaf hook --list-events` 查看完整枚举",
+			"unknown_event": "未知 hook event '{event}';期望值:{allowed}. 你是不是想输入 '{suggestion}'?",
+			"write_path_missing": "write-side hook 需要 --path <P> 或非 TTY stdin hook payload(tool_input.file_path)"
+		},
+		"schema": {
+			"validation": "{kind} at {path} 校验失败({error_count} {error_word})",
+			"selector_conflict": "{subject} 不接受 {conflicting} —— schema dump 与 feature 无关"
+		},
+		"handoff": {
+			"pack_validation_failed": "ResumePack 运行时校验失败(builder bug 或 schema drift)",
+			"reason_too_short": "--reason 必须 ≥{min_length} 字符(当前 {reason_length})"
+		},
+		"tasks_add": { "empty_array": "tasks add 输入不能为空数组" },
+		"write_guard": { "config_invalid": "write-guard 被拦截:{reason}" },
+		"no_session": {
+			"status": "先跑 `loaf start {feature}`",
+			"advance": "先跑 `loaf start {feature}`",
+			"tasks": "先跑 `loaf start {feature}`",
+			"pending": "先跑 `loaf start {feature}`",
+			"finding": "先跑 `loaf start {feature}`",
+			"verify": "先跑 `loaf start {feature}`",
+			"generic": "先跑 `loaf start {feature}`"
+		},
+		"sessions_list": { "selector_conflict": "sessions list 不接受 {conflicting} —— 它会跨全部 session 列表;如需过滤当前 cwd,使用 --in-cwd" },
+		"tui": {
+			"selector_conflict": "tui 不接受 {conflicting} —— 它会跨全部 session 列表;selector 对交互 UI 没有意义",
+			"interactive_only": "tui 仅支持交互模式;脚本化 session 输出请使用 `loaf sessions list --format json`"
+		},
+		"dispatch": {
+			"session_feature_dir_conflict": "{conflicting} 不能与 --feature-dir 一起使用(session identity 来自 registry;手动 featureDir 会矛盾)",
+			"feature_dir_requires_feature": "--feature-dir 需要 --feature <name> 或 $LOAF_FEATURE 来命名 feature"
+		},
+		"start": {
+			"label_too_short": "--label 至少需要 {min_length} 个字符",
+			"workspace_empty": "--workspace 不能为空"
+		},
+		"finding": { "status_invalid": "--status 必须是:{allowed_statuses_human}(当前 {value})" },
+		"journal": {
+			"integer_invalid": "{flag} 必须是 >= {minimum} 的整数(当前 {value})",
+			"kind_invalid": "--kind 必须是已注册的 journal kind(当前 {value})",
+			"actor_invalid": "--actor 必须是非空 actor 前缀或完整 actor 字符串"
+		},
+		"evidence": {
+			"covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
+			"task_invalid": "--task 必须是有效的 task id(当前 {value})",
+			"kind_invalid": "--kind 必须是:{allowed_kinds_human}"
+		}
+	} },
+	diagnostic_variant_fix: {},
+	success: {
+		"next": {
+			"full_command_pointer": "运行 `{command}` 获取完整命令",
+			"deliver": "loaf deliver",
+			"settle": "loaf settle",
+			"settle_lessons": "loaf lessons add --text \"<lesson>\" --reason \"<why it matters>\""
+		},
+		"start": { "state_change": "start: '{feature}' 已创建 → TRIAGE.score" },
+		"advance": { "state_change": "advance: {from} → {to}" },
+		"gate": {
+			"spec_lock_approved_state_change": "gate decide: spec-lock 已由 {actor} approve",
+			"verify_accept_approved_state_change": "gate decide: verify-accept 已由 {actor} approve",
+			"rejected_state_change": "gate decide: {gate} 已由 {actor} reject"
+		},
+		"deliver": {
+			"state_change": "deliver: {feature} — {from} → DONE.delivered by {actor}",
+			"next": "session complete — 运行 `loaf start <feature>` 开始下一个 feature"
+		},
+		"archive": { "state_change": "archive: {feature} — {from} → DONE.archived by {actor}" },
+		"abandon": { "state_change": "abandon: {feature} — {from} → DONE.abandoned by {actor}(reason='{reason}')" },
+		"spike": { "convert_state_change": "spike convert: {feature} → {to_feature} — {from} → DONE.archived by {actor}" },
+		"profile": { "escalate_state_change": "profile escalate: ceremony 已更新,{pending_id} 已 resolved" },
+		"tasks": {
+			"submit_text_one": "已提交 {count} 个 task:{task_ids}",
+			"submit_text_many": "已提交 {count} 个 task:{task_ids}",
+			"submit_state_change": "tasks submit: {count} tasks",
+			"add_text_one": "已添加 {count} 个 task:{task_ids}",
+			"add_text_many": "已添加 {count} 个 task:{task_ids}",
+			"add_sponsored_text_one": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
+			"add_sponsored_text_many": "已添加 {count} 个 task(由 {finding} sponsor):{task_ids}",
+			"add_state_change": "tasks add: +{count} tasks(allocated {task_ids})",
+			"claim_state_change": "tasks claim: {task_id}(status={status})",
+			"abandon_state_change": "tasks abandon: {task_id}(status={status})",
+			"register_red_state_change": "tasks register-red: {task_id}"
+		},
+		"doctor": {
+			"rebuild_text_one": "已为 {feature} 重建 {count} 个 projection file:",
+			"rebuild_text_many": "已为 {feature} 重建 {count} 个 projection file:",
+			"rebuild_state_change_one": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file",
+			"rebuild_state_change_many": "doctor rebuild: 已为 {feature} 重建 {count} 个 projection file"
+		},
+		"snapshot": { "as_of_seq": "# snapshot as-of seq={seq}" },
+		"amend": {
+			"sponsored_text": "已修订 {task_id}(由 {finding_id} sponsor)",
+			"policy_text": "已修订 {task_id}({applied})",
+			"state_change": "amend: {task_id}"
+		},
+		"step": {
+			"start_state_change": "step start: {task_id} {step}(running)",
+			"done_text": "done {task_id} step={step} result={result}{evidence_suffix}{promote_suffix}",
+			"done_evidence_suffix": " evidence={evidence_id}",
+			"done_promote_suffix": " (task auto-promoted to done)",
+			"done_state_change": "step done: {task_id} {step}({result})"
+		},
+		"settle": {
+			"text": "",
+			"state_change": "settle: {from} → SETTLE.lessons"
+		},
+		"resume": { "state_change": "resume: session {session_id}(sub_state={sub_state} unchanged)" },
+		"handoff": { "state_change": "handoff: resume-pack.json written by {actor}" },
+		"pending": {
+			"raise_state_change": "pending raise: {pending_id}(kind={kind})",
+			"resolve_text": "已 resolve {pending_id}(kind={kind})",
+			"resolve_state_change": "pending resolve: {pending_id} cleared"
+		},
+		"waive": { "state_change": "waive: {evidence_id} obligation={obligation_id}" },
+		"lessons": { "add_state_change": "lessons add: {lesson_id} 已记录(kind=lesson:recorded; lessons.md 已更新)" },
+		"evidence": {
+			"covers_none": "<none>",
+			"add_state_change_single": "evidence add: {evidence_id} kind={kind}, covers={covers}",
+			"add_state_change_batch_homogeneous": "evidence add: +{count} evidence({evidence_ids}; kind={kind}, covers={covers})",
+			"add_state_change_batch_mixed": "evidence add: +{count} evidence({evidence_ids})"
+		},
+		"finding": {
+			"close_text": "已关闭 {finding_id}",
+			"close_state_change": "finding close: {finding_id} → closed"
+		},
+		"spec": {
+			"submit_text": "spec submitted v{spec_version}: {req_count} req / {scen_count} scen / {vis_count} vis",
+			"submit_state_change": "spec submit: spec_version={spec_version}, locked=false",
+			"submit_next": "loaf gate decide spec-lock",
+			"init_state_change": "spec init: 已写 scaffold 到 {path}",
+			"init_next": "编辑后运行 `loaf spec edit --input <json>`",
+			"edit_text": "spec edit: spec_version={spec_version}",
+			"edit_state_change": "spec edit: spec_version={spec_version} via $EDITOR",
+			"edit_input_state_change": "spec edit: spec_version={spec_version} via --input",
+			"add_req_text_one": "spec add-req v{spec_version}: {ids}",
+			"add_req_text_many": "spec add-req v{spec_version}: {ids}",
+			"add_req_state_change_one": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
+			"add_req_state_change_many": "spec add-req: +{count} REQ(spec_version={spec_version}; allocated {ids})",
+			"add_scenario_text_one": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_text_many": "spec add-scenario v{spec_version}: {ids}",
+			"add_scenario_state_change_one": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
+			"add_scenario_state_change_many": "spec add-scenario: +{count} SCENARIO(spec_version={spec_version}; allocated {ids})",
+			"add_visual_text_one": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_text_many": "spec add-visual v{spec_version}: {ids}",
+			"add_visual_state_change_one": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})",
+			"add_visual_state_change_many": "spec add-visual: +{count} VISUAL(spec_version={spec_version}; allocated {ids})"
+		}
+	},
+	chrome: {
+		"status": {
+			"feature": "功能: {feature}",
+			"phase": "阶段: {phase}",
+			"cursor": "游标: {cursor}",
+			"tail": "尾部: seq={seq}",
+			"counts": "任务={tasks_count} 证据={evidence_count} 发现={findings_count} 待决={pending_count}",
+			"snapshot_as_of_projection_loader": "# snapshot 当前 seq={seq}(projection-loader, Phase 15 SC3)"
+		},
+		"tasks": {
+			"list_empty_filtered": "没有任务匹配 --status={status}",
+			"list_empty": "projection 中没有任务(先运行 `loaf tasks submit`)",
+			"ready_marker": "就绪",
+			"list_row": "{task_id} {kind} {status}",
+			"list_row_ready": "{task_id} {kind} {status} [{ready}]",
+			"complete_text": "任务 {task_id} 已完成(status={status})"
+		},
+		"pending": {
+			"list_row": "{pending_id} {kind} {status} {head}",
+			"no_open": "没有未处理待决项",
+			"open": "未处理",
+			"resolved": "已解决",
+			"head": "队首",
+			"non_head": "-"
+		},
+		"finding": { "list_row": "{finding_id} {category} {action} {status}" },
+		"journal": {
+			"list_row": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind}",
+			"list_row_batch": "序号={seq} 条目={entry_id} 时间={at} 操作者={actor} 类型={kind} 批次={batch_id} 批次索引={batch_index} 批次数量={batch_count}",
+			"list_empty": "没有日志条目。"
+		},
+		"evidence": {
+			"list_row": "id={id} 类型={kind} 覆盖={covers} 任务={task_id} 时间={at} 操作者={actor}",
+			"list_empty": "没有证据条目。",
+			"compatibility_warning": "证据类型 {kind} 无法满足 {covered_id};请改用以下类型之一:{allowed_kinds}(条目已写入)"
+		},
+		"spec_status": {
+			"pass": "spec-lock：通过",
+			"failure_row": "检查 {check}：失败 {code} — {message}",
+			"suppressed_row": "检查 {check}：已抑制（由检查 {blocked_by} 阻塞）"
+		},
+		"sessions": {
+			"empty": "(没有 session)",
+			"warning": "registry 条目 {file} {action}({reason}{detail_suffix})",
+			"action_skipped": "已跳过",
+			"action_filtered_out": "被过滤",
+			"action_orphan_cwd": "cwd 已孤立"
+		},
+		"relative": {
+			"just_now": "刚刚",
+			"minute_one": "{count} 分钟前",
+			"minute_many": "{count} 分钟前",
+			"hour_one": "{count} 小时前",
+			"hour_many": "{count} 小时前",
+			"day_one": "{count} 天前",
+			"day_many": "{count} 天前"
+		},
+		"check": { "ok": "通过: {kind} 于 {path}" },
+		"verify_status": {
+			"pass": "通过",
+			"fail": "失败",
+			"na": "不适用",
+			"check_lane_status": "泳道状态",
+			"check_open_findings": "未关闭发现",
+			"check_coverage": "覆盖",
+			"check_task_evidence": "任务证据",
+			"check_spec_review": "规格评审",
+			"check_deferred_findings": "延期发现",
+			"info": "信息",
+			"deferred_summary": " {findings}(不阻塞)",
+			"failure_summary_one": " {code}",
+			"failure_summary_many": " {count} 个失败({code}, …)",
+			"diagnostic_only": "(仅诊断 —— 不代表 gate 结论)",
+			"lane_label": "泳道.{lane}",
+			"lane_reason": " —— {reason}",
+			"lane_reason_no_done_tasks": "没有已完成任务需要运行验证",
+			"lane_reason_no_review_obligations": "没有非 NA 需求或已完成任务需要评审验证",
+			"lane_reason_no_e2e_scenarios": "没有适用的 e2e 场景需要验收验证",
+			"lane_reason_no_visual_contracts": "没有适用的视觉合约需要视觉验证"
+		},
+		"tui": {
+			"list": {
+				"title": "loaf sessions ({active_count} 活跃 / {total_count} 总计)",
+				"sort": "排序: {sort}",
+				"sort_time": "时间",
+				"sort_status": "状态",
+				"reloading": "刷新中…",
+				"empty": "(没有会话)",
+				"help": "[↑/↓] 移动 · [Enter] 详情 · [space] 折叠 · [a] 活跃/全部 · [s] 排序 · [r] 重新加载 · [q] 退出",
+				"row_iteration": "迭代 {value}"
+			},
+			"detail": {
+				"title": "loaf 详情",
+				"help": "[Esc] 返回 · [q] 退出",
+				"no_selected": "(未选择详情)",
+				"loading": "加载中…",
+				"missing_title": "缺失: {feature}",
+				"missing_message": "先运行 `loaf start {feature}`",
+				"stale_title": "过期: {feature}",
+				"stale_message": "快照过期(reason={reason})",
+				"error_title": "错误: {feature}",
+				"none": "(无)",
+				"boolean_true": "是",
+				"boolean_false": "否",
+				"field_feature": "功能: {value}",
+				"field_session": "会话: {value}",
+				"field_label": "标签: {value}",
+				"field_workspace": "工作区: {value}",
+				"field_ceremony": "仪式: {value}",
+				"field_phase": "阶段: {value}",
+				"field_iteration": "迭代: {value}",
+				"field_complexity": "复杂度: {value}",
+				"field_based_on": "基于: spec {spec} / tasks {tasks}",
+				"field_created": "创建: {value}",
+				"field_updated": "更新: {value}",
+				"field_spec_locked": "规格已锁定: {value}",
+				"field_verify_accepted": "验证已接收: {value}",
+				"field_spec_version": "规格版本: {value}",
+				"field_tail_seq": "尾部 seq: {value}",
+				"section_tasks": "任务 ({count})",
+				"section_evidence": "证据 ({count})",
+				"section_open_findings": "未关闭发现 ({count})",
+				"section_pending": "待决 ({count})",
+				"evidence_badge_pass": "通过",
+				"evidence_badge_fail": "失败",
+				"evidence_badge_waived": "已豁免",
+				"sidecar_summary": "旁载:{path}",
+				"step_summary": "{done}/{total} 已完成",
+				"row_steps": "步骤 {value}",
+				"row_iteration": "迭代 {value}",
+				"row_task": "任务 {value}",
+				"row_target": "目标 {value}",
+				"row_blocks": "阻塞={value}",
+				"row_options": "选项={value}"
+			}
+		}
+	},
+	help: {
+		"start": "在 .loaf/<feature>/ 开启新 feature session",
+		"status": "打印当前 state.json + artifact 健康摘要",
+		"next": "计算当前 session 的下一条 owner command",
+		"advance": "执行下一 transition + diff-guard(git status 全口径 ∩ write_paths)",
+		"resume": "从 handoff pack 恢复 session",
+		"handoff": "写 resume-pack.json,context overflow 接力",
+		"spec_submit": "严格按 SpecFrontmatter schema 校验并落 spec.md",
+		"spec_init": "生成 spec.md 模板(适合 $EDITOR 跟进)",
+		"spec_schema": "dump SpecFrontmatter JSON Schema",
+		"tasks_submit": "严格按 TaskKind discriminated union 校验 tasks.json",
+		"tasks_register_red": "为 behavioral+bug 任务登记失败测试(implement 之前必做)",
+		"evidence_add": "追加一条 evidence;自动分配 EV-id",
+		"evidence_schema": "dump EvidenceEntry JSON Schema",
+		"waive": "记录一条 waiver 证据;actor 必须 human:* 起始,reason ≥10 字符",
+		"finding_raise": "raise 一条 finding(VERIFY.* 始终允许,EXECUTE.* 仅 post-spec-lock 允许)",
+		"verify_status": "实时计算各 verify check 的 applicability + status",
+		"gate_decide": "记录人工 gate 决策;写 evidence kind=gate-decision",
+		"settle": "推进 VERIFY.accept → SETTLE.lessons(仅 deep ceremony)",
+		"amend": "spec-lock 前编辑 spec / tasks(post-lock 拒绝,改走 finding)",
+		"profile_escalate": "确认 pending profile 升级",
+		"deliver": "标记 session 为 DONE.delivered(advisory only,不碰 git/gh)",
+		"archive": "关闭 session 为 DONE.archived",
+		"abandon": "关闭 session 为 DONE.abandoned(必须带 --reason)",
+		"tui": "启动 session manager TUI(读取 ~/.loaf/registry/)",
+		"sessions_list": "列出所有 session(非 TUI 形式)",
+		"check": "纯 schema 校验(CI 用)",
+		"check_tasks": "校验 tasks.execution.status(cache)与 evidence.jsonl(证据)一致性",
+		"hook": "Claude Code hook 入口",
+		"doctor": "自检 loaf-cli 安装、仓库结构、配置"
+	},
+	status_indicator: {
+		"ask": "‖ 询问",
+		"gate": "‖ Gate",
+		"run": "▶ 运行",
+		"done": "✓ 完成",
+		"fail": "✗ 失败",
+		"wait": "⏳ 等待",
+		"idle": "空闲"
+	}
+};
+//#endregion
+//#region src/cli/i18n.ts
+const LOCALES = ["en", "zh"];
+const BUILTIN_BUNDLES = {
+	en: en_default,
+	zh: zh_default
+};
+const DEFAULT_I18N = createI18n("en", BUILTIN_BUNDLES);
+function isLocale(value) {
+	return typeof value === "string" && LOCALES.includes(value);
+}
+function invalidLocale(source, value) {
+	return {
+		ok: false,
+		code: "INVALID_LOCALE",
+		detail: {
+			source,
+			value,
+			accepted: [...LOCALES]
+		}
+	};
+}
+function parseLangArg(argv) {
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--lang") return argv[i + 1];
+		if (arg.startsWith("--lang=")) return arg.slice(7);
+	}
+}
+function parseAmbientLocale(env) {
+	const raw = env.LC_ALL ?? env.LC_MESSAGES ?? env.LANG;
+	if (!raw || raw === "C" || raw === "POSIX") return null;
+	const normalized = raw.toLowerCase();
+	if (normalized.startsWith("zh")) return "zh";
+	if (normalized.startsWith("en")) return "en";
+	return null;
+}
+function resolveLocale(input) {
+	const argvLocale = parseLangArg(input.argv);
+	if (argvLocale !== void 0) {
+		if (!isLocale(argvLocale)) return invalidLocale("--lang", argvLocale);
+		return {
+			ok: true,
+			locale: argvLocale,
+			source: "argv"
+		};
+	}
+	const envLocale = input.env.LOAF_LANG;
+	if (envLocale !== void 0) {
+		if (!isLocale(envLocale)) return invalidLocale("LOAF_LANG", envLocale);
+		return {
+			ok: true,
+			locale: envLocale,
+			source: "env"
+		};
+	}
+	if (input.userConfig?.status === "invalid") return {
+		ok: false,
+		code: "INVALID_LOCALE",
+		detail: {
+			source: "user-config",
+			accepted: [...LOCALES],
+			path: input.userConfig.path,
+			reason: input.userConfig.reason
+		}
+	};
+	if (input.userConfig?.status === "ok") {
+		if (!isLocale(input.userConfig.locale)) return invalidLocale("user-config", input.userConfig.locale);
+		return {
+			ok: true,
+			locale: input.userConfig.locale,
+			source: "user-config"
+		};
+	}
+	if (input.projectConfig?.locale !== void 0) return {
+		ok: true,
+		locale: input.projectConfig.locale,
+		source: "project-config"
+	};
+	const ambient = parseAmbientLocale(input.env);
+	if (ambient !== null) return {
+		ok: true,
+		locale: ambient,
+		source: "ambient"
+	};
+	return {
+		ok: true,
+		locale: "en",
+		source: "default"
+	};
+}
+function lookup(bundle, keyPath) {
+	let cur = bundle;
+	for (const part of keyPath.split(".")) {
+		if (typeof cur === "string") return void 0;
+		if (typeof cur !== "object" || cur === null) return void 0;
+		cur = cur[part];
+		if (cur === void 0) return void 0;
+	}
+	return typeof cur === "string" ? cur : void 0;
+}
+function interpolate(template, vars) {
+	return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => {
+		const value = vars?.[key];
+		return value === void 0 ? match : String(value);
+	});
+}
+function createI18n(locale, bundles) {
+	return {
+		locale,
+		t(keyPath, vars) {
+			return interpolate(lookup(bundles[locale], keyPath) ?? lookup(bundles.en, keyPath) ?? keyPath, vars);
+		}
+	};
+}
+//#endregion
+//#region src/cli/diagnostic-failure.ts
+function catalogVars(template, detail) {
+	const vars = {};
+	for (const key of template.template_keys) {
+		const field = template.adapter?.[key] ?? key;
+		const value = detail[field];
+		if (value === void 0) throw new Error(`diagnostic contract missing detail.${field}`);
+		vars[key] = Array.isArray(value) ? value.map((item) => String(item)).join(template.list_separator?.[key] ?? ", ") : typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
+	}
+	return vars;
+}
+/** Project nested domain check records only at the presentation boundary. */
+function presentedDetail(detail, i18n) {
+	if (!Array.isArray(detail["checks"])) return detail;
+	const checks = detail["checks"];
+	return {
+		...detail,
+		checks: checks.map((check) => ({
+			...check,
+			message: diagnosticMessage(check, i18n)
+		}))
+	};
+}
+function diagnosticContextRows(detail) {
+	const lines = [];
+	if (typeof detail["parser_code"] === "string" && typeof detail["reason"] === "string") lines.push(`  [${detail["parser_code"]}] ${detail["reason"]}\n`);
+	const checks = detail["checks"];
+	if (Array.isArray(checks)) for (const c of checks) lines.push(`  [check ${c.check ?? "?"}] ${c.code ?? "UNKNOWN"}: ${c.message ?? ""}\n`);
+	const errors = detail["errors"];
+	if (Array.isArray(errors)) {
+		for (const e of errors) lines.push(`  [${e.path ?? "?"}] ${e.code ?? "UNKNOWN"}: ${e.message ?? ""}\n`);
+		if (detail["truncated"] === true) {
+			const count = detail["error_count"];
+			lines.push(`  ... (${typeof count === "number" ? count : "?"} errors total; first ${errors.length} shown)\n`);
+		}
+	}
+	return lines.join("");
+}
+/** Canonical message for nested replay diagnostics at existing presentation boundaries. */
+function diagnosticMessage(diagnostic, i18n = DEFAULT_I18N) {
+	return renderDiagnostic(diagnostic, i18n).message;
+}
+function renderDiagnostic(diagnostic, i18n) {
+	const parent = ERROR_CATALOG[diagnostic.code];
+	const context = diagnostic.detail["context"];
+	const variant = context === void 0 ? void 0 : DIAGNOSTIC_VARIANTS[context];
+	if (context !== void 0 && (variant === void 0 || variant.code !== diagnostic.code)) throw new Error(`diagnostic context ${context} does not belong to ${diagnostic.code}`);
+	const template = variant?.template ?? parent;
+	const vars = catalogVars(template, diagnostic.detail);
+	const key = context === void 0 ? `diagnostic.${diagnostic.code}` : `diagnostic_variant.${context}`;
+	return {
+		parent,
+		context,
+		template,
+		vars,
+		message: i18n.t(key, vars)
+	};
+}
+/** Sole recoverable exit-2 outlet; no CLI/context dependency or error fallback. */
+function writeDiagnosticFailure(diagnostic, presentation) {
+	const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
+	const { parent, context, template, vars, message } = renderDiagnostic(diagnostic, i18n);
+	const detail = presentedDetail(diagnostic.detail, i18n);
+	if (presentation.format === "json") presentation.writeStderr(JSON.stringify({
+		ok: false,
+		code: diagnostic.code,
+		message,
+		detail
+	}) + "\n");
+	else {
+		let output = `error: ${diagnostic.code} — ${message}\n` + diagnosticContextRows(detail);
+		if (template.fix_template !== void 0) {
+			const fixKey = context === void 0 ? `diagnostic_fix.${diagnostic.code}` : `diagnostic_variant_fix.${context}`;
+			output += `  fix: ${i18n.t(fixKey, vars)}\n`;
+		}
+		if (template.doc_anchor !== void 0) output += `  see: ${template.doc_anchor}\n`;
+		presentation.writeStderr(output);
+	}
+	return parent.exit_code;
+}
+//#endregion
+//#region src/core/snapshot-reader.ts
+/**
+* Verify that the given SnapshotMeta agrees with the on-disk journal tail.
+* Caller (CLI command consuming snapshots) treats `fresh: false` as exit 2
+* SNAPSHOT_STALE_REBUILD_REQUIRED; no silent fallback to cached snapshot.
+*/
+async function checkSnapshotFresh(meta, journalPath) {
+	let stat;
+	try {
+		stat = await promises.stat(journalPath);
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			fresh: false,
+			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+			reason: "journal_missing",
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "journal_missing",
+				journal_path: journalPath
+			}
+		};
+		throw err;
+	}
+	if (stat.size === 0) {
+		if (meta.last_applied_seq === -1) return {
+			fresh: true,
+			last_applied_seq: -1
+		};
+		return {
+			fresh: false,
+			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+			reason: "journal_empty",
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "journal_empty",
+				meta_last_applied_seq: meta.last_applied_seq
+			}
+		};
+	}
+	const tailRead = Math.min(stat.size, ENTRY_BYTE_LIMIT);
+	const fh = await promises.open(journalPath, "r");
+	try {
+		const buf = Buffer.alloc(tailRead);
+		await fh.read(buf, 0, tailRead, stat.size - tailRead);
+		const trailingText = buf.toString("utf8");
+		if (!trailingText.endsWith("\n")) return {
+			fresh: false,
+			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+			reason: "trailing_partial_line",
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "trailing_partial_line",
+				tail_bytes: trailingText.length
+			}
+		};
+		const withoutTrailingNl = trailingText.slice(0, -1);
+		const lastNl = withoutTrailingNl.lastIndexOf("\n");
+		const tailLine = lastNl === -1 ? withoutTrailingNl : withoutTrailingNl.slice(lastNl + 1);
+		const tailLineBytes = Buffer.byteLength(tailLine + "\n", "utf8");
+		const tailLineOffset = stat.size - tailLineBytes;
+		if (tailLineOffset !== meta.last_entry_offset) return {
+			fresh: false,
+			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+			reason: "tail_offset_mismatch",
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "tail_offset_mismatch",
+				journal_tail_offset: tailLineOffset,
+				meta_last_entry_offset: meta.last_entry_offset
+			}
+		};
+		const actualHash = computeLineHash(tailLine);
+		if (actualHash !== meta.last_entry_line_hash) return {
+			fresh: false,
+			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+			reason: "tail_hash_mismatch",
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "tail_hash_mismatch",
+				actual: actualHash,
+				expected: meta.last_entry_line_hash
+			}
+		};
+		return {
+			fresh: true,
+			last_applied_seq: meta.last_applied_seq
+		};
+	} finally {
+		await fh.close();
+	}
+}
+//#endregion
+//#region src/core/projection-loader.ts
+var SnapshotStaleError = class extends Error {
+	code = "SNAPSHOT_STALE_REBUILD_REQUIRED";
+	reason;
+	detail;
+	constructor(reason, detail) {
+		super(`${reason}: ${JSON.stringify(detail)}`);
+		this.name = "SnapshotStaleError";
+		this.reason = reason;
+		this.detail = {
+			reason,
+			...detail
+		};
+	}
+};
+var NoSessionError = class extends Error {
+	code = "NO_SESSION";
+	detail;
+	constructor(detail) {
+		super(`NO_SESSION: ${JSON.stringify(detail)}`);
+		this.name = "NoSessionError";
+		this.detail = detail;
+	}
+};
+const LEAF_SCHEMA = {
+	state: StateProjection,
+	tasks: TasksJson,
+	evidence: EvidenceJson,
+	findings: FindingsJson,
+	pending: PendingJson
+};
+function fixForFeatureDir(featureDir) {
+	return `run \`loaf doctor --rebuild --feature ${path.basename(featureDir)}\``;
+}
+/**
+* Read + parse `snapshots/_meta.json`. Classifies meta-level failures
+* upstream of `checkSnapshotFresh` so a malformed-empty-sentinel meta
+* (`seq=-1` with non-empty offset/hash/checksum — runtime SnapshotMeta
+* refine, codex r175) becomes `meta_invalid cause=schema`, never
+* silent NO_SESSION.
+*/
+async function readMetaOrThrow(metaPath, featureDir) {
+	let raw;
+	try {
+		raw = await promises.readFile(metaPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return { missing: true };
+		throw err;
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		throw new SnapshotStaleError("meta_invalid", {
+			feature_dir: featureDir,
+			fix: fixForFeatureDir(featureDir),
+			meta_path: metaPath,
+			cause: "json_parse"
+		});
+	}
+	const result = SnapshotMeta.safeParse(parsed);
+	if (!result.success) throw new SnapshotStaleError("meta_invalid", {
+		feature_dir: featureDir,
+		fix: fixForFeatureDir(featureDir),
+		meta_path: metaPath,
+		cause: "schema"
+	});
+	return result.data;
+}
+/**
+* Translate `checkSnapshotFresh` result to a SnapshotStaleError carrying
+* the loader's full detail envelope (feature_dir + fix + reader detail).
+*/
+function staleFromReader(result, featureDir) {
+	if (result.fresh) return null;
+	return new SnapshotStaleError(result.reason, {
+		...result.detail,
+		feature_dir: featureDir,
+		fix: fixForFeatureDir(featureDir)
+	});
+}
+/**
+* Read + parse one projection leaf. ENOENT → projection_missing. JSON
+* parse fail → projection_invalid cause=json_parse. Schema fail →
+* projection_invalid cause=schema.
+*/
+async function readLeafOrThrow(kind, snapshotsDir, featureDir) {
+	const leafPath = path.join(snapshotsDir, `${kind}.json`);
+	let raw;
+	try {
+		raw = await promises.readFile(leafPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") throw new SnapshotStaleError("projection_missing", {
+			feature_dir: featureDir,
+			fix: fixForFeatureDir(featureDir),
+			projection_kind: kind,
+			projection_path: leafPath
+		});
+		throw err;
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		throw new SnapshotStaleError("projection_invalid", {
+			feature_dir: featureDir,
+			fix: fixForFeatureDir(featureDir),
+			projection_kind: kind,
+			projection_path: leafPath,
+			cause: "json_parse"
+		});
+	}
+	const result = LEAF_SCHEMA[kind].safeParse(parsed);
+	if (!result.success) throw new SnapshotStaleError("projection_invalid", {
+		feature_dir: featureDir,
+		fix: fixForFeatureDir(featureDir),
+		projection_kind: kind,
+		projection_path: leafPath,
+		cause: "schema"
+	});
+	return result.data;
+}
+async function journalIsEmptyOrMissing(journalPath) {
+	try {
+		return (await promises.stat(journalPath)).size === 0;
+	} catch (err) {
+		if (err.code === "ENOENT") return true;
+		throw err;
+	}
+}
+/**
+* Public canonical loader — no hooks, used by production callers.
+* See `loadProjectionsWithHooks` for the test-only seam.
+*/
+async function loadProjections(input) {
+	return _loadProjectionsImpl(input);
+}
+async function _loadProjectionsImpl(input, hooks) {
+	const { feature_dir: featureDir, kinds } = input;
+	const snapshotsDir = path.join(featureDir, "snapshots");
+	const metaPath = path.join(snapshotsDir, "_meta.json");
+	const journalPath = path.join(featureDir, "journal.jsonl");
+	const metaResult = await readMetaOrThrow(metaPath, featureDir);
+	if ("missing" in metaResult) {
+		if (await journalIsEmptyOrMissing(journalPath)) throw new NoSessionError({
+			feature_dir: featureDir,
+			fix: `run \`loaf start <feature>\` first`
+		});
+		throw new SnapshotStaleError("meta_missing", {
+			feature_dir: featureDir,
+			fix: fixForFeatureDir(featureDir),
+			meta_path: metaPath
+		});
+	}
+	const M0 = metaResult;
+	if (isEmptyMeta(M0)) {
+		if (await journalIsEmptyOrMissing(journalPath)) throw new NoSessionError({
+			feature_dir: featureDir,
+			fix: `run \`loaf start <feature>\` first`
+		});
+	}
+	const stale1 = staleFromReader(await checkSnapshotFresh(M0, journalPath), featureDir);
+	if (stale1) throw stale1;
+	if (hooks?.afterFirstFastCheck) await hooks.afterFirstFastCheck();
+	const kindsList = kinds;
+	const needsTasks = kindsList.includes("tasks");
+	const needsState = kindsList.includes("state");
+	let stateImplicit;
+	if (needsTasks && !needsState) stateImplicit = await readLeafOrThrow("state", snapshotsDir, featureDir);
+	const result = {};
+	for (const kind of kindsList) if (kind === "tasks") try {
+		result.tasks = await readLeafOrThrow("tasks", snapshotsDir, featureDir);
+	} catch (err) {
+		if (err instanceof SnapshotStaleError && err.reason === "projection_missing") {
+			if ((result.state ?? stateImplicit ?? await readLeafOrThrow("state", snapshotsDir, featureDir)).based_on.tasks === 0) {
+				result.tasks = null;
+				continue;
+			}
+		}
+		throw err;
+	}
+	else result[kind] = await readLeafOrThrow(kind, snapshotsDir, featureDir);
+	const stale2 = staleFromReader(await checkSnapshotFresh(M0, journalPath), featureDir);
+	if (stale2) throw stale2;
+	result.meta = M0;
+	return result;
+}
+//#endregion
 //#region src/core/registry-read.ts
 /**
 * Read + parse exactly `${id}.json` from `registryDir`. Returns the finest error
@@ -9230,7 +9485,7 @@ function parsePresentation(argv, env = process.env) {
 /** Pre-resolve `--feature <NAME>` from argv. Best-effort; null on miss.
 *  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
 *  crash-log can agree on what "feature" means for a given invocation. */
-function extractFeature(argv) {
+function extractFeature$1(argv) {
 	const i = argv.indexOf("--feature");
 	if (i < 0 || i + 1 >= argv.length) return null;
 	const v = argv[i + 1];
@@ -9335,7 +9590,7 @@ function createCommandContext(argv, deps) {
 			return {
 				phase: phaseOf(lastResolvedSubState),
 				sub_state: lastResolvedSubState,
-				feature: extractFeature(argv),
+				feature: extractFeature$1(argv),
 				session_id: lastResolvedSessionId,
 				last_command: [...argv].join(" ")
 			};
@@ -9482,499 +9737,6 @@ function createCommandContext(argv, deps) {
 		}
 	};
 	return ctx;
-}
-z.object({
-	schema_version: z.literal(2),
-	at: z.string().datetime(),
-	session_id: z.string().uuid(),
-	iteration: z.number().int().positive(),
-	sub_state: SubState,
-	cmd: z.string(),
-	argv: z.array(z.string()),
-	exit: z.number().int(),
-	wall_ms: z.number().int().nonnegative(),
-	stdout_summary: z.string().optional(),
-	stderr_summary: z.string().optional()
-});
-/** Flags whose value carries free-form prose, file paths, payloads,
-*  or identity-bearing data — replaced with a placeholder before
-*  trace.jsonl write. Closed enums / numeric identifiers / boolean
-*  flags stay verbatim. */
-const REDACTED_FLAG_VALUES = new Set([
-	"--feature-dir",
-	"--input",
-	"--reason",
-	"--answer",
-	"--question",
-	"--options",
-	"--label",
-	"--summary",
-	"--evidence-summary",
-	"--evidence-reason",
-	"--feature-name",
-	"--intent",
-	"--workspace",
-	"--evidence-actor"
-]);
-function placeholderFor(flag) {
-	return `<${flag.slice(2)}>`;
-}
-/** Walks argv once, replacing each REDACTED flag's value. Handles both
-*  forms: `--flag value` (two argv tokens) and `--flag=value` (single
-*  token). Idempotent. */
-function redactArgv(argv) {
-	const out = [];
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		const eqIdx = arg.indexOf("=");
-		if (arg.startsWith("--") && eqIdx > 2) {
-			const flag = arg.slice(0, eqIdx);
-			if (REDACTED_FLAG_VALUES.has(flag)) {
-				out.push(`${flag}=${placeholderFor(flag)}`);
-				continue;
-			}
-			out.push(arg);
-			continue;
-		}
-		if (REDACTED_FLAG_VALUES.has(arg)) {
-			out.push(arg);
-			const next = argv[i + 1];
-			if (next !== void 0 && !next.startsWith("--")) {
-				out.push(placeholderFor(arg));
-				i++;
-			}
-			continue;
-		}
-		out.push(arg);
-	}
-	return out;
-}
-/** Captured stdout slice → summary string. JSON mode parses + re-
-*  stringifies (drops formatting whitespace, normalizes shape). Text
-*  mode passes raw + truncates. 256-char cap. */
-const STDOUT_SUMMARY_CHAR_CAP = 256;
-function summarizeStdout(rawStdout, outputMode) {
-	if (outputMode === "json") try {
-		const parsed = JSON.parse(rawStdout);
-		const s = JSON.stringify(parsed);
-		return s.length <= STDOUT_SUMMARY_CHAR_CAP ? s : s.slice(0, STDOUT_SUMMARY_CHAR_CAP);
-	} catch {}
-	return rawStdout.length <= STDOUT_SUMMARY_CHAR_CAP ? rawStdout : rawStdout.slice(0, STDOUT_SUMMARY_CHAR_CAP);
-}
-function buildTraceEntry(input) {
-	return {
-		schema_version: 2,
-		kind: "cli",
-		at: input.now.toISOString(),
-		feature: input.feature,
-		session_id: input.sessionId,
-		sub_state: input.subState,
-		cmd: input.cmd,
-		argv: redactArgv(input.argv),
-		exit: input.exit,
-		wall_ms: input.wallMs,
-		stdout_summary: summarizeStdout(input.rawStdout, input.outputMode)
-	};
-}
-/** Production trace-line writer. Best-effort `fs.appendFile`; no
-*  fsync (Debug-trace is non-authoritative per §13.1). POSIX
-*  O_APPEND atomic semantics for single-line writes (entries here
-*  cap below 4KB after redaction + summary truncation). */
-async function defaultAppendTraceLine(featureDir, entry) {
-	const line = JSON.stringify(entry) + "\n";
-	await promises.appendFile(path.join(featureDir, "trace.jsonl"), line, "utf8");
-}
-//#endregion
-//#region src/cli/tui/render.ts
-async function defaultRenderTui(app) {
-	const { render } = await import("ink");
-	await render(app).waitUntilExit();
-}
-/** Canonical event list — frozen order for stable `--list-events` output
-*  and unknown-event did-you-mean ranking. */
-const HOOK_EVENTS = z.enum([
-	"session-start",
-	"write-guard",
-	"scope-track",
-	"closure-check"
-]).options;
-/** Map each hook event to its Claude Code wire-protocol event name.
-*  Canonical Claude Code protocol mapping. */
-const HOOK_EVENT_TO_CLAUDE_CODE = {
-	"session-start": "SessionStart",
-	"write-guard": "PreToolUse(Write,Edit)",
-	"scope-track": "PostToolUse(Write,Edit)",
-	"closure-check": "Stop"
-};
-//#endregion
-//#region src/core/user-config.ts
-const UserConfig = z.object({
-	schema_version: z.literal(1),
-	locale: z.object({ default_lang: z.enum(["en", "zh"]) }).strict()
-}).strict();
-/** Canonical user-level config path under an injected home directory. */
-function userConfigPath(homeDir) {
-	return path.join(homeDir, ".loaf", "config.json");
-}
-/**
-* Read + strictly validate ~/.loaf/config.json.
-*
-* - file absent (ENOENT)         -> { status: "absent" }
-* - unreadable / malformed / bad -> { status: "invalid" }
-* - valid                        -> { status: "ok", config }
-*/
-async function readUserConfig(homeDir) {
-	const configPath = userConfigPath(homeDir);
-	let raw;
-	try {
-		raw = await promises.readFile(configPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return { status: "absent" };
-		return {
-			status: "invalid",
-			path: configPath,
-			reason: `cannot read ${configPath}: ${err.message}`
-		};
-	}
-	let parsed;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return {
-			status: "invalid",
-			path: configPath,
-			reason: `malformed JSON in ${configPath}`
-		};
-	}
-	const result = UserConfig.safeParse(parsed);
-	if (!result.success) return {
-		status: "invalid",
-		path: configPath,
-		reason: `schema validation failed for ${configPath}`
-	};
-	return {
-		status: "ok",
-		config: result.data
-	};
-}
-//#endregion
-//#region src/cli/run-editor.ts
-var EditorTokenizeError = class extends Error {
-	editor;
-	code = "EDITOR_TOKENIZE_ERROR";
-	constructor(message, editor) {
-		super(message);
-		this.editor = editor;
-		this.name = "EditorTokenizeError";
-	}
-};
-/** Shell-style word split with single + double quote grouping. NOT a
-*  full shell parser — does NOT expand $VARS, ~, globs, or backticks.
-*  Filepath is appended by the caller (NOT injected via shell). Codex
-*  r336 P2 lock. */
-function tokenizeEditor(editor) {
-	const tokens = [];
-	let current = "";
-	let quoteChar = null;
-	let inToken = false;
-	for (let i = 0; i < editor.length; i++) {
-		const ch = editor[i];
-		if (quoteChar !== null) {
-			if (ch === quoteChar) quoteChar = null;
-			else current += ch;
-			continue;
-		}
-		if (ch === "\"" || ch === "'") {
-			quoteChar = ch;
-			inToken = true;
-			continue;
-		}
-		if (ch === " " || ch === "	") {
-			if (inToken) {
-				tokens.push(current);
-				current = "";
-				inToken = false;
-			}
-			continue;
-		}
-		current += ch;
-		inToken = true;
-	}
-	if (quoteChar !== null) throw new EditorTokenizeError(`EDITOR has unmatched ${quoteChar === "\"" ? "double" : "single"} quote: ${editor}`, editor);
-	if (inToken) tokens.push(current);
-	return tokens;
-}
-/** Production runEditor — spawn the user's editor and resolve with the
-*  outcome. Always resolves; never throws — tokenize errors become
-*  `error: "EDITOR_TOKENIZE_ERROR"` (codex r339 P1), spawn errors
-*  become typed error strings (ENOENT etc.). */
-async function runEditor(args) {
-	let tokens;
-	try {
-		tokens = tokenizeEditor(args.editor);
-	} catch (err) {
-		if (err instanceof EditorTokenizeError) return {
-			code: 127,
-			signal: null,
-			error: "EDITOR_TOKENIZE_ERROR"
-		};
-		throw err;
-	}
-	if (tokens.length === 0) return {
-		code: 127,
-		signal: null,
-		error: "EDITOR_EMPTY"
-	};
-	const [bin, ...rest] = tokens;
-	return new Promise((resolve) => {
-		let settled = false;
-		const finish = (result) => {
-			if (settled) return;
-			settled = true;
-			resolve(result);
-		};
-		const child = spawn(bin, [...rest, args.filePath], {
-			stdio: "inherit",
-			cwd: args.cwd,
-			env: args.env
-		});
-		child.once("error", (err) => {
-			finish({
-				code: 127,
-				signal: null,
-				error: err.code ?? err.message
-			});
-		});
-		child.once("close", (code, signal) => {
-			finish({
-				code: code ?? 0,
-				signal: signal ?? null
-			});
-		});
-	});
-}
-//#endregion
-//#region src/cli/url-prefill.ts
-const COMMAND_WORDS = new Set([
-	"loaf",
-	"start",
-	"advance",
-	"status",
-	"spec",
-	"tasks",
-	"pending",
-	"evidence",
-	"finding",
-	"gate",
-	"deliver",
-	"settle",
-	"doctor",
-	"archive",
-	"abandon",
-	"spike",
-	"profile",
-	"submit",
-	"init",
-	"add-req",
-	"add-scenario",
-	"add-visual",
-	"claim",
-	"list",
-	"next",
-	"step",
-	"amend",
-	"complete",
-	"done",
-	"raise",
-	"resolve",
-	"add",
-	"close",
-	"decide",
-	"convert",
-	"escalate"
-]);
-const SUB_STATE_RE = /^(TRIAGE|SPEC|EXECUTE|VERIFY|SETTLE|DONE)(\.[a-z_]+)?$/;
-const GATE_NAME_RE = /^(spec-lock|verify-accept)$/;
-function isSafePositional(token) {
-	if (COMMAND_WORDS.has(token)) return true;
-	if (SUB_STATE_RE.test(token)) return true;
-	if (GATE_NAME_RE.test(token)) return true;
-	return false;
-}
-const ALLOWLIST_VALUE_FLAGS = new Set([
-	"--ceremony",
-	"--format",
-	"--feature"
-]);
-const ALWAYS_REDACT_FLAGS = new Set([
-	"--input",
-	"--reason",
-	"--answer",
-	"--summary",
-	"--label"
-]);
-const REDACTED = "<redacted>";
-function looksLikeInlineJson(s) {
-	return /^[{[]/.test(s);
-}
-function looksLikePath(s) {
-	return s.includes("/") || s.includes("\\");
-}
-/**
-* Sanitize an argv array into a single-space-joined string safe for URL
-* query inclusion. The first non-flag positional after a flag NAME is
-* considered its value; if the flag is in ALWAYS_REDACT_FLAGS or the
-* value matches a sensitivity heuristic (inline JSON / path), redact.
-* Otherwise, if the flag is in ALLOWLIST_VALUE_FLAGS, pass the value
-* through; else redact.
-*/
-function sanitizeArgvForUrl(argv) {
-	const out = [];
-	for (let i = 0; i < argv.length; i++) {
-		const token = argv[i];
-		if (!token.startsWith("--")) {
-			out.push(isSafePositional(token) ? token : REDACTED);
-			continue;
-		}
-		out.push(token);
-		const next = argv[i + 1];
-		if (next === void 0 || next.startsWith("--")) continue;
-		i++;
-		const flag = token;
-		if (ALWAYS_REDACT_FLAGS.has(flag)) out.push(REDACTED);
-		else if (looksLikeInlineJson(next) || looksLikePath(next)) out.push(REDACTED);
-		else if (ALLOWLIST_VALUE_FLAGS.has(flag)) out.push(next);
-		else out.push(REDACTED);
-	}
-	return out.join(" ");
-}
-/**
-* Build the prefilled report URL. Query params: loaf_version /
-* schema_version / phase? / sub_state? / last_command (sanitized) /
-* crash_log_path?. Per codex r206 PATCH H: nulls are omitted, not
-* stringified.
-*/
-function buildReportUrl(input) {
-	const u = new URL(input.base);
-	u.searchParams.set("loaf_version", input.loaf_version);
-	u.searchParams.set("schema_version", input.schema_version);
-	if (input.phase !== null) u.searchParams.set("phase", input.phase);
-	if (input.sub_state !== null) u.searchParams.set("sub_state", input.sub_state);
-	u.searchParams.set("last_command", sanitizeArgvForUrl(input.argv));
-	if (input.crash_log_path !== null) u.searchParams.set("crash_log_path", input.crash_log_path);
-	return u.toString();
-}
-//#endregion
-//#region src/cli/stdin.ts
-async function defaultReadStdin() {
-	let buf = "";
-	for await (const chunk of process.stdin) buf += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-	return buf;
-}
-function defaultIsStdinTty() {
-	return process.stdin.isTTY === true;
-}
-z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("stdin") }),
-	z.object({
-		kind: z.literal("inline"),
-		value: z.string()
-	}),
-	z.object({
-		kind: z.literal("file"),
-		path: z.string()
-	})
-]);
-const INLINE_RE = /^[{[]/;
-function parseInputSource(arg) {
-	if (arg === "-") return { kind: "stdin" };
-	if (INLINE_RE.test(arg)) return {
-		kind: "inline",
-		value: arg
-	};
-	return {
-		kind: "file",
-		path: arg
-	};
-}
-function jsonInputHelp(declaration) {
-	if (declaration.helpText !== void 0) return declaration.helpText;
-	return `${declaration.helpPrefix}: \`-\` (stdin), ${declaration.inlineLabel}, or file path${declaration.helpSuffix ?? ""}`;
-}
-function createJsonInputIngestor(deps) {
-	const readFile = deps.readFile ?? ((filePath) => promises.readFile(filePath, "utf8"));
-	const requireArg = (ctx, arg, declaration) => {
-		if (arg !== void 0) return true;
-		ctx.failure({
-			code: "MISSING_INPUT",
-			detail: { command: declaration.command }
-		});
-		return false;
-	};
-	return {
-		requireArg,
-		async readJson(ctx, arg, declaration) {
-			if (!requireArg(ctx, arg, declaration)) return { ok: false };
-			const source = parseInputSource(arg);
-			if (source.kind === "stdin" && deps.isStdinTty()) {
-				ctx.failure({
-					code: "USAGE",
-					detail: {
-						command: declaration.command,
-						source: "stdin",
-						reason: "stdin_is_tty"
-					}
-				});
-				return { ok: false };
-			}
-			let raw;
-			if (source.kind === "inline") raw = source.value;
-			else if (source.kind === "stdin") try {
-				raw = await deps.readStdin();
-			} catch (error) {
-				const message = error.message;
-				ctx.failure({
-					code: "MISSING_INPUT",
-					detail: {
-						command: declaration.command,
-						source: "stdin",
-						cause: message
-					}
-				});
-				return { ok: false };
-			}
-			else try {
-				raw = await readFile(source.path);
-			} catch (error) {
-				const cause = error;
-				ctx.failure({
-					code: "INPUT_FILE_NOT_FOUND",
-					detail: {
-						path: source.path,
-						...cause.code === "ENOENT" ? {} : { cause: cause.message }
-					}
-				});
-				return { ok: false };
-			}
-			try {
-				return {
-					ok: true,
-					value: JSON.parse(raw)
-				};
-			} catch (error) {
-				const cause = error.message;
-				ctx.failure({
-					code: "SCHEMA_VALIDATION_FAILED",
-					detail: {
-						reason: cause,
-						command: declaration.command,
-						cause
-					}
-				});
-				return { ok: false };
-			}
-		}
-	};
 }
 //#endregion
 //#region src/core/journal-append.ts
@@ -10166,7 +9928,7 @@ var FeatureWriteLeaseError = class extends Error {
 		return this.diagnostic.code;
 	}
 };
-const DEFAULT_RETRY_DELAY_MS$1 = 20;
+const DEFAULT_RETRY_DELAY_MS = 20;
 const DEFAULT_LEGACY_STALE_MS = 3e4;
 const activeOwners = /* @__PURE__ */ new Map();
 function defaultIsPidAlive(pid) {
@@ -10257,7 +10019,7 @@ async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
 	const pid = options.pid ?? process.pid;
 	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
 	const sleep = options.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
-	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS$1);
+	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
 	const timeoutMs = Math.max(0, options.timeoutMs ?? 3e4);
 	const legacyLockStaleMs = Math.max(0, options.legacyLockStaleMs ?? DEFAULT_LEGACY_STALE_MS);
 	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
@@ -11589,240 +11351,6 @@ async function normalizeScopePath(targetPath, repoRoot) {
 	};
 }
 //#endregion
-//#region src/core/session-runtime.ts
-const RuntimeLockFile = z.object({
-	pid: z.number().int().positive(),
-	acquired_at: z.string().datetime(),
-	operation: z.string().min(1).max(200),
-	owner: z.string().regex(/^[0-9a-f]{32}$/).optional()
-}).strict();
-var RuntimeStoreError = class extends Error {
-	code;
-	holder;
-	lockDetail;
-	constructor(...args) {
-		const [code, message, holder, lockDetail] = args;
-		super(message);
-		this.name = "RuntimeStoreError";
-		this.code = code;
-		if (holder !== void 0) this.holder = holder;
-		if (lockDetail !== void 0) this.lockDetail = lockDetail;
-	}
-};
-const DEFAULT_LOCK_TIMEOUT_MS = 2e3;
-const DEFAULT_RETRY_DELAY_MS = 20;
-const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-function defaultRuntimeDir(homeDir) {
-	return path.join(homeDir, ".loaf", "runtime");
-}
-function checkedSessionId(sessionId) {
-	if (!SAFE_SESSION_ID.test(sessionId)) throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `unsafe runtime session_id ${JSON.stringify(sessionId)}`);
-	return sessionId;
-}
-function sessionRuntimeFilePath(sessionId, options) {
-	return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.json`);
-}
-function sessionRuntimeLockPath(sessionId, options) {
-	return path.join(options.runtimeDir, `${checkedSessionId(sessionId)}.lock`);
-}
-async function canonicalIdentity(identity) {
-	checkedSessionId(identity.session_id);
-	let cwd;
-	try {
-		cwd = await promises.realpath(identity.cwd);
-	} catch (error) {
-		throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `selected runtime cwd cannot be canonicalized: ${error.message}`);
-	}
-	return {
-		session_id: identity.session_id,
-		cwd
-	};
-}
-async function ensureRuntimeDir(runtimeDir) {
-	await promises.mkdir(runtimeDir, {
-		recursive: true,
-		mode: 448
-	});
-	await promises.chmod(runtimeDir, 448);
-}
-async function validateFileIdentity(file, identity) {
-	let fileCwd;
-	try {
-		fileCwd = await promises.realpath(file.cwd);
-	} catch (error) {
-		throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `runtime file cwd cannot be canonicalized: ${error.message}`);
-	}
-	if (file.session_id !== identity.session_id || fileCwd !== identity.cwd) throw new RuntimeStoreError("RUNTIME_IDENTITY_MISMATCH", `runtime identity mismatch: selected session=${identity.session_id} cwd=${identity.cwd}, file session=${file.session_id} cwd=${fileCwd}; refusing to merge`);
-	return file;
-}
-async function readSessionRuntimeFileUnlocked(identity, options) {
-	const target = sessionRuntimeFilePath(identity.session_id, options);
-	let raw;
-	try {
-		raw = await promises.readFile(target, "utf8");
-	} catch (error) {
-		if (error.code === "ENOENT") return null;
-		throw error;
-	}
-	let decoded;
-	try {
-		decoded = JSON.parse(raw);
-	} catch (error) {
-		throw new RuntimeStoreError("RUNTIME_FILE_INVALID", `runtime file is not valid JSON: ${error.message}`);
-	}
-	const parsed = SessionRuntimeFile.safeParse(decoded);
-	if (!parsed.success) throw new RuntimeStoreError("RUNTIME_FILE_INVALID", `runtime file failed SessionRuntimeFile validation: ${parsed.error.message}`);
-	return await validateFileIdentity(parsed.data, identity);
-}
-/** Lock-free read is safe because writers publish only through atomic rename. */
-async function readSessionRuntimeFile(identity, options) {
-	return await readSessionRuntimeFileUnlocked(await canonicalIdentity(identity), options);
-}
-async function writeSessionRuntimeFileUnlocked(file, identity, options) {
-	const runtimeDir = options.runtimeDir;
-	await ensureRuntimeDir(runtimeDir);
-	const target = sessionRuntimeFilePath(identity.session_id, options);
-	const tmp = `${target}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
-	let handle = null;
-	try {
-		handle = await promises.open(tmp, "wx", 384);
-		await handle.writeFile(JSON.stringify(file));
-		await handle.sync();
-		await handle.close();
-		handle = null;
-		await promises.chmod(tmp, 384);
-		await promises.rename(tmp, target);
-		try {
-			const directory = await promises.open(runtimeDir, "r");
-			try {
-				await directory.sync();
-			} finally {
-				await directory.close();
-			}
-		} catch {}
-	} catch (error) {
-		if (handle !== null) await handle.close().catch(() => void 0);
-		await promises.unlink(tmp).catch(() => void 0);
-		throw error;
-	}
-}
-function isPidAlive(pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		const code = error.code;
-		if (code === "ESRCH") return false;
-		if (code === "EPERM") return true;
-		throw error;
-	}
-}
-async function readLock(lockPath) {
-	try {
-		const parsed = RuntimeLockFile.safeParse(JSON.parse(await promises.readFile(lockPath, "utf8")));
-		return parsed.success ? parsed.data : null;
-	} catch (error) {
-		if (error.code === "ENOENT") return null;
-		if (error instanceof SyntaxError) return null;
-		throw error;
-	}
-}
-function isSameLockGeneration(observed, current) {
-	return observed.pid === current.pid && observed.acquired_at === current.acquired_at && observed.operation === current.operation && observed.owner === current.owner;
-}
-async function createLock(lockPath, lock) {
-	let handle = null;
-	try {
-		handle = await promises.open(lockPath, "wx", 384);
-		await handle.writeFile(JSON.stringify(lock));
-		await handle.sync();
-		await handle.close();
-		handle = null;
-		await promises.chmod(lockPath, 384);
-	} catch (error) {
-		if (handle !== null) await handle.close().catch(() => void 0);
-		if (error.code !== "EEXIST") await promises.unlink(lockPath).catch(() => void 0);
-		throw error;
-	}
-}
-async function acquireRuntimeLock(identity, operation, options) {
-	const runtimeDir = options.runtimeDir;
-	await ensureRuntimeDir(runtimeDir);
-	const lockPath = sessionRuntimeLockPath(identity.session_id, options);
-	const lock = RuntimeLockFile.parse({
-		pid: process.pid,
-		acquired_at: options.now().toISOString(),
-		operation,
-		owner: randomBytes(16).toString("hex")
-	});
-	const timeoutMs = Math.max(0, options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
-	const retryDelayMs = Math.max(1, options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS);
-	const maxAttempts = Math.max(1, Math.ceil(timeoutMs / retryDelayMs) + 1);
-	let attempts = 0;
-	while (true) {
-		try {
-			await createLock(lockPath, lock);
-			const confirmed = await readLock(lockPath);
-			if (confirmed?.owner !== lock.owner) {
-				attempts += 1;
-				if (attempts >= maxAttempts) throw new RuntimeStoreError(confirmed === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", `runtime lock ownership changed before acquisition completed`, confirmed ?? void 0, {
-					lock_path: lockPath,
-					timeout_seconds: timeoutMs / 1e3
-				});
-				await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-				continue;
-			}
-			return async () => {
-				if ((await readLock(lockPath))?.owner !== lock.owner) return;
-				await promises.unlink(lockPath).catch((error) => {
-					if (error.code !== "ENOENT") throw error;
-				});
-			};
-		} catch (error) {
-			if (error.code !== "EEXIST") throw error;
-		}
-		const holder = await readLock(lockPath);
-		attempts += 1;
-		if (holder !== null && !isPidAlive(holder.pid)) {
-			const current = await readLock(lockPath);
-			if (current !== null && isSameLockGeneration(holder, current) && !isPidAlive(current.pid)) await promises.unlink(lockPath).catch((error) => {
-				if (error.code !== "ENOENT") throw error;
-			});
-			if (attempts >= maxAttempts) throw new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", `runtime lock stale recovery exceeded its bounded retry budget`, current ?? holder, {
-				lock_path: lockPath,
-				timeout_seconds: timeoutMs / 1e3
-			});
-			continue;
-		}
-		if (attempts >= maxAttempts) throw new RuntimeStoreError(holder === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", holder === null ? `runtime lock ${lockPath} is malformed or incomplete; refusing stale removal` : `runtime lock held by live PID ${holder.pid} during ${holder.operation}`, holder ?? void 0, {
-			lock_path: lockPath,
-			timeout_seconds: timeoutMs / 1e3
-		});
-		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-	}
-}
-/**
-* The only read-modify-write API: acquire → validated read → mutate → atomic
-* write → unlock. Identity comes from the already journal-selected session;
-* malformed/mismatched files fail closed and are never silently merged or
-* replaced. An explicit future quarantine flow must present that identity.
-*/
-async function withRuntimeLock(identityInput, operation, mutate, options) {
-	const identity = await canonicalIdentity(identityInput);
-	const release = await acquireRuntimeLock(identity, operation, options);
-	try {
-		const current = await readSessionRuntimeFileUnlocked(identity, options);
-		const canonical = {
-			...await validateFileIdentity(SessionRuntimeFile.parse(await mutate(current)), identity),
-			cwd: identity.cwd
-		};
-		await writeSessionRuntimeFileUnlocked(canonical, identity, options);
-		return canonical;
-	} finally {
-		await release();
-	}
-}
-//#endregion
 //#region src/core/pending-scope.ts
 function runtimeOrInitial(current, identity, debug, heartbeatAt) {
 	return current ?? {
@@ -12251,6 +11779,210 @@ function createCommandMutator(ctx, deps) {
 		runExecuteClosure,
 		emitSchemaAndExit
 	};
+}
+z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("stdin") }),
+	z.object({
+		kind: z.literal("inline"),
+		value: z.string()
+	}),
+	z.object({
+		kind: z.literal("file"),
+		path: z.string()
+	})
+]);
+const INLINE_RE = /^[{[]/;
+function parseInputSource(arg) {
+	if (arg === "-") return { kind: "stdin" };
+	if (INLINE_RE.test(arg)) return {
+		kind: "inline",
+		value: arg
+	};
+	return {
+		kind: "file",
+		path: arg
+	};
+}
+function jsonInputHelp(declaration) {
+	if (declaration.helpText !== void 0) return declaration.helpText;
+	return `${declaration.helpPrefix}: \`-\` (stdin), ${declaration.inlineLabel}, or file path${declaration.helpSuffix ?? ""}`;
+}
+function createJsonInputIngestor(deps) {
+	const readFile = deps.readFile ?? ((filePath) => promises.readFile(filePath, "utf8"));
+	const requireArg = (ctx, arg, declaration) => {
+		if (arg !== void 0) return true;
+		ctx.failure({
+			code: "MISSING_INPUT",
+			detail: { command: declaration.command }
+		});
+		return false;
+	};
+	return {
+		requireArg,
+		async readJson(ctx, arg, declaration) {
+			if (!requireArg(ctx, arg, declaration)) return { ok: false };
+			const source = parseInputSource(arg);
+			if (source.kind === "stdin" && deps.isStdinTty()) {
+				ctx.failure({
+					code: "USAGE",
+					detail: {
+						command: declaration.command,
+						source: "stdin",
+						reason: "stdin_is_tty"
+					}
+				});
+				return { ok: false };
+			}
+			let raw;
+			if (source.kind === "inline") raw = source.value;
+			else if (source.kind === "stdin") try {
+				raw = await deps.readStdin();
+			} catch (error) {
+				const message = error.message;
+				ctx.failure({
+					code: "MISSING_INPUT",
+					detail: {
+						command: declaration.command,
+						source: "stdin",
+						cause: message
+					}
+				});
+				return { ok: false };
+			}
+			else try {
+				raw = await readFile(source.path);
+			} catch (error) {
+				const cause = error;
+				ctx.failure({
+					code: "INPUT_FILE_NOT_FOUND",
+					detail: {
+						path: source.path,
+						...cause.code === "ENOENT" ? {} : { cause: cause.message }
+					}
+				});
+				return { ok: false };
+			}
+			try {
+				return {
+					ok: true,
+					value: JSON.parse(raw)
+				};
+			} catch (error) {
+				const cause = error.message;
+				ctx.failure({
+					code: "SCHEMA_VALIDATION_FAILED",
+					detail: {
+						reason: cause,
+						command: declaration.command,
+						cause
+					}
+				});
+				return { ok: false };
+			}
+		}
+	};
+}
+//#endregion
+//#region src/cli/tui/render.ts
+async function defaultRenderTui(app) {
+	const { render } = await import("ink");
+	await render(app).waitUntilExit();
+}
+//#endregion
+//#region src/cli/run-editor.ts
+var EditorTokenizeError = class extends Error {
+	editor;
+	code = "EDITOR_TOKENIZE_ERROR";
+	constructor(message, editor) {
+		super(message);
+		this.editor = editor;
+		this.name = "EditorTokenizeError";
+	}
+};
+/** Shell-style word split with single + double quote grouping. NOT a
+*  full shell parser — does NOT expand $VARS, ~, globs, or backticks.
+*  Filepath is appended by the caller (NOT injected via shell). Codex
+*  r336 P2 lock. */
+function tokenizeEditor(editor) {
+	const tokens = [];
+	let current = "";
+	let quoteChar = null;
+	let inToken = false;
+	for (let i = 0; i < editor.length; i++) {
+		const ch = editor[i];
+		if (quoteChar !== null) {
+			if (ch === quoteChar) quoteChar = null;
+			else current += ch;
+			continue;
+		}
+		if (ch === "\"" || ch === "'") {
+			quoteChar = ch;
+			inToken = true;
+			continue;
+		}
+		if (ch === " " || ch === "	") {
+			if (inToken) {
+				tokens.push(current);
+				current = "";
+				inToken = false;
+			}
+			continue;
+		}
+		current += ch;
+		inToken = true;
+	}
+	if (quoteChar !== null) throw new EditorTokenizeError(`EDITOR has unmatched ${quoteChar === "\"" ? "double" : "single"} quote: ${editor}`, editor);
+	if (inToken) tokens.push(current);
+	return tokens;
+}
+/** Production runEditor — spawn the user's editor and resolve with the
+*  outcome. Always resolves; never throws — tokenize errors become
+*  `error: "EDITOR_TOKENIZE_ERROR"` (codex r339 P1), spawn errors
+*  become typed error strings (ENOENT etc.). */
+async function runEditor(args) {
+	let tokens;
+	try {
+		tokens = tokenizeEditor(args.editor);
+	} catch (err) {
+		if (err instanceof EditorTokenizeError) return {
+			code: 127,
+			signal: null,
+			error: "EDITOR_TOKENIZE_ERROR"
+		};
+		throw err;
+	}
+	if (tokens.length === 0) return {
+		code: 127,
+		signal: null,
+		error: "EDITOR_EMPTY"
+	};
+	const [bin, ...rest] = tokens;
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result) => {
+			if (settled) return;
+			settled = true;
+			resolve(result);
+		};
+		const child = spawn(bin, [...rest, args.filePath], {
+			stdio: "inherit",
+			cwd: args.cwd,
+			env: args.env
+		});
+		child.once("error", (err) => {
+			finish({
+				code: 127,
+				signal: null,
+				error: err.code ?? err.message
+			});
+		});
+		child.once("close", (code, signal) => {
+			finish({
+				code: code ?? 0,
+				signal: signal ?? null
+			});
+		});
+	});
 }
 //#endregion
 //#region src/cli/runtime-store-diagnostic.ts
@@ -12840,7 +12572,10 @@ const PRESETS = {
 	}
 };
 function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow, executeClosureHooks) {
-	program.command("start <feature>").description("Start a new feature session (emits session:started)").option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard").option("--label <text>", "Human-readable session label (≥3 chars)").option("--workspace <name>", "Workspace name (multi-worktree display)", "default").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (feature, opts) => {
+	declareCommandPolicy(program.command("start <feature>").description("Start a new feature session (emits session:started)").option("--ceremony <preset>", "Preset label: quick / light / standard / deep", "standard").option("--label <text>", "Human-readable session label (≥3 chars)").option("--workspace <name>", "Workspace name (multi-worktree display)", "default").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "start",
+		dryRun: "mutating"
+	}).action(async (feature, opts) => {
 		const ceremony = PRESETS[opts.ceremony];
 		if (!ceremony) {
 			ctx.failure(diagnostic$2("INVALID_PRESET", {}));
@@ -12898,7 +12633,10 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			};
 		});
 	});
-	program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").option("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (to, opts) => {
+	declareCommandPolicy(program.command("advance <to>").description("Advance the session cursor (emits event:phase_advanced)").option("--feature <name>", "Feature whose session to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (to, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const selector = await selectorForCommandContext(ctx);
@@ -12989,7 +12727,10 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			};
 		});
 	});
-	program.command("status").description("Show the current session snapshot (read-only)").option("--feature <name>", "Feature whose status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("status").description("Show the current session snapshot (read-only)").option("--feature <name>", "Feature whose status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -13031,7 +12772,10 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			pending_count: out.pending_count
 		}) + "\n" + i18n.t(CHROME_KEYS.statusSnapshotAsOfProjectionLoader, { seq: out.tail_seq }) + "\n");
 	});
-	program.command("next").description("Compute the next owner command for the current session (read-only)").option("--feature <name>", "Feature whose next action to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("next").description("Compute the next owner command for the current session (read-only)").option("--feature <name>", "Feature whose next action to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("next")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -13175,7 +12919,10 @@ function buildFindingRaiseBatch(args) {
 //#endregion
 //#region src/cli/commands/gate.tsx
 function registerGate(program, ctx, mutator, actor) {
-	program.command("gate").description("Gate decision commands (spec-lock + verify-accept)").command("decide <gate-name>").description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)").option("--approve", "Approve the gate").option("--reject", "Reject the gate").requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)").option("--feature <name>", "Feature whose session to gate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (gateName, opts) => {
+	declareCommandPolicy(program.command("gate").description("Gate decision commands (spec-lock + verify-accept)").command("decide <gate-name>").description("Decide a gate (emits gate:decided; spec-lock approve also advances cursor)").option("--approve", "Approve the gate").option("--reject", "Reject the gate").requiredOption("--reason <text>", "Decision rationale (passed through to GateDecidedPayload)").option("--feature <name>", "Feature whose session to gate").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (gateName, opts) => {
 		const approve = opts.approve === true;
 		if (approve === (opts.reject === true)) {
 			ctx.failure(diagnostic$2("USAGE", { reason: "approval_decision_required" }));
@@ -13284,7 +13031,10 @@ function registerGate(program, ctx, mutator, actor) {
 //#endregion
 //#region src/cli/commands/terminal-execute.tsx
 function registerTerminalExecute(program, ctx, mutator, actor) {
-	program.command("deliver").description("Deliver the feature session (emits session:delivered → DONE.delivered)").option("--feature <name>", "Feature whose session to deliver").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--reason <text>", "Optional rationale to record on the session:delivered entry").action(async (opts) => {
+	declareCommandPolicy(program.command("deliver").description("Deliver the feature session (emits session:delivered → DONE.delivered)").option("--feature <name>", "Feature whose session to deliver").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--reason <text>", "Optional rationale to record on the session:delivered entry"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const humanActor = ctx.resolveHumanActorOrFail();
 		if (humanActor === null) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -13321,7 +13071,10 @@ function registerTerminalExecute(program, ctx, mutator, actor) {
 			next: i18n.t(SUCCESS_KEYS.deliverNext)
 		}));
 	});
-	program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").option("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("archive").description("Close the feature session without delivering (emits session:archived → DONE.archived)").option("--feature <name>", "Feature whose session to archive").requiredOption("--reason <text>", "Rationale recorded on the session:archived entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const humanActor = ctx.resolveHumanActorOrFail();
 		if (humanActor === null) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -13352,7 +13105,10 @@ function registerTerminalExecute(program, ctx, mutator, actor) {
 			actor: humanActor
 		}) }));
 	});
-	program.command("abandon").description("Abandon the feature session (emits session:abandoned → DONE.abandoned)").option("--feature <name>", "Feature whose session to abandon").requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("abandon").description("Abandon the feature session (emits session:abandoned → DONE.abandoned)").option("--feature <name>", "Feature whose session to abandon").requiredOption("--reason <text>", "Rationale recorded on the session:abandoned entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const humanActor = ctx.resolveHumanActorOrFail();
 		if (humanActor === null) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -13504,13 +13260,67 @@ async function writeConfigExclusive(configPath, content) {
 	}
 }
 //#endregion
+//#region src/core/user-config.ts
+const UserConfig = z.object({
+	schema_version: z.literal(1),
+	locale: z.object({ default_lang: z.enum(["en", "zh"]) }).strict()
+}).strict();
+/** Canonical user-level config path under an injected home directory. */
+function userConfigPath(homeDir) {
+	return path.join(homeDir, ".loaf", "config.json");
+}
+/**
+* Read + strictly validate ~/.loaf/config.json.
+*
+* - file absent (ENOENT)         -> { status: "absent" }
+* - unreadable / malformed / bad -> { status: "invalid" }
+* - valid                        -> { status: "ok", config }
+*/
+async function readUserConfig(homeDir) {
+	const configPath = userConfigPath(homeDir);
+	let raw;
+	try {
+		raw = await promises.readFile(configPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return { status: "absent" };
+		return {
+			status: "invalid",
+			path: configPath,
+			reason: `cannot read ${configPath}: ${err.message}`
+		};
+	}
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return {
+			status: "invalid",
+			path: configPath,
+			reason: `malformed JSON in ${configPath}`
+		};
+	}
+	const result = UserConfig.safeParse(parsed);
+	if (!result.success) return {
+		status: "invalid",
+		path: configPath,
+		reason: `schema validation failed for ${configPath}`
+	};
+	return {
+		status: "ok",
+		config: result.data
+	};
+}
+//#endregion
 //#region src/cli/commands/profile-config.tsx
 const CONFIG_INIT_COMMENT = "Scaffolded by `loaf config init`. Machine contract: src/core/loaf-config.ts LoafConfig. This _comment key is an output affordance only; loaf-cli parses the semantic config without it.";
 function serializeStableJson(value) {
 	return JSON.stringify(value, null, 2) + "\n";
 }
 function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) {
-	program.command("spike").description("Spike-task exits (protocol §8.3)").command("convert").description("Convert a spike session — emits spike:converted then archives to DONE.archived").option("--feature <name>", "Feature whose spike session to convert").requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into").requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("spike").description("Spike-task exits (protocol §8.3)").command("convert").description("Convert a spike session — emits spike:converted then archives to DONE.archived").option("--feature <name>", "Feature whose spike session to convert").requiredOption("--to-feature <id>", "Target feature id (F-NNN) the spike learnings carry into").requiredOption("--reason <text>", "Rationale recorded on the spike:converted entry").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const humanActor = ctx.resolveHumanActorOrFail();
 		if (humanActor === null) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -13550,7 +13360,10 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			actor: humanActor
 		}) }));
 	});
-	program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").option("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").option("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		if (await ctx.dispatchOrFail(opts) === null) return;
 		const humanActor = ctx.resolveHumanActorOrFail();
 		if (humanActor === null) return;
@@ -13621,7 +13434,10 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			throw err;
 		}
 	}
-	program.command("config").description("Project and user config commands").command("init").description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json").option("--global", "Write user config at ~/.loaf/config.json instead of project config").action(async (opts) => {
+	declareCommandPolicy(program.command("config").description("Project and user config commands").command("init").description("Write .loaf/.config/loaf.config.json; --global writes ~/.loaf/config.json").option("--global", "Write user config at ~/.loaf/config.json instead of project config"), {
+		selectors: "unscoped",
+		dryRun: "scaffold-writer"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("config init", "scaffold-writer")) return;
 		const configPath = opts.global ? userConfigPath(userConfigHomeDir ?? os.homedir()) : loafConfigPath(process.cwd());
 		if (!await ensureConfigTargetAbsent(configPath)) return;
@@ -13640,7 +13456,10 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			config_path: configPath
 		}, () => `${configPath}\n`);
 	});
-	program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "recovery",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 		if (!opts.rebuild) {
 			ctx.failure(diagnostic$2("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
@@ -13813,7 +13632,14 @@ const TASKS_AMEND_INPUT = {
 };
 function registerTaskSubmit(tasksCmd, deps) {
 	const { ctx, mutator, actor, input } = deps;
-	tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").option("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT)).option("--schema", "Dump the semantic authoring JSON Schema instead of mutating").option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+	declareCommandPolicy(tasksCmd.command("submit").description("Submit a complete task graph from --input <src> (stdin / inline JSON / file path; whole-graph single object)").option("--input <src>", jsonInputHelp(TASKS_SUBMIT_INPUT)).option("--schema", "Dump the semantic authoring JSON Schema instead of mutating").option("--feature <name>", "Feature whose task graph to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating",
+		schema: {
+			kind: "input",
+			key: "tasks:submit"
+		}
+	}).action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("tasks submit --schema")) return;
 			mutator.emitSchemaAndExit("tasks:submit");
@@ -13895,7 +13721,14 @@ function registerTaskSubmit(tasksCmd, deps) {
 }
 function registerTaskAdd(tasksCmd, deps) {
 	const { ctx, mutator, actor, input } = deps;
-	tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", jsonInputHelp(TASKS_ADD_INPUT)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)").action(async (rawOpts) => {
+	declareCommandPolicy(tasksCmd.command("add").description("Append id-less task(s) to the graph — --input <src> with single object or array (batch); SPEC.design whole-graph, or EXECUTE.work sponsored via --finding").option("--input <src>", jsonInputHelp(TASKS_ADD_INPUT)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose task graph to extend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--finding <FND-N>", "Sponsoring amend-tasks finding (sponsored add at EXECUTE.work)"), {
+		selectors: "selected",
+		dryRun: "mutating",
+		schema: {
+			kind: "input",
+			key: "tasks:add"
+		}
+	}).action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("tasks add --schema")) return;
 			mutator.emitSchemaAndExit("tasks:add");
@@ -14022,7 +13855,10 @@ function registerTaskAdd(tasksCmd, deps) {
 }
 function registerTaskAmend(tasksCmd, deps) {
 	const { ctx, mutator, actor, input } = deps;
-	tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", jsonInputHelp(TASKS_AMEND_INPUT)).option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)").action(async (taskId, opts) => {
+	declareCommandPolicy(tasksCmd.command("amend <task-id>").description("Amend a task: --policy <step>=<applicability> (EXECUTE.plan) or --input <file> --finding <FND-N> (sponsored, EXECUTE.work)").option("--feature <name>", "Feature whose task to amend").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--policy <step=applicability>", "Step applicability override (must|optional|na); repeatable", (val, acc) => [...acc, val], []).option("--input <file>", jsonInputHelp(TASKS_AMEND_INPUT)).option("--finding <FND-N>", "Sponsoring amend-tasks finding (required with --input)"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (taskId, opts) => {
 		const earlyFeatureDir = await ctx.dispatchOrFail(opts);
 		if (earlyFeatureDir === null) return;
 		const policies = opts.policy ?? [];
@@ -14218,7 +14054,10 @@ function formatTaskStatus(i18n, status) {
 //#region src/cli/commands/tasks/execution.ts
 function registerTaskClaim(tasksCmd, deps) {
 	const { ctx, mutator, actor } = deps;
-	tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").option("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+	declareCommandPolicy(tasksCmd.command("claim <task-id>").description("Claim a ready task (pending → in_progress) at EXECUTE.work").option("--feature <name>", "Feature whose task to claim").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (taskId, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14253,7 +14092,10 @@ function registerTaskClaim(tasksCmd, deps) {
 }
 function registerTaskAbandon(tasksCmd, deps) {
 	const { ctx, mutator, actor } = deps;
-	tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").option("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+	declareCommandPolicy(tasksCmd.command("abandon <task-id>").description("Abandon a non-terminal task (→ abandoned) at EXECUTE.work").requiredOption("--reason <text>", "Why the task is being abandoned (required)").option("--feature <name>", "Feature whose task to abandon").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (taskId, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14291,7 +14133,10 @@ function registerTaskAbandon(tasksCmd, deps) {
 }
 function registerTaskComplete(tasksCmd, deps) {
 	const { ctx } = deps;
-	tasksCmd.command("complete <task-id>").description("Confirm a task has reached status=done (read-only; emits nothing)").option("--feature <name>", "Feature whose task to confirm").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+	declareCommandPolicy(tasksCmd.command("complete <task-id>").description("Confirm a task has reached status=done (read-only; emits nothing)").option("--feature <name>", "Feature whose task to confirm").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (taskId, opts) => {
 		if (ctx.rejectIfDryRun("tasks complete")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -14333,7 +14178,10 @@ function registerTaskComplete(tasksCmd, deps) {
 }
 function registerTaskRegisterRed(tasksCmd, deps) {
 	const { ctx, mutator, actor } = deps;
-	tasksCmd.command("register-red <task-id>").description("Register an established failing RED test for a claimed behavioral bug task (ordering proof; not a general step shortcut)").option("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (taskId, opts) => {
+	declareCommandPolicy(tasksCmd.command("register-red <task-id>").description("Register an established failing RED test for a claimed behavioral bug task (ordering proof; not a general step shortcut)").option("--feature <name>", "Feature whose task to register").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (taskId, opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14365,7 +14213,10 @@ function registerTaskRegisterRed(tasksCmd, deps) {
 function registerTaskStep(tasksCmd, deps) {
 	const { ctx, mutator, actor } = deps;
 	const stepCmd = tasksCmd.command("step").description("Task step lifecycle (start / done)");
-	stepCmd.command("start").description("Mark a task step as running (task must be claimed)").requiredOption("--task <task-id>", "Task whose step to start").requiredOption("--step <step-name>", "Step name (kind-specific; see spec)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(stepCmd.command("start").description("Mark a task step as running (task must be claimed)").requiredOption("--task <task-id>", "Task whose step to start").requiredOption("--step <step-name>", "Step name (kind-specific; see spec)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14405,7 +14256,10 @@ function registerTaskStep(tasksCmd, deps) {
 			step: opts.step
 		}) }));
 	});
-	stepCmd.command("done").description("Complete a workflow step; --result is the step outcome, independent of --evidence-result").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step outcome: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Independent evidence outcome (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(stepCmd.command("done").description("Complete a workflow step; --result is the step outcome, independent of --evidence-result").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step outcome: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Independent evidence outcome (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		if (![
 			"passed",
 			"failed",
@@ -14513,7 +14367,10 @@ function registerTaskStep(tasksCmd, deps) {
 //#region src/cli/commands/tasks/query.ts
 function registerTaskQueries(tasksCmd, deps) {
 	const { ctx } = deps;
-	tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").option("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)").action(async (opts) => {
+	declareCommandPolicy(tasksCmd.command("list").description("List tasks (read-only); shows derived `ready` column").option("--feature <name>", "Feature whose tasks to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("tasks list")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -14565,7 +14422,10 @@ function registerTaskQueries(tasksCmd, deps) {
 			}).join("");
 		});
 	});
-	tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").option("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(tasksCmd.command("next").description("Print the next ready task id (or empty if none); read-only").option("--feature <name>", "Feature whose ready task to compute").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("tasks next")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -14674,7 +14534,10 @@ function buildResumePack(args) {
 //#endregion
 //#region src/cli/commands/terminal-settle.tsx
 function registerTerminalSettle(program, ctx, mutator, actor) {
-	program.command("settle").description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)").option("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("settle").description("Advance VERIFY.accept → SETTLE.lessons (deep ceremony only)").option("--feature <name>", "Feature whose session to settle").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14711,7 +14574,10 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			};
 		});
 	});
-	program.command("resume").description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)").option("--feature <name>", "Feature whose resume pack to consume").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("resume").description("Resume session from snapshots/resume-pack.json (emits session:resumed journal entry)").option("--feature <name>", "Feature whose resume pack to consume").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
@@ -14774,7 +14640,10 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 			sub_state: result.snapshot.state?.sub_state
 		}) }));
 	});
-	program.command("handoff").description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)").requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)").option("--notes <text>", "Optional free-form notes attached to the pack").option("--feature <name>", "Feature whose handoff to take").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("handoff").description("Compose and persist snapshots/resume-pack.json (read-side projection writer; no journal entry)").requiredOption("--reason <text>", "Why this handoff is being taken (≥5 chars; mandatory per ResumePack.reason)").option("--notes <text>", "Optional free-form notes attached to the pack").option("--feature <name>", "Feature whose handoff to take").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "projection-writer"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
 		if (opts.reason.length < 5) {
 			ctx.failure(diagnosticVariant("failure.handoff.reason_too_short", {
@@ -14846,7 +14715,10 @@ function formatPendingKind(i18n, kind) {
 }
 function registerPending(program, ctx, mutator, actor) {
 	const pendingCmd = program.command("pending").description("Pending queue commands (raise / list / status / resolve)");
-	pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").option("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(pendingCmd.command("raise").description("Raise a new pending entry (CLI allocates PEND-id)").requiredOption("--kind <kind>", "Pending kind (ask_user_question | gate_decision | spec_clarification | finding_decision | profile_escalation)").requiredOption("--question <text>", "Question / rationale shown to whoever resolves it (required for ALL kinds)").option("--options <csv>", "Comma-separated answer options (passthrough)").option("--task-id <id>", "Optional task association (passthrough)").option("--feature <name>", "Feature whose session to raise pending against").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14882,7 +14754,10 @@ function registerPending(program, ctx, mutator, actor) {
 			kind: opts.kind
 		}) }));
 	});
-	pendingCmd.command("list").description("List pending entries (FIFO; first unresolved is head)").option("--feature <name>", "Feature whose pending to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(pendingCmd.command("list").description("List pending entries (FIFO; first unresolved is head)").option("--feature <name>", "Feature whose pending to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("pending list")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -14908,7 +14783,10 @@ function registerPending(program, ctx, mutator, actor) {
 			head: i18n.t(r.head ? CHROME_KEYS.pendingHead : CHROME_KEYS.pendingNonHead)
 		}) + "\n").join(""));
 	});
-	pendingCmd.command("status").description("Status of head pending entry (default) or specific entry by --id").option("--feature <name>", "Feature whose pending to inspect").option("--id <id>", "Lookup a specific PEND-id (default: head)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(pendingCmd.command("status").description("Status of head pending entry (default) or specific entry by --id").option("--feature <name>", "Feature whose pending to inspect").option("--id <id>", "Lookup a specific PEND-id (default: head)").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("pending status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -14950,7 +14828,10 @@ function registerPending(program, ctx, mutator, actor) {
 			}) + "\n";
 		});
 	});
-	pendingCmd.command("resolve").description("Resolve the head pending entry (strict FIFO; no --id flag)").requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)").option("--feature <name>", "Feature whose pending to resolve").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(pendingCmd.command("resolve").description("Resolve the head pending entry (strict FIFO; no --id flag)").requiredOption("--answer <text>", "Resolution answer (passthrough into pending:resolved payload)").option("--feature <name>", "Feature whose pending to resolve").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -15042,7 +14923,14 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 		helpSuffix: "; internal sidecar refs are rejected"
 	};
 	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (add, list)");
-	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+	declareCommandPolicy(evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating",
+		schema: {
+			kind: "input",
+			key: "evidence:add"
+		}
+	}).action(async (rawOpts) => {
 		if (rawOpts.schema === true) {
 			if (ctx.rejectIfDryRun("evidence add --schema")) return;
 			mutator.emitSchemaAndExit("evidence:add");
@@ -15144,7 +15032,10 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 			}))
 		}));
 	});
-	evidenceCmd.command("list").description("List evidence coverage fields from the evidence projection (read-only)").option("--covers <id>", "Filter entries whose covers array contains id").option("--task <T-N>", "Filter entries linked to a task id").option("--kind <kind>", "Filter by the closed EvidenceKind enum").option("--feature <name>", "Feature whose evidence to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(evidenceCmd.command("list").description("List evidence coverage fields from the evidence projection (read-only)").option("--covers <id>", "Filter entries whose covers array contains id").option("--task <T-N>", "Filter entries linked to a task id").option("--kind <kind>", "Filter by the closed EvidenceKind enum").option("--feature <name>", "Feature whose evidence to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("evidence list")) return;
 		if (opts.covers !== void 0 && !CoversRefPayload.safeParse(opts.covers).success) {
 			ctx.failure(diagnosticVariant("failure.evidence.covers_invalid", {
@@ -15198,7 +15089,10 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 			}) + "\n").join("");
 		});
 	});
-	program.command("waive <obligation-id>").description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)").requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (obligationId, opts) => {
+	declareCommandPolicy(program.command("waive <obligation-id>").description("Record a waiver evidence (kind=waiver) against an obligation id (REQ-/SCEN-/VIS-/T-)").requiredOption("--reason <text>", "Waiver rationale (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (obligationId, opts) => {
 		if (!CoversRefPayload.safeParse(obligationId).success) {
 			ctx.failure(diagnostic$2("USAGE", {
 				reason: "invalid_obligation_id",
@@ -15254,7 +15148,10 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 //#region src/cli/commands/journal.ts
 const JOURNAL_KINDS = Object.keys(KIND_REGISTRY);
 function registerJournal(program, ctx) {
-	program.command("journal").alias("log").description("Journal inspection commands (list; `loaf log` alias)").command("list", { isDefault: true }).description("List journal entry envelopes without interpreting payloads (read-only)").option("--after-seq <n>", "Only include entries whose seq is greater than n").option("--limit <n>", "Return at most n entries in journal order").option("--kind <kind>", "Filter by the closed journal kind registry").option("--actor <prefix-or-full>", "Filter by actor prefix or full actor string").option("--feature <name>", "Feature whose journal to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("journal").alias("log").description("Journal inspection commands (list; `loaf log` alias)").command("list", { isDefault: true }).description("List journal entry envelopes without interpreting payloads (read-only)").option("--after-seq <n>", "Only include entries whose seq is greater than n").option("--limit <n>", "Return at most n entries in journal order").option("--kind <kind>", "Filter by the closed journal kind registry").option("--actor <prefix-or-full>", "Filter by actor prefix or full actor string").option("--feature <name>", "Feature whose journal to list").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("journal list")) return;
 		const afterSeq = parseIntegerFilter(ctx, "--after-seq", opts.afterSeq, 0);
 		if (afterSeq === null) return;
@@ -15371,7 +15268,10 @@ function buildLessonRecordedPayload(args) {
 //#endregion
 //#region src/cli/commands/lessons.tsx
 function registerLessons(program, ctx, mutator, _actor) {
-	program.command("lessons").description("Lessons-learned journal commands").command("add").description("Record a lesson entry (--text inline OR --file <path>)").option("--text <inline>", "Lesson body text (inline). Mutex with --file.").option("--file <path>", "Read lesson body from file. Mutex with --text.").requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("lessons").description("Lessons-learned journal commands").command("add").description("Record a lesson entry (--text inline OR --file <path>)").option("--text <inline>", "Lesson body text (inline). Mutex with --file.").option("--file <path>", "Read lesson body from file. Mutex with --text.").requiredOption("--reason <text>", "Why this lesson matters (≥10 chars; mandatory per evidence schema refine)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const hasText = opts.text !== void 0;
 		const hasFile = opts.file !== void 0;
 		if (hasText === hasFile) {
@@ -16746,7 +16646,10 @@ function optionalStringField$1(value, field) {
 //#endregion
 //#region src/cli/commands/integrations.tsx
 function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, renderTuiImpl, isStdoutTtyForTui, registryDir, now, runtimeDir, runtimeNow) {
-	program.command("hook <event>").description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--feature <name>", "Feature whose session to read (read-side events)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--session <uuid>", "Resolve session by registry UUID (read-side events)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)").action(async (event, opts) => {
+	declareCommandPolicy(program.command("hook <event>").description("Claude Code hook entry point (session-start + closure-check read-side; write-guard + scope-track land SC-15c)").option("--list-events", "Dump the canonical 4-event enum (handled by pre-parse guard)").option("--feature <name>", "Feature whose session to read (read-side events)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--session <uuid>", "Resolve session by registry UUID (read-side events)").option("--path <text>", "Tool target path (for write-guard / scope-track; SC-15c)"), {
+		selectors: "optional-hook",
+		dryRun: "hook"
+	}).action(async (event, opts) => {
 		if (event === "session-start") {
 			const d = await ctx.dispatchForHookOptional(opts);
 			if ("skip" in d) return;
@@ -16974,7 +16877,12 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		}));
 	});
 	const resolvedRenderTui = renderTuiImpl ?? defaultRenderTui;
-	program.command("tui").description("Interactive session manager TUI (Ink; read-only, MVP)").action(async () => {
+	declareCommandPolicy(program.command("tui").description("Interactive session manager TUI (Ink; read-only, MVP)"), {
+		selectors: "forbidden",
+		dryRun: "read-only",
+		selectorFailure: "failure.tui.selector_conflict",
+		interactiveFormat: true
+	}).action(async () => {
 		if (ctx.rejectIfDryRun("tui")) return;
 		const stdinTty = isStdinTty();
 		const stdoutTty = isStdoutTtyForTui();
@@ -17012,7 +16920,11 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			i18n
 		}));
 	});
-	program.command("sessions").description("Session registry commands (list)").command("list").description("List session registry entries (read-only; --in-cwd filters by current cwd)").option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd").action(async (opts) => {
+	declareCommandPolicy(program.command("sessions").description("Session registry commands (list)").command("list").description("List session registry entries (read-only; --in-cwd filters by current cwd)").option("--in-cwd", "Only list sessions whose registered cwd matches the current cwd"), {
+		selectors: "forbidden",
+		dryRun: "read-only",
+		selectorFailure: "failure.sessions_list.selector_conflict"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("sessions list")) return;
 		const filterCwd = opts.inCwd ? await promises.realpath(process.cwd()).catch(() => process.cwd()) : void 0;
 		const result = await listSessions({
@@ -17047,7 +16959,11 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			return lines.join("");
 		});
 	});
-	program.command("check <path>").description("Validate an artifact file against its schema (read-only; CI-friendly)").option("--kind <kind>", `Artifact kind (one of ${CHECK_KINDS.join("|")}); auto-detected from basename when omitted`).action(async (filePath, opts) => {
+	declareCommandPolicy(program.command("check <path>").description("Validate an artifact file against its schema (read-only; CI-friendly)").option("--kind <kind>", `Artifact kind (one of ${CHECK_KINDS.join("|")}); auto-detected from basename when omitted`), {
+		selectors: "forbidden",
+		dryRun: "read-only",
+		selectorFailure: "failure.check.selector_conflict"
+	}).action(async (filePath, opts) => {
 		if (ctx.rejectIfDryRun("check")) return;
 		let kind;
 		if (opts.kind !== void 0) {
@@ -17099,7 +17015,10 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		}
 		ctx.failure(result);
 	});
-	program.command("verify").description("Verify-accept gate read commands (status)").command("status").description("Show per-check verify-accept diagnostic (read-only)").option("--feature <name>", "Feature whose verify status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(program.command("verify").description("Verify-accept gate read commands (status)").command("status").description("Show per-check verify-accept diagnostic (read-only)").option("--feature <name>", "Feature whose verify status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("verify status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -17130,7 +17049,10 @@ function formatFindingStatus(i18n, status) {
 }
 function registerFinding(program, ctx, mutator, actor) {
 	const findingCmd = program.command("finding").description("Finding ledger commands (Slice 3 SC3 MVP: raise / list / close)");
-	findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(findingCmd.command("raise").description("Raise a new finding (CLI allocates FND-id)").requiredOption("--category <category>", "Finding category (spec-gap | spec-defect | impl-defect | test-defect | new-scope | risk-escalation)").requiredOption("--action <action>", "Finding action (amend-spec | amend-tasks | fix-impl | fix-test | defer | backlog)").option("--summary <text>", "One-line finding summary (passthrough)").option("--reason <text>", "Justification (required ≥20 chars on unusual cells)").option("--target-task <task-id>", "Target task for fix-impl / fix-test / amend-tasks").option("--target-step <step>", "Target step (must equal action's canonical step)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		const hasTask = opts.targetTask !== void 0;
 		const hasStep = opts.targetStep !== void 0;
 		if (hasTask !== hasStep) {
@@ -17198,7 +17120,10 @@ function registerFinding(program, ctx, mutator, actor) {
 			}
 		}, () => id + "\n", { stateChange: `finding raise: ${id} (category=${opts.category}, action=${opts.action}) — back-edge to ${findingBatch.backEdgeTo}` });
 	});
-	findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").option("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(findingCmd.command("list").description("List findings (read-only; --status filters open|closed)").option("--feature <name>", "Feature whose findings to list").option("--status <s>", "Filter by status (open | closed)").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("finding list")) return;
 		if (opts.status !== void 0 && opts.status !== "open" && opts.status !== "closed") {
 			ctx.failure(diagnosticVariant("failure.finding.status_invalid", {
@@ -17227,7 +17152,10 @@ function registerFinding(program, ctx, mutator, actor) {
 			status: formatFindingStatus(i18n, r.status)
 		}) + "\n").join(""));
 	});
-	findingCmd.command("close <fnd-id>").description("Close a finding (emits finding:closed)").option("--feature <name>", "Feature whose ledger to close against").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (fndId, opts) => {
+	declareCommandPolicy(findingCmd.command("close <fnd-id>").description("Close a finding (emits finding:closed)").option("--feature <name>", "Feature whose ledger to close against").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (fndId, opts) => {
 		const idParse = FindingId.safeParse(fndId);
 		if (!idParse.success) {
 			ctx.failure(diagnostic$2("INVALID_PAYLOAD", {
@@ -17426,7 +17354,10 @@ function specAddStateChangeKey(name, count) {
 function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inputIngestor, runEditorImpl) {
 	const resolvedRunEditor = runEditorImpl ?? runEditor;
 	const specCmd = program.command("spec").description("SPEC content and diagnostic commands (status / submit / add-req / add-scenario / add-visual; init in SC4)");
-	specCmd.command("status").description("Show failing and suppressed spec-lock checks from replayed state (read-only)").option("--feature <name>", "Feature whose spec-lock status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(specCmd.command("status").description("Show failing and suppressed spec-lock checks from replayed state (read-only)").option("--feature <name>", "Feature whose spec-lock status to show").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "read-only"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("spec status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
@@ -17438,7 +17369,10 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		const envelope = buildSpecStatusEnvelope(evaluateSpecLockFromSnapshot(session.snapshot));
 		ctx.success(envelope, (i18n) => renderSpecStatusText(envelope, i18n));
 	});
-	specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", jsonInputHelp(SPEC_SUBMIT_INPUT)).option("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(specCmd.command("submit").description("Whole-replacement spec submit from JSON --input (CLI fills spec_version)").requiredOption("--input <src>", jsonInputHelp(SPEC_SUBMIT_INPUT)).option("--feature <name>", "Feature whose spec to submit").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "mutating"
+	}).action(async (opts) => {
 		if (await ctx.dispatchOrFail(opts) === null) return;
 		const read = await inputIngestor.readJson(ctx, opts.input, SPEC_SUBMIT_INPUT);
 		if (!read.ok) return;
@@ -17498,7 +17432,10 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 			};
 		});
 	});
-	specCmd.command("init").description("Write a parser-valid minimal spec.md scaffold (no journal entry)").option("--feature <name>", "Feature whose spec.md to scaffold").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)").option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)").option("--intent <text>", "Override intent line in scaffold (default: TODO placeholder ≥20 chars)").action(async (opts) => {
+	declareCommandPolicy(specCmd.command("init").description("Write a parser-valid minimal spec.md scaffold (no journal entry)").option("--feature <name>", "Feature whose spec.md to scaffold").option("--feature-dir <path>", "Override default .loaf/<feature> directory").option("--feature-id <id>", "Override feature.id in scaffold (default: F-XXX placeholder)").option("--feature-name <text>", "Override feature.name in scaffold (default: --feature value)").option("--intent <text>", "Override intent line in scaffold (default: TODO placeholder ≥20 chars)"), {
+		selectors: "selected",
+		dryRun: "legacy-scaffold"
+	}).action(async (opts) => {
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const specMdPath = path.join(featureDir, "spec.md");
@@ -17548,7 +17485,10 @@ feature:
 			next: i18n.t(SUCCESS_KEYS.specInitNext)
 		}));
 	});
-	specCmd.command("edit").description("Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted").option("--input <src>", jsonInputHelp(SPEC_EDIT_INPUT)).option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (opts) => {
+	declareCommandPolicy(specCmd.command("edit").description("Replace the spec.md body from --input or launch $EDITOR, validate, then emit event:spec_submitted").option("--input <src>", jsonInputHelp(SPEC_EDIT_INPUT)).option("--feature <name>", "Feature whose spec.md to edit").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+		selectors: "selected",
+		dryRun: "spec-edit"
+	}).action(async (opts) => {
 		const hasInput = opts.input !== void 0;
 		if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
@@ -17730,7 +17670,14 @@ feature:
 	for (const cfg of REGISTER_SPEC_ADD) {
 		const mutatorKey = cfg.name === "req" ? "spec:add-req" : cfg.name === "scenario" ? "spec:add-scenario" : "spec:add-visual";
 		const inputDeclaration = specAddInputDeclaration(cfg.name);
-		specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
+		declareCommandPolicy(specCmd.command(`add-${cfg.name}`).description(`Add ${cfg.name} entries via id_namespace stamping (CLI allocates ${cfg.name.toUpperCase()} ids)`).option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", `Feature whose spec to extend`).option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+			selectors: "selected",
+			dryRun: "mutating",
+			schema: {
+				kind: "input",
+				key: mutatorKey
+			}
+		}).action(async (rawOpts) => {
 			if (rawOpts.schema === true) {
 				let rejected = false;
 				if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
@@ -17820,7 +17767,14 @@ function registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd)
 		finding: findingCmd,
 		state: program.command("state").description("Session state schema dump (SC-10)")
 	};
-	for (const kind of ARTIFACT_SCHEMA_KINDS) ARTIFACT_PARENTS[kind].command("schema").description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`).action(async () => {
+	for (const kind of ARTIFACT_SCHEMA_KINDS) declareCommandPolicy(ARTIFACT_PARENTS[kind].command("schema").description(`Dump the ${kind} artifact JSON Schema (Phase 16 SC-10; read-only)`), {
+		selectors: "forbidden",
+		dryRun: "read-only",
+		schema: {
+			kind: "artifact",
+			key: kind
+		}
+	}).action(async () => {
 		let rejected = false;
 		if (kind === "spec") rejected = ctx.rejectIfDryRun("spec schema");
 		else if (kind === "tasks") rejected = ctx.rejectIfDryRun("tasks schema");
@@ -17831,18 +17785,6 @@ function registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd)
 		const schema = emitArtifactSchema(kind);
 		ctx.success(schema, () => formatSchema(schema));
 	});
-}
-//#endregion
-//#region src/cli/selectors.ts
-function collectPresentSelectors(argv, env) {
-	const selectors = [];
-	const tokens = scanArgv(argv);
-	if (tokens.some((token) => token.kind === "option" && token.flag === "--session")) selectors.push("--session");
-	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature")) selectors.push("--feature");
-	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir")) selectors.push("--feature-dir");
-	if (env["LOAF_SESSION"] !== void 0 && env["LOAF_SESSION"].length > 0) selectors.push("$LOAF_SESSION");
-	if (env["LOAF_FEATURE"] !== void 0 && env["LOAF_FEATURE"].length > 0) selectors.push("$LOAF_FEATURE");
-	return selectors;
 }
 //#endregion
 //#region src/cli/board/open-url.ts
@@ -18831,7 +18773,11 @@ function waitForever() {
 	return new Promise(() => {});
 }
 function registerBoard(program, ctx, deps) {
-	program.command("board").description("Open the local read-only loaf board in a browser").option("--port <port>", `Loopback port (default: ${DEFAULT_BOARD_PORT}; use 0 for ephemeral)`).option("--in-cwd", "Only show sessions whose registered cwd matches the current cwd").option("--once", "Print one board snapshot and exit without starting a server").option("--open", "Open the board URL in the default browser").action(async (opts) => {
+	declareCommandPolicy(program.command("board").description("Open the local read-only loaf board in a browser").option("--port <port>", `Loopback port (default: ${DEFAULT_BOARD_PORT}; use 0 for ephemeral)`).option("--in-cwd", "Only show sessions whose registered cwd matches the current cwd").option("--once", "Print one board snapshot and exit without starting a server").option("--open", "Open the board URL in the default browser"), {
+		selectors: "forbidden",
+		dryRun: "read-only",
+		selectorStage: "action"
+	}).action(async (opts) => {
 		if (ctx.rejectIfDryRun("board")) return;
 		const selectors = collectPresentSelectors(ctx.argv, process.env);
 		if (selectors.length > 0) {
@@ -19329,7 +19275,10 @@ function describeScope(scope) {
 	}
 }
 function registerPrune(program, ctx, deps) {
-	program.command("prune").description("Garbage-collect finished sessions (terminal-only; recoverable trash). Scope with the global --session <id> or one of --in-cwd / --project / --all / --orphans.").option("--in-cwd", "Prune sessions registered under the current cwd").option("--project <path>", "Prune sessions registered under <path>").option("--all", "Prune across all sessions (global)").option("--orphans", "Remove only dangling registry entries (feature dir gone)").option("--force", "Include active (non-terminal) sessions — never overrides a held lock").option("--purge", "Hard-delete instead of moving to recoverable trash").option("--yes", "Execute; without it, prune previews and changes nothing").option("--history", "Print the prune audit log (~/.loaf/prune-log.jsonl) and exit").option("--trash", "Trash retention sweep: remove trash buckets older than --older-than").option("--older-than <days>", "(with --trash) remove buckets older than N days", parseDaysOption).action(async (_localOpts, command) => {
+	declareCommandPolicy(declareCommandPolicy(program.command("prune").description("Garbage-collect finished sessions (terminal-only; recoverable trash). Scope with the global --session <id> or one of --in-cwd / --project / --all / --orphans.").option("--in-cwd", "Prune sessions registered under the current cwd").option("--project <path>", "Prune sessions registered under <path>").option("--all", "Prune across all sessions (global)").option("--orphans", "Remove only dangling registry entries (feature dir gone)").option("--force", "Include active (non-terminal) sessions — never overrides a held lock").option("--purge", "Hard-delete instead of moving to recoverable trash").option("--yes", "Execute; without it, prune previews and changes nothing").option("--history", "Print the prune audit log (~/.loaf/prune-log.jsonl) and exit").option("--trash", "Trash retention sweep: remove trash buckets older than --older-than").option("--older-than <days>", "(with --trash) remove buckets older than N days", parseDaysOption), {
+		selectors: "registry",
+		dryRun: "prune"
+	}).action(async (_localOpts, command) => {
 		const opts = command.optsWithGlobals();
 		const base = path.dirname(deps.registryDir);
 		if (opts.history === true) {
@@ -19461,7 +19410,10 @@ function registerPrune(program, ctx, deps) {
 			ok: true,
 			...body
 		}, () => `${mode === "purge" ? "purged" : "pruned"} ${result.done.length} session(s)` + (skipped.length > 0 ? `, skipped ${skipped.length}` : "") + "\n");
-	}).command("restore <session-id>").description("Restore a trashed session (registry entry + feature dir) from the prune trash").option("--at <ts>", "Disambiguate when the session was trashed more than once").action(async (sessionId, _localOpts, command) => {
+	}).command("restore <session-id>").description("Restore a trashed session (registry entry + feature dir) from the prune trash").option("--at <ts>", "Disambiguate when the session was trashed more than once"), {
+		selectors: "registry",
+		dryRun: "prune"
+	}).action(async (sessionId, _localOpts, command) => {
 		const opts = command.optsWithGlobals();
 		const dryRun = opts.dryRun === true;
 		const trashDir = path.join(path.dirname(deps.registryDir), "trash");
@@ -19484,6 +19436,368 @@ function registerPrune(program, ctx, deps) {
 			cwd: result.cwd
 		}, () => `${dryRun ? "would restore" : "restored"} ${result.session_id} (${result.feature})\n`);
 	});
+}
+//#endregion
+//#region src/cli/command-program.ts
+function createCommandProgram(ctx, mutator, input, i18n, actor, deps, isStdinTty, now) {
+	const program = new Command();
+	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)").option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2").option("--session <uuid-or-prefix>", "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)").addHelpText("after", helpFooter()).configureOutput({ writeErr: () => {} }).exitOverride();
+	registerLifecycle(program, ctx, mutator, actor, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()), deps.executeClosureHooks);
+	registerGate(program, ctx, mutator, actor);
+	registerTerminalExecute(program, ctx, mutator, actor);
+	registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
+	const { tasksCmd } = registerTasks(program, ctx, mutator, actor, input);
+	registerTerminalSettle(program, ctx, mutator, actor);
+	registerPending(program, ctx, mutator, actor);
+	const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, input);
+	registerJournal(program, ctx);
+	registerLessons(program, ctx, mutator, actor);
+	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;
+	const isStdoutTty = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
+	registerIntegrations(program, ctx, mutator, actor, i18n, isStdinTty, renderTuiImpl, isStdoutTty, deps.registryDir, deps.now, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()));
+	registerBoard(program, ctx, {
+		i18n,
+		now,
+		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
+		...deps.openUrl !== void 0 && { openUrl: deps.openUrl },
+		...deps.boardKeepAlive !== void 0 && { boardKeepAlive: deps.boardKeepAlive }
+	});
+	registerPrune(program, ctx, {
+		registryDir: deps.registryDir ?? defaultRegistryDir(),
+		now,
+		actor
+	});
+	const { findingCmd } = registerFinding(program, ctx, mutator, actor);
+	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, input, deps.runEditor ?? runEditor);
+	registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
+	assertLeafCommandPolicies(program);
+	return program;
+}
+/** Same registrations as execution; input/output seams fail if construction
+* accidentally executes an action. No user config, registry or session reads.
+*/
+function createPolicyCommandProgram() {
+	const unavailable = () => {
+		throw new Error("command inventory must not execute actions");
+	};
+	const i18n = createI18n("en", BUILTIN_BUNDLES);
+	const ctx = createCommandContext(["node", "loaf"], {
+		i18n,
+		writeStdout: unavailable,
+		writeStderr: unavailable
+	});
+	return createCommandProgram(ctx, createCommandMutator(ctx, { registryWriter: void 0 }), createJsonInputIngestor({
+		readStdin: async () => unavailable(),
+		isStdinTty: unavailable
+	}), i18n, "cli:inventory", {}, unavailable, unavailable);
+}
+//#endregion
+//#region src/core/crash-log.ts
+/** Sentinel code stamped into the JSON envelope and (when
+*  `--format json` is set) onto the boundary stderr payload. Lives
+*  here, not in src/cli.tsx, so the SC-0 inventory regex
+*  (`code: "CODE"` scan over cli.tsx) does NOT pick it up as an
+*  uncataloged DiagnosticCode emit. */
+const UNEXPECTED_ERROR = "UNEXPECTED_ERROR";
+z.object({
+	iso: z.string(),
+	version: z.string(),
+	argv: z.array(z.string()),
+	cwd: z.string(),
+	feature: z.string().nullable(),
+	phase: z.string().nullable(),
+	sub_state: z.string().nullable(),
+	exitCode: z.literal(1),
+	error: z.object({
+		name: z.string(),
+		message: z.string(),
+		stack: z.string().nullable()
+	})
+});
+const DEFAULT_DEPS = {
+	now: () => /* @__PURE__ */ new Date(),
+	homeDir: () => os.homedir(),
+	writeStderr: (s) => process.stderr.write(s)
+};
+/** Best-effort `--feature <NAME>` extractor. Stays in this module so the
+*  boundary doesn't have to know argv shape; null on miss. */
+function extractFeature(argv) {
+	const i = argv.indexOf("--feature");
+	if (i < 0 || i + 1 >= argv.length) return null;
+	const v = argv[i + 1];
+	return v && !v.startsWith("--") ? v : null;
+}
+/** ISO 8601 with `:` replaced so the filename is portable across
+*  Windows/macOS/Linux without escaping. */
+function safeIso(d) {
+	return d.toISOString().replace(/:/g, "-");
+}
+/** Write a crash log envelope and return its absolute path. On any IO
+*  failure (EACCES, ENOSPC, unwritable parent), emit a one-line stderr
+*  diagnostic via `deps.writeStderr` and return null. Never throws —
+*  the caller is already in an error boundary and a second fault would
+*  obscure the original cause. */
+async function writeCrashLog(input, depsPartial) {
+	const deps = {
+		...DEFAULT_DEPS,
+		...depsPartial
+	};
+	const now = deps.now();
+	const envelope = {
+		iso: now.toISOString(),
+		version: input.version,
+		argv: [...input.argv],
+		cwd: input.cwd,
+		feature: extractFeature(input.argv),
+		phase: input.context?.phase ?? null,
+		sub_state: input.context?.sub_state ?? null,
+		exitCode: 1,
+		error: {
+			name: input.error.name,
+			message: input.error.message,
+			stack: input.error.stack ?? null
+		}
+	};
+	const dir = path.join(deps.homeDir(), ".loaf", "crashes");
+	const file = path.join(dir, `${safeIso(now)}.json`);
+	try {
+		await promises.mkdir(dir, {
+			recursive: true,
+			mode: 448
+		});
+		await promises.chmod(dir, 448);
+		await promises.writeFile(file, JSON.stringify(envelope, null, 2) + "\n", {
+			encoding: "utf8",
+			mode: 384
+		});
+		await promises.chmod(file, 384);
+		return file;
+	} catch (err) {
+		deps.writeStderr(`loaf: crash log unwritable at ${file} — ${err.message}\n`);
+		return null;
+	}
+}
+z.object({
+	schema_version: z.literal(2),
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	iteration: z.number().int().positive(),
+	sub_state: SubState,
+	cmd: z.string(),
+	argv: z.array(z.string()),
+	exit: z.number().int(),
+	wall_ms: z.number().int().nonnegative(),
+	stdout_summary: z.string().optional(),
+	stderr_summary: z.string().optional()
+});
+/** Flags whose value carries free-form prose, file paths, payloads,
+*  or identity-bearing data — replaced with a placeholder before
+*  trace.jsonl write. Closed enums / numeric identifiers / boolean
+*  flags stay verbatim. */
+const REDACTED_FLAG_VALUES = new Set([
+	"--feature-dir",
+	"--input",
+	"--reason",
+	"--answer",
+	"--question",
+	"--options",
+	"--label",
+	"--summary",
+	"--evidence-summary",
+	"--evidence-reason",
+	"--feature-name",
+	"--intent",
+	"--workspace",
+	"--evidence-actor"
+]);
+function placeholderFor(flag) {
+	return `<${flag.slice(2)}>`;
+}
+/** Walks argv once, replacing each REDACTED flag's value. Handles both
+*  forms: `--flag value` (two argv tokens) and `--flag=value` (single
+*  token). Idempotent. */
+function redactArgv(argv) {
+	const out = [];
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		const eqIdx = arg.indexOf("=");
+		if (arg.startsWith("--") && eqIdx > 2) {
+			const flag = arg.slice(0, eqIdx);
+			if (REDACTED_FLAG_VALUES.has(flag)) {
+				out.push(`${flag}=${placeholderFor(flag)}`);
+				continue;
+			}
+			out.push(arg);
+			continue;
+		}
+		if (REDACTED_FLAG_VALUES.has(arg)) {
+			out.push(arg);
+			const next = argv[i + 1];
+			if (next !== void 0 && !next.startsWith("--")) {
+				out.push(placeholderFor(arg));
+				i++;
+			}
+			continue;
+		}
+		out.push(arg);
+	}
+	return out;
+}
+/** Captured stdout slice → summary string. JSON mode parses + re-
+*  stringifies (drops formatting whitespace, normalizes shape). Text
+*  mode passes raw + truncates. 256-char cap. */
+const STDOUT_SUMMARY_CHAR_CAP = 256;
+function summarizeStdout(rawStdout, outputMode) {
+	if (outputMode === "json") try {
+		const parsed = JSON.parse(rawStdout);
+		const s = JSON.stringify(parsed);
+		return s.length <= STDOUT_SUMMARY_CHAR_CAP ? s : s.slice(0, STDOUT_SUMMARY_CHAR_CAP);
+	} catch {}
+	return rawStdout.length <= STDOUT_SUMMARY_CHAR_CAP ? rawStdout : rawStdout.slice(0, STDOUT_SUMMARY_CHAR_CAP);
+}
+function buildTraceEntry(input) {
+	return {
+		schema_version: 2,
+		kind: "cli",
+		at: input.now.toISOString(),
+		feature: input.feature,
+		session_id: input.sessionId,
+		sub_state: input.subState,
+		cmd: input.cmd,
+		argv: redactArgv(input.argv),
+		exit: input.exit,
+		wall_ms: input.wallMs,
+		stdout_summary: summarizeStdout(input.rawStdout, input.outputMode)
+	};
+}
+/** Production trace-line writer. Best-effort `fs.appendFile`; no
+*  fsync (Debug-trace is non-authoritative per §13.1). POSIX
+*  O_APPEND atomic semantics for single-line writes (entries here
+*  cap below 4KB after redaction + summary truncation). */
+async function defaultAppendTraceLine(featureDir, entry) {
+	const line = JSON.stringify(entry) + "\n";
+	await promises.appendFile(path.join(featureDir, "trace.jsonl"), line, "utf8");
+}
+//#endregion
+//#region src/cli/url-prefill.ts
+const COMMAND_WORDS = new Set([
+	"loaf",
+	"start",
+	"advance",
+	"status",
+	"spec",
+	"tasks",
+	"pending",
+	"evidence",
+	"finding",
+	"gate",
+	"deliver",
+	"settle",
+	"doctor",
+	"archive",
+	"abandon",
+	"spike",
+	"profile",
+	"submit",
+	"init",
+	"add-req",
+	"add-scenario",
+	"add-visual",
+	"claim",
+	"list",
+	"next",
+	"step",
+	"amend",
+	"complete",
+	"done",
+	"raise",
+	"resolve",
+	"add",
+	"close",
+	"decide",
+	"convert",
+	"escalate"
+]);
+const SUB_STATE_RE = /^(TRIAGE|SPEC|EXECUTE|VERIFY|SETTLE|DONE)(\.[a-z_]+)?$/;
+const GATE_NAME_RE = /^(spec-lock|verify-accept)$/;
+function isSafePositional(token) {
+	if (COMMAND_WORDS.has(token)) return true;
+	if (SUB_STATE_RE.test(token)) return true;
+	if (GATE_NAME_RE.test(token)) return true;
+	return false;
+}
+const ALLOWLIST_VALUE_FLAGS = new Set([
+	"--ceremony",
+	"--format",
+	"--feature"
+]);
+const ALWAYS_REDACT_FLAGS = new Set([
+	"--input",
+	"--reason",
+	"--answer",
+	"--summary",
+	"--label"
+]);
+const REDACTED = "<redacted>";
+function looksLikeInlineJson(s) {
+	return /^[{[]/.test(s);
+}
+function looksLikePath(s) {
+	return s.includes("/") || s.includes("\\");
+}
+/**
+* Sanitize an argv array into a single-space-joined string safe for URL
+* query inclusion. The first non-flag positional after a flag NAME is
+* considered its value; if the flag is in ALWAYS_REDACT_FLAGS or the
+* value matches a sensitivity heuristic (inline JSON / path), redact.
+* Otherwise, if the flag is in ALLOWLIST_VALUE_FLAGS, pass the value
+* through; else redact.
+*/
+function sanitizeArgvForUrl(argv) {
+	const out = [];
+	for (let i = 0; i < argv.length; i++) {
+		const token = argv[i];
+		if (!token.startsWith("--")) {
+			out.push(isSafePositional(token) ? token : REDACTED);
+			continue;
+		}
+		out.push(token);
+		const next = argv[i + 1];
+		if (next === void 0 || next.startsWith("--")) continue;
+		i++;
+		const flag = token;
+		if (ALWAYS_REDACT_FLAGS.has(flag)) out.push(REDACTED);
+		else if (looksLikeInlineJson(next) || looksLikePath(next)) out.push(REDACTED);
+		else if (ALLOWLIST_VALUE_FLAGS.has(flag)) out.push(next);
+		else out.push(REDACTED);
+	}
+	return out.join(" ");
+}
+/**
+* Build the prefilled report URL. Query params: loaf_version /
+* schema_version / phase? / sub_state? / last_command (sanitized) /
+* crash_log_path?. Per codex r206 PATCH H: nulls are omitted, not
+* stringified.
+*/
+function buildReportUrl(input) {
+	const u = new URL(input.base);
+	u.searchParams.set("loaf_version", input.loaf_version);
+	u.searchParams.set("schema_version", input.schema_version);
+	if (input.phase !== null) u.searchParams.set("phase", input.phase);
+	if (input.sub_state !== null) u.searchParams.set("sub_state", input.sub_state);
+	u.searchParams.set("last_command", sanitizeArgvForUrl(input.argv));
+	if (input.crash_log_path !== null) u.searchParams.set("crash_log_path", input.crash_log_path);
+	return u.toString();
+}
+//#endregion
+//#region src/cli/stdin.ts
+async function defaultReadStdin() {
+	let buf = "";
+	for await (const chunk of process.stdin) buf += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+	return buf;
+}
+function defaultIsStdinTty() {
+	return process.stdin.isTTY === true;
 }
 //#endregion
 //#region src/cli.tsx
@@ -19533,175 +19847,18 @@ async function main(argv = process.argv, deps = {}) {
 		}
 	}
 	if (!wantsHelpOrVersion) {
-		const cmdTokens = bootstrapCommandTokens(argv, 2);
-		if (cmdTokens[0] === "sessions" && cmdTokens[1] === "list") {
-			const presentSelectors = collectPresentSelectors(argv, process.env);
-			if (presentSelectors.length > 0) {
-				const renderAsJson = detectRenderAsJson(argv);
-				writeDiagnosticFailure(diagnosticVariant("failure.sessions_list.selector_conflict", {
-					conflicting: presentSelectors.join(" / "),
-					conflicting: presentSelectors
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
+		const policy = evaluateCommandPreparse(createPolicyCommandProgram(), argv, process.env);
+		if (policy.kind === "failure") {
+			writeDiagnosticFailure(policy.diagnostic, {
+				format: detectRenderAsJson(argv) ? "json" : "text",
+				i18n: preparseI18nFromEnv(process.env),
+				writeStderr: (line) => process.stderr.write(line)
+			});
+			return 2;
 		}
-		if (cmdTokens[0] === "tui") {
-			const presentSelectors = collectPresentSelectors(argv, process.env);
-			const hasFormat = argv.some((a) => a === "--format" || a.startsWith("--format="));
-			const renderAsJson = detectRenderAsJson(argv);
-			if (presentSelectors.length > 0) {
-				writeDiagnosticFailure(diagnosticVariant("failure.tui.selector_conflict", {
-					conflicting: presentSelectors.join(" / "),
-					conflicting: presentSelectors
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
-			if (hasFormat) {
-				writeDiagnosticFailure(diagnosticVariant("failure.tui.interactive_only", { reason: "tui-interactive-only" }), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
-		}
-		if (cmdTokens[0] === "hook") {
-			const renderAsJson = detectRenderAsJson(argv);
-			if (argv.includes("--list-events")) {
-				if (renderAsJson) process.stdout.write(JSON.stringify({
-					ok: true,
-					count: HOOK_EVENTS.length,
-					events: HOOK_EVENTS.map((e) => ({
-						event: e,
-						claude_code: HOOK_EVENT_TO_CLAUDE_CODE[e]
-					}))
-				}) + "\n");
-				else for (const e of HOOK_EVENTS) process.stdout.write(`${e}\t${HOOK_EVENT_TO_CLAUDE_CODE[e]}\n`);
-				return 0;
-			}
-			if (cmdTokens[1] === void 0) {
-				writeDiagnosticFailure(diagnosticVariant("failure.hook.missing_event", {
-					events: HOOK_EVENTS.join(", "),
-					events: HOOK_EVENTS
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
-			if (!HOOK_EVENTS.includes(cmdTokens[1])) {
-				const got = cmdTokens[1];
-				const suggestion = HOOK_EVENTS.find((e) => e.startsWith(got.slice(0, 4))) ?? HOOK_EVENTS[0];
-				writeDiagnosticFailure(diagnosticVariant("failure.hook.unknown_event", {
-					event: got,
-					allowed: HOOK_EVENTS.join(", "),
-					suggestion,
-					event: got,
-					allowed: HOOK_EVENTS,
-					suggestion
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
-		}
-		if (cmdTokens[0] === "check") {
-			const presentSelectors = collectPresentSelectors(argv, process.env);
-			if (presentSelectors.length > 0) {
-				const renderAsJson = detectRenderAsJson(argv);
-				writeDiagnosticFailure(diagnosticVariant("failure.check.selector_conflict", {
-					conflicting: presentSelectors.join(" / "),
-					conflicting: presentSelectors
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
-		}
-		const MUTATOR_SCHEMA_LABELS = new Map([
-			["spec/add-req", "spec add-req --schema"],
-			["spec/add-scenario", "spec add-scenario --schema"],
-			["spec/add-visual", "spec add-visual --schema"],
-			["tasks/submit", "tasks submit --schema"],
-			["tasks/add", "tasks add --schema"],
-			["evidence/add", "evidence add --schema"]
-		]);
-		const ARTIFACT_KINDS = new Set([
-			"spec",
-			"tasks",
-			"evidence",
-			"finding",
-			"state"
-		]);
-		const isArtifactSchema = cmdTokens[1] === "schema" && cmdTokens[0] !== void 0 && ARTIFACT_KINDS.has(cmdTokens[0]);
-		const mutatorSchemaLabel = cmdTokens[0] !== void 0 && cmdTokens[1] !== void 0 && argv.includes("--schema") ? MUTATOR_SCHEMA_LABELS.get(`${cmdTokens[0]}/${cmdTokens[1]}`) : void 0;
-		if (isArtifactSchema || mutatorSchemaLabel !== void 0) {
-			const presentSelectors = collectPresentSelectors(argv, process.env);
-			if (presentSelectors.length > 0) {
-				const subj = mutatorSchemaLabel ?? `${cmdTokens[0]} schema`;
-				const renderAsJson = detectRenderAsJson(argv);
-				writeDiagnosticFailure(diagnosticVariant("failure.schema.selector_conflict", {
-					subject: subj,
-					conflicting: presentSelectors.join(" / "),
-					conflicting: presentSelectors
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
-		}
-	}
-	if (!wantsHelpOrVersion) {
-		const tokens = scanArgv(argv);
-		const hasSession = tokens.some((token) => token.kind === "option" && token.flag === "--session");
-		const hasFeatureDir = tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir");
-		const hasFeature = tokens.some((token) => token.kind === "option" && token.flag === "--feature");
-		const hasLoafSession = process.env["LOAF_SESSION"] !== void 0 && process.env["LOAF_SESSION"].length > 0;
-		const hasLoafFeature = process.env["LOAF_FEATURE"] !== void 0 && process.env["LOAF_FEATURE"].length > 0;
-		const isStartCommand = bootstrapCommandTokens(argv, 1)[0] === "start";
-		if (hasFeatureDir && !isStartCommand) {
-			const sessionConflict = [];
-			if (hasSession) sessionConflict.push("--session");
-			if (hasLoafSession) sessionConflict.push("$LOAF_SESSION");
-			let conflictingList = [];
-			let usageKey = null;
-			let usageVars = {};
-			if (sessionConflict.length > 0) {
-				usageKey = "failure.dispatch.session_feature_dir_conflict";
-				usageVars = { conflicting: sessionConflict.join(" + ") };
-				conflictingList = [...sessionConflict, "--feature-dir"];
-			} else if (!hasFeature && !hasLoafFeature) {
-				usageKey = "failure.dispatch.feature_dir_requires_feature";
-				usageVars = {};
-				conflictingList = ["--feature-dir"];
-			}
-			if (usageKey !== null) {
-				const renderAsJson = detectRenderAsJson(argv);
-				writeDiagnosticFailure(diagnosticVariant(usageKey, {
-					...usageVars,
-					conflicting: conflictingList
-				}), {
-					format: renderAsJson ? "json" : "text",
-					i18n: preparseI18nFromEnv(process.env),
-					writeStderr: (line) => process.stderr.write(line)
-				});
-				return 2;
-			}
+		if (policy.kind === "hook-events") {
+			process.stdout.write(renderHookEvents(detectRenderAsJson(argv)));
+			return 0;
 		}
 	}
 	const userConfigLoad = await readUserConfig(deps.userConfigHomeDir ?? os.homedir());
@@ -19742,8 +19899,6 @@ async function main(argv = process.argv, deps = {}) {
 		}
 		process.stdout.write(s);
 	};
-	const program = new Command();
-	program.name("loaf").description("Spec-driven development protocol CLI").version(version).option("--format <fmt>", `Output format: ${FORMAT_MODES_HUMAN} (default: text)`).option("--plain", "Alias for --format text (clig.dev convention)").option("--no-color", "Disable color (NO_COLOR/LOAF_NO_COLOR/TERM=dumb equivalents)").option("-q, --quiet", "Suppress advisory stderr (state-change + next hint; errors still emit)").option("-v, --verbose", "Increase advisory detail; counter — repeat for more (-v, -vv)", (_v, prior) => (prior ?? 0) + 1, 0).option("--no-input", "Non-interactive mode: refuse git-config actor fallback; forward-compat with future prompts (skill / hook / CI)").option("--debug", "Write per-invocation trace.jsonl (LOAF_DEBUG=1 / DEBUG=1 equivalents)").option("-n, --dry-run", "Validate without writing (mutating commands only); read-only commands exit 2").option("--session <uuid-or-prefix>", "Resolve session by UUID or ≥8-char prefix (registry lookup; see §10.3)").addHelpText("after", helpFooter()).configureOutput({ writeErr: () => {} }).exitOverride();
 	const actor = `cli:loaf@${process.env["USER"] ?? "unknown"}`;
 	const ctx = createCommandContext(argv, {
 		writeStdout: writeStdoutCaptured,
@@ -19758,39 +19913,11 @@ async function main(argv = process.argv, deps = {}) {
 		isStdinTty,
 		...deps.registryDir !== void 0 && { registryDir: deps.registryDir }
 	});
-	const mutator = createCommandMutator(ctx, { registryWriter: deps.registryDir !== void 0 || deps.registryNow !== void 0 || deps.registryCwd !== void 0 ? {
+	const program = createCommandProgram(ctx, createCommandMutator(ctx, { registryWriter: deps.registryDir !== void 0 || deps.registryNow !== void 0 || deps.registryCwd !== void 0 ? {
 		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
 		...deps.registryNow !== void 0 && { now: deps.registryNow },
 		...deps.registryCwd !== void 0 && { cwd: deps.registryCwd }
-	} : void 0 });
-	registerLifecycle(program, ctx, mutator, actor, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()), deps.executeClosureHooks);
-	registerGate(program, ctx, mutator, actor);
-	registerTerminalExecute(program, ctx, mutator, actor);
-	registerProfileConfig(program, ctx, mutator, actor, deps.userConfigHomeDir);
-	const { tasksCmd } = registerTasks(program, ctx, mutator, actor, input);
-	registerTerminalSettle(program, ctx, mutator, actor);
-	registerPending(program, ctx, mutator, actor);
-	const { evidenceCmd } = registerEvidence(program, ctx, mutator, actor, input);
-	registerJournal(program, ctx);
-	registerLessons(program, ctx, mutator, actor);
-	const renderTuiImpl = deps.renderTui ?? defaultRenderTui;
-	const isStdoutTty = deps.isStdoutTty ?? (() => process.stdout.isTTY === true);
-	registerIntegrations(program, ctx, mutator, actor, i18n, isStdinTty, renderTuiImpl, isStdoutTty, deps.registryDir, deps.now, deps.runtimeDir ?? defaultRuntimeDir(os.homedir()), deps.now ?? (() => /* @__PURE__ */ new Date()));
-	registerBoard(program, ctx, {
-		i18n,
-		now,
-		...deps.registryDir !== void 0 && { registryDir: deps.registryDir },
-		...deps.openUrl !== void 0 && { openUrl: deps.openUrl },
-		...deps.boardKeepAlive !== void 0 && { boardKeepAlive: deps.boardKeepAlive }
-	});
-	registerPrune(program, ctx, {
-		registryDir: deps.registryDir ?? defaultRegistryDir(),
-		now,
-		actor
-	});
-	const { findingCmd } = registerFinding(program, ctx, mutator, actor);
-	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, input, deps.runEditor ?? runEditor);
-	registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
+	} : void 0 }), input, i18n, actor, deps, isStdinTty, now);
 	const t0 = monotonicNow();
 	let resolvedExit = 0;
 	try {
