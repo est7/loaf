@@ -1,6 +1,7 @@
 // Shared registration assembly. Constructing the tree never runs an action.
 import { Command } from "commander";
 import { assertLeafCommandPolicies } from "./command-policy.js";
+import { installCommandActionPolicy } from "./command-action-policy.js";
 import os from "node:os";
 import packageJson from "../../package.json" with { type: "json" };
 import type { MainDeps } from "../cli.js";
@@ -171,9 +172,10 @@ export function createCommandProgram(
     runEditorImpl,
   );
 
-  registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
+  registerState(program, specCmd, tasksCmd, evidenceCmd, findingCmd);
 
   assertLeafCommandPolicies(program);
+  installCommandActionPolicy(program, ctx);
   return program;
 }
 

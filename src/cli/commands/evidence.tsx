@@ -121,11 +121,6 @@ export function registerEvidence(
     { selectors: "selected", dryRun: "mutating", schema: { kind: "input", key: "evidence:add" } },
   ).action(
     async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
-      if (rawOpts.schema === true) {
-        if (ctx.rejectIfDryRun("evidence add --schema")) return;
-        mutator.emitSchemaAndExit("evidence:add");
-        return;
-      }
       if (!input.requireArg(ctx, rawOpts.input, inputDeclaration)) return;
       const opts = rawOpts as { input: string; feature: string; featureDir?: string };
       // SC-6b — record trace target at action entry so long input-validation
@@ -298,7 +293,6 @@ export function registerEvidence(
       feature: string;
       featureDir?: string;
     }) => {
-      if (ctx.rejectIfDryRun("evidence list")) return;
 
       if (opts.covers !== undefined && !CoversRefPayload.safeParse(opts.covers).success) {
         ctx.failure(

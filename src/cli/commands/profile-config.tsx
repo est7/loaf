@@ -279,7 +279,7 @@ export function registerProfileConfig(
     { selectors: "unscoped", dryRun: "scaffold-writer" },
   ).action(async (opts: { global?: boolean }) => {
     // no-feature: config init writes project/user config, not a feature session target.
-    if (ctx.rejectIfDryRun("config init", "scaffold-writer")) return;
+
 
     const configPath = opts.global
       ? userConfigPath(userConfigHomeDir ?? os.homedir())
@@ -334,7 +334,7 @@ export function registerProfileConfig(
     // Doctor rebuild is a projection writer, not a journal mutator. A
     // dry-run would need a separate replay-preview contract, so both bare
     // doctor and --rebuild reject --dry-run.
-    if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
+
 
     if (!opts.rebuild) {
       ctx.failure(diagnostic("DOCTOR_MODE_NOT_IMPLEMENTED", {}));

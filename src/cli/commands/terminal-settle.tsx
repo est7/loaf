@@ -216,7 +216,6 @@ export function registerTerminalSettle(
     { selectors: "selected", dryRun: "projection-writer" },
   ).action(
     async (opts: { reason: string; notes?: string; feature: string; featureDir?: string }) => {
-      if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
       if (opts.reason.length < 5) {
         ctx.failure(
           diagnosticVariant("failure.handoff.reason_too_short", {

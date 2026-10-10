@@ -357,7 +357,7 @@ export function registerIntegrations(
     },
   ).action(async () => {
     // no-feature — tui walks across all sessions
-    if (ctx.rejectIfDryRun("tui")) return;
+
     // TTY guard — BOTH stdin and stdout must be TTY (codex r355 P4).
     const stdinTty = isStdinTty();
     const stdoutTty = isStdoutTtyForTui();
@@ -408,7 +408,7 @@ export function registerIntegrations(
     },
   ).action(async (opts: { inCwd?: boolean }) => {
     // no-feature — sessions list walks across all features
-    if (ctx.rejectIfDryRun("sessions list")) return;
+
 
     const filterCwd = opts.inCwd
       ? await fsPromises.realpath(process.cwd()).catch(() => process.cwd())
@@ -484,7 +484,7 @@ export function registerIntegrations(
     },
   ).action(async (filePath: string, opts: { kind?: string }) => {
     // no-feature — check is feature-agnostic per protocol §1891
-    if (ctx.rejectIfDryRun("check")) return;
+
 
     // --kind validation
     let kind: CheckKind | undefined;
@@ -565,7 +565,6 @@ export function registerIntegrations(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature?: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("verify status")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });

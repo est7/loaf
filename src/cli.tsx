@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createCommandProgram, createPolicyCommandProgram } from "./cli/command-program.js";
 import { evaluateCommandPreparse, renderHookEvents } from "./cli/command-policy.js";
+import { CommandPolicyComplete } from "./cli/command-action-policy.js";
 import { scanArgv } from "./core/argv-scanner.js";
 import { diagnostic } from "./core/error-catalog.js";
 import { writeDiagnosticFailure } from "./cli/diagnostic-failure.js";
@@ -289,7 +290,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // CommandContext owns the single catalog failure API and success presentation.
   // Former main() helper cluster (
   // resolveHumanActorOrFail / dispatchOrFail / dispatchForHookOptional /
-  // resolveHookPath / resolveDispatchForWriteGuard / rejectIfDryRun /
+  // resolveHookPath / resolveDispatchForWriteGuard /
   // loadProjectionsOrFail) into ctx methods.
   const ctx = createCommandContext(argv, {
     writeStdout: writeStdoutCaptured,
@@ -358,6 +359,10 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
       resolvedExit = ctx.exitCode;
       return ctx.exitCode;
     } catch (err) {
+      if (err instanceof CommandPolicyComplete) {
+        resolvedExit = ctx.exitCode;
+        return resolvedExit;
+      }
       if (err instanceof CommanderError) {
         if (err.exitCode === 0) {
           resolvedExit = 0;

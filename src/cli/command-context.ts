@@ -21,7 +21,11 @@
 //
 // Test surface: tests/cli/command-context.test.ts.
 
-import { diagnostic, diagnosticVariant, type DiagnosticContext, type CatalogDiagnostic } from "../core/error-catalog.js";
+import {
+  diagnosticVariant,
+  type DiagnosticContext,
+  type CatalogDiagnostic,
+} from "../core/error-catalog.js";
 import { writeDiagnosticFailure } from "./diagnostic-failure.js";
 import type { ProjectionKind, LoadResult } from "../core/projection-loader.js";
 import { SnapshotStaleError, NoSessionError } from "../core/projection-loader.js";
@@ -279,11 +283,6 @@ export type CommandContext = {
   }) => Promise<
     { featureDir: string } | { allow: true } | ({ failClosed: true } & CatalogDiagnostic)
   >;
-  /** Phase W8 0a — reject if dry-run (read-only / wrapping / etc.). */
-  rejectIfDryRun: (
-    command: string,
-    commandType?: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer",
-  ) => boolean;
   /** Phase W8 0a — load projections or emit failure + return null. */
   loadProjectionsOrFail: <K extends ProjectionKind>(
     featureDir: string,
@@ -593,17 +592,6 @@ export function createCommandContext(
       }
       if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
       return { failClosed: true, ...dispatch };
-    },
-
-    rejectIfDryRun(
-      command: string,
-      commandType: "read-only" | "wrapping" | "projection-writer" | "scaffold-writer" = "read-only",
-    ): boolean {
-      if (dryRun) {
-        ctx.failure(diagnostic("DRY_RUN_NOT_APPLICABLE", { command, command_type: commandType }));
-        return true;
-      }
-      return false;
     },
 
     async loadProjectionsOrFail<K extends ProjectionKind>(

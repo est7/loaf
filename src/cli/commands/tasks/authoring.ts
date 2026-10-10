@@ -58,11 +58,6 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
     { selectors: "selected", dryRun: "mutating", schema: { kind: "input", key: "tasks:submit" } },
   ).action(
     async (rawOpts: { input?: string; schema?: boolean; feature: string; featureDir?: string }) => {
-      if (rawOpts.schema === true) {
-        if (ctx.rejectIfDryRun("tasks submit --schema")) return;
-        mutator.emitSchemaAndExit("tasks:submit");
-        return;
-      }
       if (!input.requireArg(ctx, rawOpts.input, TASKS_SUBMIT_INPUT)) return;
       const opts = rawOpts as { input: string; feature: string; featureDir?: string };
       const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
@@ -197,11 +192,6 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
       finding?: string;
     }) => {
       // ctx.dispatchOrFail(opts) below records the trace target after input pre-validation.
-      if (rawOpts.schema === true) {
-        if (ctx.rejectIfDryRun("tasks add --schema")) return;
-        mutator.emitSchemaAndExit("tasks:add");
-        return;
-      }
       if (!input.requireArg(ctx, rawOpts.input, TASKS_ADD_INPUT)) return;
       const opts = rawOpts as {
         input: string;

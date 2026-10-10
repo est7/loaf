@@ -131,7 +131,6 @@ export function registerPending(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("pending list")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     // Phase 15 SC3 — projection-loader. Adapter: PendingProjectionEntry
@@ -183,7 +182,6 @@ export function registerPending(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; id?: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("pending status")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });

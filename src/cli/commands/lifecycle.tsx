@@ -269,7 +269,6 @@ export function registerLifecycle(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("status")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const loaded = await ctx.loadProjectionsOrFail(
@@ -342,7 +341,6 @@ export function registerLifecycle(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature?: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("next")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const selector = await selectorForCommandContext(ctx);

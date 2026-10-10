@@ -210,7 +210,6 @@ export function registerFinding(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; status?: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("finding list")) return;
     if (opts.status !== undefined && opts.status !== "open" && opts.status !== "closed") {
       ctx.failure(
         diagnosticVariant("failure.finding.status_invalid", {

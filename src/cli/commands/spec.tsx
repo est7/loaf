@@ -167,7 +167,6 @@ export function registerSpec(
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("spec status")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const session = await loadSession(featureDir, { ensureDir: false });
@@ -461,7 +460,6 @@ export function registerSpec(
     // The editor lane remains a wrapping command. The deterministic
     // --input lane is a normal mutator and therefore participates in the
     // shared dry-run transaction path.
-    if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const explicitEditor = (process.env["EDITOR"] ?? "").trim();
@@ -725,20 +723,6 @@ export function registerSpec(
         feature: string;
         featureDir?: string;
       }) => {
-        // Phase 16 SC-10 — --schema bypass MUST be first (no input read,
-        // no session resolve). Pre-parse guard already rejected selectors
-        // when --schema is present. Literal labels per cfg.name so the
-        // SC-6c static guard can scan ctx.rejectIfDryRun("<label>") strings.
-        if (rawOpts.schema === true) {
-          let rejected = false;
-          if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
-          else if (cfg.name === "scenario")
-            rejected = ctx.rejectIfDryRun("spec add-scenario --schema");
-          else rejected = ctx.rejectIfDryRun("spec add-visual --schema");
-          if (rejected) return;
-          mutator.emitSchemaAndExit(mutatorKey);
-          return;
-        }
         const read = await inputIngestor.readJson(ctx, rawOpts.input, inputDeclaration);
         if (!read.ok) return;
         const opts = rawOpts as { input: string; feature: string; featureDir?: string };

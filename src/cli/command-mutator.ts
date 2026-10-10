@@ -16,8 +16,6 @@ import {
   type ExecuteClosureResult,
 } from "../core/execute-closure.js";
 import { ENTRY_SCHEMA_VERSIONS } from "../core/kind-registry.js";
-import { emitInputSchema, formatSchema } from "./schema-emit.js";
-import type { MutatorCommand } from "./input-schemas.js";
 import type { MutatorEntry } from "./mutator-entry.js";
 import type { SessionLoad } from "../core/cli-runtime.js";
 import type { Snapshot } from "../core/reducer.js";
@@ -75,8 +73,6 @@ export type CommandMutator = {
   runExecuteClosure: (
     options: Omit<ExecuteClosureOptions, "mutateContext">,
   ) => Promise<SuccessfulExecuteClosure | null>;
-  /** Emit the input schema for a mutator command and call ctx.success. */
-  emitSchemaAndExit: (commandKey: MutatorCommand) => void;
 };
 
 export function createCommandMutator(
@@ -209,17 +205,11 @@ export function createCommandMutator(
     return closure;
   }
 
-  const emitSchemaAndExit = (commandKey: MutatorCommand): void => {
-    const schema = emitInputSchema(commandKey) as Record<string, unknown>;
-    ctx.success(schema, () => formatSchema(schema));
-  };
-
   return {
     run: runImpl as CommandMutator["run"],
     runBatch,
     runPreparedBatch,
     runPlannedBatch,
     runExecuteClosure,
-    emitSchemaAndExit,
   };
 }

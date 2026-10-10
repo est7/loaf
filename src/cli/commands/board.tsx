@@ -5,14 +5,13 @@ import { diagnostic } from "../../core/error-catalog.js";
 // W8 family file. Read-only: walks the session registry and serves / snapshots
 // a board view; it does NOT mutate the journal, so it takes no CommandMutator.
 // Ported from the original inline registration onto the post-W8 seam — the
-// presentation helpers it used (rejectIfDryRun / failure) are now ctx
-// methods; argv comes from ctx.argv; now / i18n / registry / browser seams are
+// Registered action policy owns dry-run and selector rejection; ctx owns
+// presentation. The now / i18n / registry / browser seams are
 // injected via BoardDeps.
 
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { I18n } from "../i18n.js";
-import { collectPresentSelectors } from "../selectors.js";
 import { defaultOpenUrl, type OpenUrl } from "../board/open-url.js";
 import {
   createBoardOnceSnapshot,
@@ -53,14 +52,7 @@ export function registerBoard(program: Command, ctx: CommandContext, deps: Board
     { selectors: "forbidden", dryRun: "read-only", selectorStage: "action" },
   ).action(async (opts: { port?: string; inCwd?: boolean; once?: boolean; open?: boolean }) => {
     // no-feature — board walks the registry across sessions.
-    if (ctx.rejectIfDryRun("board")) return;
-    const selectors = collectPresentSelectors(ctx.argv, process.env);
-    if (selectors.length > 0) {
-      ctx.failure(
-        diagnostic("USAGE", { reason: "board_selector_not_supported", conflicting: selectors }),
-      );
-      return;
-    }
+
     const scope = opts.inCwd ? "cwd" : "all";
     let port: number;
     try {

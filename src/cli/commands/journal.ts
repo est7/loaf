@@ -44,7 +44,6 @@ export function registerJournal(program: Command, ctx: CommandContext): void {
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: JournalListOptions) => {
-    if (ctx.rejectIfDryRun("journal list")) return;
 
     const afterSeq = parseIntegerFilter(ctx, "--after-seq", opts.afterSeq, 0);
     if (afterSeq === null) return;

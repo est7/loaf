@@ -1,17 +1,14 @@
-// Phase 16 SC-6c — static guards + positive read-only enumeration table.
-//
-// Per codex r275/r276 P5 + non-blocking note: the positive table is the
-// checked-in source of truth. The static guard cross-references each
-// tabled command's expected source line range and asserts a
-// `rejectIfDryRun(` marker is present within the action body window.
-//
-// New read-only commands must be ADDED to the table — the test will not
-// auto-discover them.
+// SC-6c compatibility table: retain the existing expected command labels
+// while registered action policy replaces per-handler markers. Slice 4
+// will close inventory ownership without this historical hand-maintained table.
 
 import { describe, expect, test } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createPolicyCommandProgram } from "../../src/cli/command-program.js";
+import { commandPolicyInventory } from "../../src/cli/command-policy.js";
+import { evaluateCommandAction } from "../../src/cli/command-action-policy.js";
 import { DiagnosticCode, ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -20,10 +17,7 @@ async function readRepo(rel: string): Promise<string> {
   return await fs.readFile(path.join(REPO_ROOT, rel), "utf8");
 }
 
-/** Positive enumeration — the source of truth for which commands MUST
- *  reject `--dry-run`. Adding a new read-only command requires updating
- *  this table AND ensuring the action handler calls `rejectIfDryRun(label)`.
- */
+/** Historical expected labels, retained unchanged for this intermediate slice. */
 const READ_ONLY_COMMANDS: readonly string[] = [
   "status",
   "tasks list",
@@ -58,40 +52,17 @@ const READ_ONLY_COMMANDS: readonly string[] = [
   "config init", // rev 5.0 (scaffold-writer) — rejects --dry-run
 ];
 
-/** Escape regex metacharacters in a literal label. */
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-describe("SC-6c — positive table: every read-only command has rejectIfDryRun marker", () => {
-  test('static: each table entry has rejectIfDryRun("<label>"...) in src/cli.tsx', async () => {
-    // Phase W8 P1: command registrations moved to per-family files. Scan all of them.
-    const familyDir = path.join(REPO_ROOT, "src", "cli", "commands");
-    const familyFiles = (await fs.readdir(familyDir, { recursive: true })).filter(
-      (f) => f.endsWith(".tsx") || f.endsWith(".ts"),
-    );
-    const familySources = await Promise.all(
-      familyFiles.map((f) => fs.readFile(path.join(familyDir, f), "utf8")),
-    );
-    const source = familySources.join("\n");
-    const misses: string[] = [];
-    for (const label of READ_ONLY_COMMANDS) {
-      // Codex r336 P4: strict regex boundary check. The label must be
-      // followed by `)` (1-arg form) OR `,` (2-arg form like wrapping
-      // mutator `rejectIfDryRun("spec edit", "wrapping")`). Doctor
-      // handler uses a ternary; allow its literal as a special case.
-      let found: boolean;
-      if (label === "doctor") {
-        found = source.includes(`rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor"`);
-      } else {
-        const re = new RegExp(`rejectIfDryRun\\("${escapeRegex(label)}"\\s*(?:,|\\))`);
-        found = re.test(source);
-      }
-      if (!found) {
-        misses.push(`'${label}': no matching rejectIfDryRun("<label>"...) call in src/cli.tsx`);
-      }
+describe("SC-6c — historical read-only labels remain rejected by registered action policy", () => {
+  test("each compatibility-table label produces the same dry-run diagnostic", () => {
+    const rejected = new Set<string>();
+    for (const { command, policy } of commandPolicyInventory(createPolicyCommandProgram())) {
+      if (!policy) continue;
+      if (policy.schema?.kind === "input") command.setOptionValue("schema", true);
+      const result = evaluateCommandAction(command, { dryRun: true, argv: [], env: {} });
+      if (result.kind === "failure" && result.diagnostic.code === "DRY_RUN_NOT_APPLICABLE")
+        rejected.add(String(result.diagnostic.detail.command));
     }
-    expect(misses).toEqual([]);
+    expect(READ_ONLY_COMMANDS.filter((label) => !rejected.has(label))).toEqual([]);
   });
 });
 

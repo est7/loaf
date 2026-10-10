@@ -20,7 +20,6 @@ export function registerTaskQueries(tasksCmd: Command, deps: TasksRegistrationDe
       .option("--status <s>", "Filter by task status (pending|ready|in_progress|done|abandoned)"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; featureDir?: string; status?: string }) => {
-    if (ctx.rejectIfDryRun("tasks list")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     // Phase 15 SC3 — projection-loader read-path. Adapter: TasksJson
@@ -106,7 +105,6 @@ export function registerTaskQueries(tasksCmd: Command, deps: TasksRegistrationDe
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (opts: { feature: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("tasks next")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });

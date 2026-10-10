@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import { z } from "zod";
+import * as path$1 from "node:path";
+import path from "node:path";
 import os from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { constants, promises, readFileSync, unlinkSync } from "node:fs";
-import * as path$1 from "node:path";
-import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import picomatch from "picomatch";
@@ -1866,9 +1866,6 @@ function renderHookEvents(json) {
 		}))
 	})}\n` : HOOK_EVENTS.map((event) => `${event}\t${HOOK_EVENT_TO_CLAUDE_CODE[event]}\n`).join("");
 }
-//#endregion
-//#region package.json
-var version = "0.10.0";
 const SchemaVersionPayload = z.literal(2);
 const ReqIdPayload = z.string().regex(/^REQ-[A-Z][A-Z0-9]*-\d{3,}$/);
 const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
@@ -2532,6 +2529,28 @@ const EvidenceAuthoringSummary = z.union([z.string().min(3), InlineLongTextField
 const EvidenceAddInput = EvidenceFullShape.extend({ summary: EvidenceAuthoringSummary }).omit({ id: true }).strict();
 const EvidenceAddInputBatched = z.union([EvidenceAddInput, z.array(EvidenceAddInput).nonempty()]);
 //#endregion
+//#region src/cli/input-schemas.ts
+const SpecReqInputBatched = SpecAddReqInput;
+const SpecScenarioInputBatched = SpecAddScenarioInput;
+const SpecVisualInputBatched = SpecAddVisualInput;
+z.enum([
+	"spec:add-req",
+	"spec:add-scenario",
+	"spec:add-visual",
+	"tasks:submit",
+	"tasks:add",
+	"evidence:add"
+]);
+/** The exact schemas parsed by schema-emitting mutation paths. */
+const INPUT_SCHEMAS = {
+	"spec:add-req": SpecReqInputBatched,
+	"spec:add-scenario": SpecScenarioInputBatched,
+	"spec:add-visual": SpecVisualInputBatched,
+	"tasks:submit": TasksSubmitInput,
+	"tasks:add": TaskAuthoringInputBatched,
+	"evidence:add": EvidenceAddInputBatched
+};
+//#endregion
 //#region src/core/finding-schema.ts
 const FindingId = z.string().regex(/^FND-\d{3,}$/);
 const FindingCategory = z.enum([
@@ -2896,6 +2915,219 @@ const SpecVisualAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
 	visual: VisualContract
 }).passthrough();
+const SchemaVersionLiteral = z.literal(2);
+const SessionRuntimeFile = z.object({
+	schema_version: SchemaVersionLiteral,
+	session_id: z.string().min(1),
+	cwd: z.string(),
+	debug: z.boolean(),
+	heartbeat_at: z.string().datetime(),
+	pending_scope: z.object({
+		iteration: z.number().int().positive(),
+		paths: CanonicalScopePaths
+	}).strict().nullable()
+}).strict();
+const TasksJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	version: z.number().int().positive(),
+	based_on: z.object({ spec: z.number().int().positive() }),
+	tasks: z.array(TaskFullPayload)
+}).strict();
+const EvidenceEntry = EvidenceFullShape.extend({
+	schema_version: SchemaVersionLiteral,
+	at: z.string().datetime()
+}).strict();
+const EvidenceJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	evidence: z.array(EvidenceEntry)
+}).strict();
+const FindingStateShape = z.object({
+	id: z.string().regex(/^FND-\d{3,}$/),
+	category: FindingCategory,
+	action: FindingAction,
+	status: z.enum(["open", "closed"]),
+	summary: z.string().optional(),
+	reason: z.string().optional(),
+	target: z.object({
+		task_id: z.string().regex(/^T-\d{3,}$/),
+		step: z.string().min(1)
+	}).strict().optional()
+}).strict();
+const FindingsJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	findings: z.array(FindingStateShape)
+}).strict();
+const PendingQueueEntry = z.object({
+	pending_id: PendingId,
+	kind: PendingPromptKind,
+	question: z.string().min(3),
+	options: z.array(z.string()).optional(),
+	blocks: z.enum([
+		"advance",
+		"gate",
+		"deliver",
+		"all"
+	]),
+	raised_at: z.string().datetime(),
+	raised_by: z.string().min(1),
+	at: z.string().datetime(),
+	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
+}).strict();
+const PendingProjectionEntry = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
+const PendingJson = z.object({
+	schema_version: SchemaVersionLiteral,
+	pending: z.array(PendingProjectionEntry)
+}).strict();
+const StateProjectionPhase = z.enum([
+	"TRIAGE",
+	"SPEC",
+	"EXECUTE",
+	"VERIFY",
+	"SETTLE",
+	"DONE"
+]);
+const StateProjection = z.object({
+	schema_version: SchemaVersionLiteral,
+	session_id: z.string().min(1),
+	session_label: z.string().min(3).nullable(),
+	workspace: z.string().min(1),
+	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
+	phase: StateProjectionPhase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	spec_locked: z.boolean(),
+	verify_accepted: z.boolean(),
+	pending: z.array(PendingQueueEntry),
+	ceremony: Ceremony,
+	ceremony_label: z.string(),
+	complexity_score: z.number().int().min(0).max(100).nullable(),
+	based_on: z.object({
+		spec: z.number().int().nonnegative(),
+		tasks: z.number().int().nonnegative()
+	}).strict(),
+	spec_version: z.number().int().nonnegative(),
+	created_at: z.string().datetime(),
+	updated_at: z.string().datetime()
+}).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
+const RegistryFile = z.object({
+	schema_version: SchemaVersionLiteral,
+	at: z.string().datetime(),
+	session_id: z.string().uuid(),
+	session_label: z.string(),
+	feature: z.string().min(1),
+	cwd: z.string(),
+	workspace: z.string().min(1),
+	phase: StateProjectionPhase,
+	sub_state: SubState,
+	iteration: z.number().int().positive(),
+	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)),
+	pending: PendingQueueEntry.nullable(),
+	pending_queue_depth: z.number().int().nonnegative(),
+	ceremony_label: z.string()
+}).strict();
+//#endregion
+//#region src/cli/schema-emit.ts
+const ARTIFACT_SCHEMA_KINDS = [
+	"spec",
+	"tasks",
+	"evidence",
+	"finding",
+	"state"
+];
+/** Artifact kind → Zod schema. `finding` (singular CLI noun) maps to
+*  `FindingsJson` (plural file name) — same singular/plural mismatch as
+*  SC-9c check. */
+const ARTIFACT_SCHEMAS = {
+	spec: SpecFrontmatter,
+	tasks: TasksJson,
+	evidence: EvidenceJson,
+	finding: FindingsJson,
+	state: StateProjection
+};
+/** Emit JSON Schema for one of the 6 structured authoring commands. */
+function emitInputSchema(commandKey) {
+	return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
+}
+/** Emit JSON Schema for one of the 5 artifact projection kinds. */
+function emitArtifactSchema(kind) {
+	return z.toJSONSchema(ARTIFACT_SCHEMAS[kind], { target: "draft-2020-12" });
+}
+/** Pretty-print a JSON Schema document for stdout. */
+function formatSchema(schema) {
+	return JSON.stringify(schema, null, 2) + "\n";
+}
+//#endregion
+//#region src/cli/command-action-policy.ts
+/** An intentional pre-action completion, handled by the CLI parse boundary. */
+var CommandPolicyComplete = class extends Error {
+	constructor() {
+		super("command completed by registered action policy");
+		this.name = "CommandPolicyComplete";
+	}
+};
+function commandLabel(command) {
+	const names = [];
+	for (let current = command; current?.parent; current = current.parent) names.unshift(current.name());
+	return names.join(" ");
+}
+/** Preserve action-entry priority: dry-run rejection, Board selectors, schema output. */
+function evaluateCommandAction(command, input) {
+	const policy = commandPolicy(command);
+	if (!policy) throw new Error(`missing command policy: ${commandLabel(command)}`);
+	const opts = command.opts();
+	const schema = policy.schema?.kind === "artifact" || policy.schema?.kind === "input" && opts.schema === true ? policy.schema : void 0;
+	let commandType;
+	if (schema) commandType = "read-only";
+	else if (policy.dryRun === "spec-edit") {
+		if (opts.input === void 0) commandType = "wrapping";
+	} else if (policy.dryRun === "read-only" || policy.dryRun === "wrapping" || policy.dryRun === "projection-writer" || policy.dryRun === "scaffold-writer") commandType = policy.dryRun;
+	if (input.dryRun && commandType) {
+		let label = commandLabel(command);
+		if (policy.selectors === "recovery" && opts.rebuild) label += " --rebuild";
+		if (schema?.kind === "input") label += " --schema";
+		return {
+			kind: "failure",
+			diagnostic: diagnostic$2("DRY_RUN_NOT_APPLICABLE", {
+				command: label,
+				command_type: commandType
+			})
+		};
+	}
+	if (policy.selectors === "forbidden" && policy.selectorStage === "action") {
+		const selectors = collectPresentSelectors(input.argv, input.env);
+		if (selectors.length > 0) return {
+			kind: "failure",
+			diagnostic: diagnostic$2("USAGE", {
+				reason: "board_selector_not_supported",
+				conflicting: selectors
+			})
+		};
+	}
+	return schema ? {
+		kind: "schema",
+		schema
+	} : { kind: "continue" };
+}
+/** Commander validates syntax before this public hook; completion skips the action. */
+function installCommandActionPolicy(program, ctx) {
+	program.hook("preAction", (_program, command) => {
+		const decision = evaluateCommandAction(command, {
+			dryRun: ctx.dryRun,
+			argv: ctx.argv,
+			env: process.env
+		});
+		if (decision.kind === "continue") return;
+		if (decision.kind === "failure") ctx.failure(decision.diagnostic);
+		else {
+			const schema = decision.schema.kind === "input" ? emitInputSchema(decision.schema.key) : emitArtifactSchema(decision.schema.key);
+			ctx.success(schema, () => formatSchema(schema));
+		}
+		throw new CommandPolicyComplete();
+	});
+}
+//#endregion
+//#region package.json
+var version = "0.10.0";
 //#endregion
 //#region src/core/machine.ts
 /** Preserve literal inference while rejecting missing and extra state keys. */
@@ -5939,116 +6171,6 @@ function getGitEmail() {
 		return null;
 	}
 }
-const SchemaVersionLiteral = z.literal(2);
-const SessionRuntimeFile = z.object({
-	schema_version: SchemaVersionLiteral,
-	session_id: z.string().min(1),
-	cwd: z.string(),
-	debug: z.boolean(),
-	heartbeat_at: z.string().datetime(),
-	pending_scope: z.object({
-		iteration: z.number().int().positive(),
-		paths: CanonicalScopePaths
-	}).strict().nullable()
-}).strict();
-const TasksJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	version: z.number().int().positive(),
-	based_on: z.object({ spec: z.number().int().positive() }),
-	tasks: z.array(TaskFullPayload)
-}).strict();
-const EvidenceEntry = EvidenceFullShape.extend({
-	schema_version: SchemaVersionLiteral,
-	at: z.string().datetime()
-}).strict();
-const EvidenceJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	evidence: z.array(EvidenceEntry)
-}).strict();
-const FindingStateShape = z.object({
-	id: z.string().regex(/^FND-\d{3,}$/),
-	category: FindingCategory,
-	action: FindingAction,
-	status: z.enum(["open", "closed"]),
-	summary: z.string().optional(),
-	reason: z.string().optional(),
-	target: z.object({
-		task_id: z.string().regex(/^T-\d{3,}$/),
-		step: z.string().min(1)
-	}).strict().optional()
-}).strict();
-const FindingsJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	findings: z.array(FindingStateShape)
-}).strict();
-const PendingQueueEntry = z.object({
-	pending_id: PendingId,
-	kind: PendingPromptKind,
-	question: z.string().min(3),
-	options: z.array(z.string()).optional(),
-	blocks: z.enum([
-		"advance",
-		"gate",
-		"deliver",
-		"all"
-	]),
-	raised_at: z.string().datetime(),
-	raised_by: z.string().min(1),
-	at: z.string().datetime(),
-	raised_by_task_id: z.string().regex(/^T-\d{3,}$/).optional()
-}).strict();
-const PendingProjectionEntry = PendingQueueEntry.extend({ resolved: z.boolean() }).strict();
-const PendingJson = z.object({
-	schema_version: SchemaVersionLiteral,
-	pending: z.array(PendingProjectionEntry)
-}).strict();
-const StateProjectionPhase = z.enum([
-	"TRIAGE",
-	"SPEC",
-	"EXECUTE",
-	"VERIFY",
-	"SETTLE",
-	"DONE"
-]);
-const StateProjection = z.object({
-	schema_version: SchemaVersionLiteral,
-	session_id: z.string().min(1),
-	session_label: z.string().min(3).nullable(),
-	workspace: z.string().min(1),
-	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
-	phase: StateProjectionPhase,
-	sub_state: SubState,
-	iteration: z.number().int().positive(),
-	spec_locked: z.boolean(),
-	verify_accepted: z.boolean(),
-	pending: z.array(PendingQueueEntry),
-	ceremony: Ceremony,
-	ceremony_label: z.string(),
-	complexity_score: z.number().int().min(0).max(100).nullable(),
-	based_on: z.object({
-		spec: z.number().int().nonnegative(),
-		tasks: z.number().int().nonnegative()
-	}).strict(),
-	spec_version: z.number().int().nonnegative(),
-	created_at: z.string().datetime(),
-	updated_at: z.string().datetime()
-}).strict().refine((s) => s.sub_state.startsWith(s.phase + "."), { message: "sub_state must start with phase + '.'" }).refine((s) => !s.phase.startsWith("DONE") || s.pending.length === 0, { message: "DONE.* requires pending = [] (live queue empty at terminal)" });
-const RegistryFile = z.object({
-	schema_version: SchemaVersionLiteral,
-	at: z.string().datetime(),
-	session_id: z.string().uuid(),
-	session_label: z.string(),
-	feature: z.string().min(1),
-	cwd: z.string(),
-	workspace: z.string().min(1),
-	phase: StateProjectionPhase,
-	sub_state: SubState,
-	iteration: z.number().int().positive(),
-	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)),
-	pending: PendingQueueEntry.nullable(),
-	pending_queue_depth: z.number().int().nonnegative(),
-	ceremony_label: z.string()
-}).strict();
 //#endregion
 //#region src/core/task-history.ts
 /**
@@ -9702,16 +9824,6 @@ function createCommandContext(argv, deps) {
 				...dispatch
 			};
 		},
-		rejectIfDryRun(command, commandType = "read-only") {
-			if (dryRun) {
-				ctx.failure(diagnostic$2("DRY_RUN_NOT_APPLICABLE", {
-					command,
-					command_type: commandType
-				}));
-				return true;
-			}
-			return false;
-		},
 		async loadProjectionsOrFail(featureDir, kinds, feature, noSessionKey) {
 			const loader = deps.loadProjectionsDirect ?? deps.loadProjections;
 			if (!loader) throw new Error("CommandContext: loadProjections dep not provided; cannot loadProjectionsOrFail");
@@ -11629,59 +11741,6 @@ async function executeClosureTransaction(options) {
 	return outcome;
 }
 //#endregion
-//#region src/cli/input-schemas.ts
-const SpecReqInputBatched = SpecAddReqInput;
-const SpecScenarioInputBatched = SpecAddScenarioInput;
-const SpecVisualInputBatched = SpecAddVisualInput;
-z.enum([
-	"spec:add-req",
-	"spec:add-scenario",
-	"spec:add-visual",
-	"tasks:submit",
-	"tasks:add",
-	"evidence:add"
-]);
-/** The exact schemas parsed by schema-emitting mutation paths. */
-const INPUT_SCHEMAS = {
-	"spec:add-req": SpecReqInputBatched,
-	"spec:add-scenario": SpecScenarioInputBatched,
-	"spec:add-visual": SpecVisualInputBatched,
-	"tasks:submit": TasksSubmitInput,
-	"tasks:add": TaskAuthoringInputBatched,
-	"evidence:add": EvidenceAddInputBatched
-};
-//#endregion
-//#region src/cli/schema-emit.ts
-const ARTIFACT_SCHEMA_KINDS = [
-	"spec",
-	"tasks",
-	"evidence",
-	"finding",
-	"state"
-];
-/** Artifact kind → Zod schema. `finding` (singular CLI noun) maps to
-*  `FindingsJson` (plural file name) — same singular/plural mismatch as
-*  SC-9c check. */
-const ARTIFACT_SCHEMAS = {
-	spec: SpecFrontmatter,
-	tasks: TasksJson,
-	evidence: EvidenceJson,
-	finding: FindingsJson,
-	state: StateProjection
-};
-/** Emit JSON Schema for one of the 6 structured authoring commands. */
-function emitInputSchema(commandKey) {
-	return z.toJSONSchema(INPUT_SCHEMAS[commandKey], { target: "draft-2020-12" });
-}
-/** Emit JSON Schema for one of the 5 artifact projection kinds. */
-function emitArtifactSchema(kind) {
-	return z.toJSONSchema(ARTIFACT_SCHEMAS[kind], { target: "draft-2020-12" });
-}
-/** Pretty-print a JSON Schema document for stdout. */
-function formatSchema(schema) {
-	return JSON.stringify(schema, null, 2) + "\n";
-}
-//#endregion
 //#region src/cli/command-mutator.ts
 function createCommandMutator(ctx, deps) {
 	const registryWriterDeps = deps.registryWriter;
@@ -11767,17 +11826,12 @@ function createCommandMutator(ctx, deps) {
 		if (closure.kind === "committed" && acceptResult(closure.result) === null) return null;
 		return closure;
 	}
-	const emitSchemaAndExit = (commandKey) => {
-		const schema = emitInputSchema(commandKey);
-		ctx.success(schema, () => formatSchema(schema));
-	};
 	return {
 		run: runImpl,
 		runBatch,
 		runPreparedBatch,
 		runPlannedBatch,
-		runExecuteClosure,
-		emitSchemaAndExit
+		runExecuteClosure
 	};
 }
 z.discriminatedUnion("kind", [
@@ -12731,7 +12785,6 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const loaded = await ctx.loadProjectionsOrFail(featureDir, [
@@ -12776,7 +12829,6 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("next")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const selector = await selectorForCommandContext(ctx);
@@ -13438,7 +13490,6 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		selectors: "unscoped",
 		dryRun: "scaffold-writer"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("config init", "scaffold-writer")) return;
 		const configPath = opts.global ? userConfigPath(userConfigHomeDir ?? os.homedir()) : loafConfigPath(process.cwd());
 		if (!await ensureConfigTargetAbsent(configPath)) return;
 		if (await writeConfigExclusive(configPath, opts.global ? serializeStableJson(UserConfig.parse({
@@ -13460,7 +13511,6 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		selectors: "recovery",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun(opts.rebuild ? "doctor --rebuild" : "doctor")) return;
 		if (!opts.rebuild) {
 			ctx.failure(diagnostic$2("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
 			return;
@@ -13640,11 +13690,6 @@ function registerTaskSubmit(tasksCmd, deps) {
 			key: "tasks:submit"
 		}
 	}).action(async (rawOpts) => {
-		if (rawOpts.schema === true) {
-			if (ctx.rejectIfDryRun("tasks submit --schema")) return;
-			mutator.emitSchemaAndExit("tasks:submit");
-			return;
-		}
 		if (!input.requireArg(ctx, rawOpts.input, TASKS_SUBMIT_INPUT)) return;
 		const opts = rawOpts;
 		const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
@@ -13729,11 +13774,6 @@ function registerTaskAdd(tasksCmd, deps) {
 			key: "tasks:add"
 		}
 	}).action(async (rawOpts) => {
-		if (rawOpts.schema === true) {
-			if (ctx.rejectIfDryRun("tasks add --schema")) return;
-			mutator.emitSchemaAndExit("tasks:add");
-			return;
-		}
 		if (!input.requireArg(ctx, rawOpts.input, TASKS_ADD_INPUT)) return;
 		const opts = rawOpts;
 		const read = await input.readJson(ctx, opts.input, TASKS_ADD_INPUT);
@@ -14137,7 +14177,6 @@ function registerTaskComplete(tasksCmd, deps) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (taskId, opts) => {
-		if (ctx.rejectIfDryRun("tasks complete")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14371,7 +14410,6 @@ function registerTaskQueries(tasksCmd, deps) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("tasks list")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["state", "tasks"], opts.feature, "failure.no_session.tasks");
@@ -14426,7 +14464,6 @@ function registerTaskQueries(tasksCmd, deps) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("tasks next")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14644,7 +14681,6 @@ function registerTerminalSettle(program, ctx, mutator, actor) {
 		selectors: "selected",
 		dryRun: "projection-writer"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("handoff", "projection-writer")) return;
 		if (opts.reason.length < 5) {
 			ctx.failure(diagnosticVariant("failure.handoff.reason_too_short", {
 				min_length: 5,
@@ -14758,7 +14794,6 @@ function registerPending(program, ctx, mutator, actor) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("pending list")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["pending"], opts.feature, "failure.no_session.pending");
@@ -14787,7 +14822,6 @@ function registerPending(program, ctx, mutator, actor) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("pending status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -14931,11 +14965,6 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 			key: "evidence:add"
 		}
 	}).action(async (rawOpts) => {
-		if (rawOpts.schema === true) {
-			if (ctx.rejectIfDryRun("evidence add --schema")) return;
-			mutator.emitSchemaAndExit("evidence:add");
-			return;
-		}
 		if (!input.requireArg(ctx, rawOpts.input, inputDeclaration)) return;
 		const opts = rawOpts;
 		if (await ctx.dispatchOrFail(opts) === null) return;
@@ -15036,7 +15065,6 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("evidence list")) return;
 		if (opts.covers !== void 0 && !CoversRefPayload.safeParse(opts.covers).success) {
 			ctx.failure(diagnosticVariant("failure.evidence.covers_invalid", {
 				value: opts.covers,
@@ -15152,7 +15180,6 @@ function registerJournal(program, ctx) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("journal list")) return;
 		const afterSeq = parseIntegerFilter(ctx, "--after-seq", opts.afterSeq, 0);
 		if (afterSeq === null) return;
 		const limit = parseIntegerFilter(ctx, "--limit", opts.limit, 1);
@@ -16883,7 +16910,6 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		selectorFailure: "failure.tui.selector_conflict",
 		interactiveFormat: true
 	}).action(async () => {
-		if (ctx.rejectIfDryRun("tui")) return;
 		const stdinTty = isStdinTty();
 		const stdoutTty = isStdoutTtyForTui();
 		if (!stdinTty || !stdoutTty) {
@@ -16925,7 +16951,6 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		dryRun: "read-only",
 		selectorFailure: "failure.sessions_list.selector_conflict"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("sessions list")) return;
 		const filterCwd = opts.inCwd ? await promises.realpath(process.cwd()).catch(() => process.cwd()) : void 0;
 		const result = await listSessions({
 			...registryDir !== void 0 && { registryDir },
@@ -16964,7 +16989,6 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		dryRun: "read-only",
 		selectorFailure: "failure.check.selector_conflict"
 	}).action(async (filePath, opts) => {
-		if (ctx.rejectIfDryRun("check")) return;
 		let kind;
 		if (opts.kind !== void 0) {
 			if (!CHECK_KINDS.includes(opts.kind)) {
@@ -17019,7 +17043,6 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("verify status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
@@ -17124,7 +17147,6 @@ function registerFinding(program, ctx, mutator, actor) {
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("finding list")) return;
 		if (opts.status !== void 0 && opts.status !== "open" && opts.status !== "closed") {
 			ctx.failure(diagnosticVariant("failure.finding.status_invalid", {
 				allowed_statuses_human: "open | closed",
@@ -17358,7 +17380,6 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 		selectors: "selected",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("spec status")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: false });
@@ -17490,7 +17511,6 @@ feature:
 		dryRun: "spec-edit"
 	}).action(async (opts) => {
 		const hasInput = opts.input !== void 0;
-		if (!hasInput && ctx.rejectIfDryRun("spec edit", "wrapping")) return;
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const explicitEditor = (process.env["EDITOR"] ?? "").trim();
@@ -17678,15 +17698,6 @@ feature:
 				key: mutatorKey
 			}
 		}).action(async (rawOpts) => {
-			if (rawOpts.schema === true) {
-				let rejected = false;
-				if (cfg.name === "req") rejected = ctx.rejectIfDryRun("spec add-req --schema");
-				else if (cfg.name === "scenario") rejected = ctx.rejectIfDryRun("spec add-scenario --schema");
-				else rejected = ctx.rejectIfDryRun("spec add-visual --schema");
-				if (rejected) return;
-				mutator.emitSchemaAndExit(mutatorKey);
-				return;
-			}
 			const read = await inputIngestor.readJson(ctx, rawOpts.input, inputDeclaration);
 			if (!read.ok) return;
 			const opts = rawOpts;
@@ -17759,7 +17770,7 @@ feature:
 }
 //#endregion
 //#region src/cli/commands/state.tsx
-function registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd) {
+function registerState(program, specCmd, tasksCmd, evidenceCmd, findingCmd) {
 	const ARTIFACT_PARENTS = {
 		spec: specCmd,
 		tasks: tasksCmd,
@@ -17774,17 +17785,7 @@ function registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd)
 			kind: "artifact",
 			key: kind
 		}
-	}).action(async () => {
-		let rejected = false;
-		if (kind === "spec") rejected = ctx.rejectIfDryRun("spec schema");
-		else if (kind === "tasks") rejected = ctx.rejectIfDryRun("tasks schema");
-		else if (kind === "evidence") rejected = ctx.rejectIfDryRun("evidence schema");
-		else if (kind === "finding") rejected = ctx.rejectIfDryRun("finding schema");
-		else rejected = ctx.rejectIfDryRun("state schema");
-		if (rejected) return;
-		const schema = emitArtifactSchema(kind);
-		ctx.success(schema, () => formatSchema(schema));
-	});
+	}).action(() => {});
 }
 //#endregion
 //#region src/cli/board/open-url.ts
@@ -18778,15 +18779,6 @@ function registerBoard(program, ctx, deps) {
 		dryRun: "read-only",
 		selectorStage: "action"
 	}).action(async (opts) => {
-		if (ctx.rejectIfDryRun("board")) return;
-		const selectors = collectPresentSelectors(ctx.argv, process.env);
-		if (selectors.length > 0) {
-			ctx.failure(diagnostic$2("USAGE", {
-				reason: "board_selector_not_supported",
-				conflicting: selectors
-			}));
-			return;
-		}
 		const scope = opts.inCwd ? "cwd" : "all";
 		let port;
 		try {
@@ -19469,8 +19461,9 @@ function createCommandProgram(ctx, mutator, input, i18n, actor, deps, isStdinTty
 	});
 	const { findingCmd } = registerFinding(program, ctx, mutator, actor);
 	const { specCmd } = registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, input, deps.runEditor ?? runEditor);
-	registerState(program, ctx, specCmd, tasksCmd, evidenceCmd, findingCmd);
+	registerState(program, specCmd, tasksCmd, evidenceCmd, findingCmd);
 	assertLeafCommandPolicies(program);
+	installCommandActionPolicy(program, ctx);
 	return program;
 }
 /** Same registrations as execution; input/output seams fail if construction
@@ -19926,6 +19919,10 @@ async function main(argv = process.argv, deps = {}) {
 			resolvedExit = ctx.exitCode;
 			return ctx.exitCode;
 		} catch (err) {
+			if (err instanceof CommandPolicyComplete) {
+				resolvedExit = ctx.exitCode;
+				return resolvedExit;
+			}
 			if (err instanceof CommanderError) {
 				if (err.exitCode === 0) {
 					resolvedExit = 0;

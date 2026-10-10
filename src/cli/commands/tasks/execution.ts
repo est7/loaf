@@ -132,7 +132,6 @@ export function registerTaskComplete(tasksCmd: Command, deps: TasksRegistrationD
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "read-only" },
   ).action(async (taskId: string, opts: { feature: string; featureDir?: string }) => {
-    if (ctx.rejectIfDryRun("tasks complete")) return;
     const featureDir = await ctx.dispatchOrFail(opts);
     if (featureDir === null) return;
     const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });

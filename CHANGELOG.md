@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Registered command policy now owns action-entry dry-run rejection, Board
+  selector rejection and schema-output short circuits. Commander syntax
+  validation and existing diagnostic priority still run in the same order;
+  dynamic editor/rebuild modes and legacy spec-init behavior are preserved.
+
 - Command registrations now declare selector, dry-run and schema policy on
   their actual Commander objects. Command-specific pre-parse checks consume
   that registration inventory before user configuration or actions run;
