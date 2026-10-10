@@ -112,12 +112,9 @@ export interface PendingState {
 // spec.md projection writer can re-serialize from snapshot alone (codex
 // r84 BLOCK absorb).
 //
-// spec-lock-check.ts:64-214 reads parsed frontmatter from
-// readSpecFrontmatter(), NOT these arrays — so the widening is type/test
-// fallout only, no gate-eval behavior change. Snapshot arrays are only
-// consumed for `.id`-only duplicate checks at:
-//   - reducer.ts cases for spec_*_added (DUPLICATE_*_ID surface)
-//   - preflight.ts spec_*_added refines (top-level DUPLICATE promotion)
+// Gate approval, diagnostics and VERIFY next construct canonical spec input
+// from these journal-derived fields through spec-snapshot.ts. spec.md remains
+// a derived projection; duplicate-ID checks consume the same arrays.
 export type RequirementState = RequirementEarsShape;
 export type ScenarioState = ScenarioGherkin;
 export type VisualContractState = VisualContract;

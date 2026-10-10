@@ -13,9 +13,7 @@ import {
   selectorForCommandContext,
   selectorForFeature,
 } from "../next-advisory.js";
-import { readSpecFrontmatter } from "../../core/spec-frontmatter.js";
-import { extractTaskSlim } from "../../core/task-schema.js";
-import type { TaskState } from "../../core/reducer.js";
+import { buildSpecFrontmatterFromSnapshot } from "../../core/spec-snapshot.js";
 import path from "node:path";
 import { ExecuteClosureError, type ExecuteClosureHooks } from "../../core/execute-closure.js";
 import { RuntimeStoreError } from "../../core/session-runtime.js";
@@ -349,34 +347,16 @@ export function registerLifecycle(
 
       let verifyApplicableLanes: ReturnType<typeof deriveVerifyApplicability> | undefined;
       if (loaded.state.sub_state.startsWith("VERIFY.")) {
-        const read = await readSpecFrontmatter(featureDir);
-        if (!read.ok) {
-          ctx.failure({
-            code: "SPEC_FRONTMATTER_INVALID",
-            detail: { subcode: read.code, ...read.detail },
-          });
+        // Projection freshness is established above; replay is not a fallback
+        // for stale projections. Canonical spec and task obligations come from
+        // the same journal snapshot consumed by verify status and approval.
+        const session = await ctx.resolveSession(featureDir);
+        const built = buildSpecFrontmatterFromSnapshot(session.snapshot);
+        if (!built.ok) {
+          ctx.failure(built);
           return;
         }
-        const tasks: TaskState[] = loaded.tasks
-          ? loaded.tasks.tasks.map((t) => extractTaskSlim(t))
-          : [];
-        // deriveVerifyApplicability reads frontmatter plus snapshot.tasks;
-        // the remaining Snapshot fields are intentionally not loaded here.
-        verifyApplicableLanes = deriveVerifyApplicability(
-          {
-            state: null,
-            tasks,
-            evidence: [],
-            findings: [],
-            pending: [],
-            spec_header: null,
-            requirements: [],
-            scenarios: [],
-            visual_contracts: [],
-            tasks_based_on: null,
-          },
-          read.frontmatter,
-        );
+        verifyApplicableLanes = deriveVerifyApplicability(session.snapshot, built.frontmatter);
       }
 
       const out = buildScopedNextOutput(

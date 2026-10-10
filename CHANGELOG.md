@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- VERIFY next routing now derives lane applicability from the canonical
+  journal snapshot shared with verify status and gate approval. Missing or
+  edited derived spec.md cannot change its route. Existing projection
+  freshness failures still reject before replay; standalone file validation,
+  editing and projection writing remain file-oriented.
+
 - Verify-accept approval and verify status now derive their spec input from
   the same canonical snapshot constructor as spec-lock. Derived spec.md cannot
   add or remove verification obligations. Missing or malformed snapshot spec

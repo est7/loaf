@@ -1070,10 +1070,9 @@ async function seedFeatureAtVerifyAccept(
 
 // Stops the lifecycle walk at VERIFY.run (vs seedFeatureAtVerifyAccept which
 // walks to VERIFY.accept). Used to exercise `loaf next` VERIFY lane routing
-// against real spec.md frontmatter through the CLI. Tasks planted by
+// against canonical snapshot spec through the CLI. Tasks planted by
 // seedFeatureAtSpecDesign are abandoned at EXECUTE.work (F-016), so VERIFY
-// lane applicability is driven purely by frontmatter unless the caller
-// rewrites spec.md.
+// lane applicability is driven by admitted canonical spec content.
 async function seedFeatureAtVerifyRun(
   dir: string,
   ceremony: Ceremony = STANDARD_CEREMONY,
@@ -5350,7 +5349,7 @@ describe("loaf next — phase-routing read-side dual", () => {
     expect(out).not.toHaveProperty("next_action");
   });
 
-  test("VERIFY frontmatter failure emits SPEC_FRONTMATTER_INVALID with existing detail-key shape", async () => {
+  test("VERIFY.accept ignores malformed derived frontmatter and keeps its human gate route", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtVerifyAccept(dir);
     await fsP.writeFile(
@@ -5380,12 +5379,8 @@ needs_clarification: []
       "json",
     ]);
 
-    expect(result.exit).toBe(2);
-    expect(result.stdout).toBe("");
-    const err = JSON.parse(result.stderr);
-    expect(err.code).toBe("SPEC_FRONTMATTER_INVALID");
-    expect(Object.keys(err.detail).sort()).toEqual(["issues", "path", "subcode"]);
-    expect(err.detail.subcode).toBe("SPEC_FRONTMATTER_INVALID");
+    expect(result.exit, result.stderr).toBe(0);
+    expect(expectOnlyAction(parseNext(result.stdout))).toMatchObject({ owner_verb: "gate decide", target: "verify-accept", blocking: true });
   });
 
   test("dry-run is rejected and no-session uses the existing dispatch diagnostic", async () => {
@@ -5419,9 +5414,9 @@ needs_clarification: []
     expect(JSON.parse(result.stderr).code).toBe("FEATURE_NOT_FOUND");
   });
 
-  // Integration coverage for the frontmatter-derived VERIFY lane skip path
+  // Integration coverage for the snapshot-derived VERIFY lane skip path
   // (codex non-blocking residual): exercises the full CLI wiring
-  // readSpecFrontmatter → deriveVerifyApplicability → verifyNextTarget end to
+  // snapshot constructor → deriveVerifyApplicability → verifyNextTarget end to
   // end, complementing the pure-function lane tests in next-action.test.ts.
   test("VERIFY.run with no applicable lanes (vacuous frontmatter) recommends advance to VERIFY.accept and round-trips", async () => {
     const dir = await tmpFeatureDir();
@@ -5448,13 +5443,13 @@ needs_clarification: []
     await expectRecommendedCommandAccepted(dir, action);
   });
 
-  test("VERIFY.run derives lane applicability from spec.md and skips inapplicable lanes (e2e scenario → acceptance)", async () => {
+  test("VERIFY.run ignores an e2e scenario added only to derived spec.md", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtVerifyRun(dir);
     // Rewrite frontmatter: REQ stays acceptance_na (no review lane), add one
     // e2e scenario (→ acceptance lane), no visual contracts (no visual lane).
-    // applicable = {acceptance} → verifyNextTarget skips VERIFY.review and
-    // lands on VERIFY.acceptance.
+    // The admitted spec has no applicable lanes; the derived edit must not
+    // invent an acceptance obligation.
     await fsP.writeFile(
       path.join(dir, "spec.md"),
       `---
@@ -5501,7 +5496,7 @@ prose body here
     const action = expectOnlyAction(parseNext(result.stdout));
     expect(action).toMatchObject({
       owner_verb: "advance",
-      target: "VERIFY.acceptance",
+      target: "VERIFY.accept",
       blocking: false,
     });
     await expectRecommendedCommandAccepted(dir, action);

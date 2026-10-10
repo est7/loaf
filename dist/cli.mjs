@@ -10926,55 +10926,6 @@ function splitFrontmatter(raw) {
 		body
 	};
 }
-async function readSpecFrontmatter(featureDir) {
-	const specPath = path$1.join(featureDir, "spec.md");
-	let raw;
-	try {
-		raw = await fsp.readFile(specPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return {
-			ok: false,
-			code: "SPEC_NOT_FOUND",
-			detail: { path: specPath }
-		};
-		throw err;
-	}
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		ok: false,
-		code: "SPEC_YAML_INVALID",
-		detail: {
-			path: specPath,
-			reason: "frontmatter_fence_missing"
-		}
-	};
-	let parsed;
-	try {
-		parsed = parse(match[1]);
-	} catch (err) {
-		return {
-			ok: false,
-			code: "SPEC_YAML_INVALID",
-			detail: {
-				path: specPath,
-				error: err.message
-			}
-		};
-	}
-	const validated = SpecFrontmatter.safeParse(parsed);
-	if (!validated.success) return {
-		ok: false,
-		code: "SPEC_FRONTMATTER_INVALID",
-		detail: {
-			path: specPath,
-			issues: validated.error.issues
-		}
-	};
-	return {
-		ok: true,
-		frontmatter: validated.data
-	};
-}
 //#endregion
 //#region src/core/spec-projection.ts
 /**
@@ -13048,29 +12999,13 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 		if (loaded === null) return;
 		let verifyApplicableLanes;
 		if (loaded.state.sub_state.startsWith("VERIFY.")) {
-			const read = await readSpecFrontmatter(featureDir);
-			if (!read.ok) {
-				ctx.failure({
-					code: "SPEC_FRONTMATTER_INVALID",
-					detail: {
-						subcode: read.code,
-						...read.detail
-					}
-				});
+			const session = await ctx.resolveSession(featureDir);
+			const built = buildSpecFrontmatterFromSnapshot(session.snapshot);
+			if (!built.ok) {
+				ctx.failure(built);
 				return;
 			}
-			verifyApplicableLanes = deriveVerifyApplicability({
-				state: null,
-				tasks: loaded.tasks ? loaded.tasks.tasks.map((t) => extractTaskSlim(t)) : [],
-				evidence: [],
-				findings: [],
-				pending: [],
-				spec_header: null,
-				requirements: [],
-				scenarios: [],
-				visual_contracts: [],
-				tasks_based_on: null
-			}, read.frontmatter);
+			verifyApplicableLanes = deriveVerifyApplicability(session.snapshot, built.frontmatter);
 		}
 		const out = buildScopedNextOutput({
 			feature: opts.feature,
