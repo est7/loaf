@@ -1,4 +1,4 @@
-import { scanArgv } from "../core/argv-scanner.js";
+import { scanArgv, optionArgv } from "../core/argv-scanner.js";
 // Shared argv/env selector detection (presentation layer).
 //
 // Extracted from cli.tsx so command-family files (e.g. board) can reuse it
@@ -9,7 +9,7 @@ import { scanArgv } from "../core/argv-scanner.js";
 
 export function collectPresentSelectors(argv: readonly string[], env: NodeJS.ProcessEnv): string[] {
   const selectors: string[] = [];
-  const tokens = scanArgv(argv);
+  const tokens = scanArgv(optionArgv(argv));
   if (tokens.some((token) => token.kind === "option" && token.flag === "--session")) {
     selectors.push("--session");
   }

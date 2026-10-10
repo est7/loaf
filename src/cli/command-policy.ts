@@ -1,3 +1,4 @@
+import { optionArgv } from "../core/argv-scanner.js";
 import type { Command } from "commander";
 import { diagnosticVariant, type CatalogDiagnostic } from "../core/error-catalog.js";
 import { HOOK_EVENTS, HOOK_EVENT_TO_CLAUDE_CODE } from "../core/hook-events.js";
@@ -120,13 +121,13 @@ export function evaluateCommandPreparse(
     return fail(diagnosticVariant(policy.selectorFailure, { conflicting: selectors }));
   if (
     policy?.interactiveFormat &&
-    argv.some((arg) => arg === "--format" || arg.startsWith("--format="))
+    optionArgv(argv).some((arg) => arg === "--format" || arg.startsWith("--format="))
   )
     return fail(
       diagnosticVariant("failure.tui.interactive_only", { reason: "tui-interactive-only" }),
     );
   if (policy?.selectors === "optional-hook") {
-    if (argv.includes("--list-events")) return { kind: "hook-events" };
+    if (optionArgv(argv).includes("--list-events")) return { kind: "hook-events" };
     const event = tokens[1];
     if (event === undefined)
       return fail(diagnosticVariant("failure.hook.missing_event", { events: HOOK_EVENTS }));
@@ -144,7 +145,7 @@ export function evaluateCommandPreparse(
   }
   const schemaMode =
     policy?.schema?.kind === "artifact" ||
-    (policy?.schema?.kind === "input" && argv.includes("--schema"));
+    (policy?.schema?.kind === "input" && optionArgv(argv).includes("--schema"));
   if (schemaMode && selectors.length > 0)
     return fail(
       diagnosticVariant("failure.schema.selector_conflict", {

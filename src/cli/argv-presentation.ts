@@ -1,4 +1,4 @@
-import { scanArgv } from "../core/argv-scanner.js";
+import { scanArgv, optionArgv } from "../core/argv-scanner.js";
 
 /** Pure argv/environment presentation parsing.
  *
@@ -31,7 +31,7 @@ export type PresentationEnv = {
 /** Parse `--format <v>` or `--format=<v>` from argv. Returns OK 'text'
  * on absent. Bare `--format` intentionally defers to Commander. */
 export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult {
-  const token = scanArgv(argv, FORMAT_VALUE_FLAGS).find(
+  const token = scanArgv(optionArgv(argv), FORMAT_VALUE_FLAGS).find(
     (token) => token.kind === "option" && token.flag === "--format",
   );
   if (token?.kind === "option") {
@@ -50,7 +50,7 @@ export function parseFormatFromArgv(argv: readonly string[]): FormatParseResult 
  * This exhaustiveness is what gives INVALID_FORMAT its position-independent
  * precedence over the mutex check. */
 export function findFirstInvalidFormat(argv: readonly string[]): { rawValue: string } | null {
-  for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+  for (const token of scanArgv(optionArgv(argv), FORMAT_VALUE_FLAGS)) {
     if (token.kind !== "option" || token.flag !== "--format") continue;
     const value = token.value;
     if (!token.raw.includes("=") && (value === undefined || value.startsWith("--"))) continue;
@@ -61,22 +61,22 @@ export function findFirstInvalidFormat(argv: readonly string[]): { rawValue: str
 }
 
 export function parsePlainFromArgv(argv: readonly string[]): boolean {
-  return scanArgv(argv).some((token) => token.raw === "--plain");
+  return scanArgv(optionArgv(argv)).some((token) => token.raw === "--plain");
 }
 
 export function parseQuietFromArgv(argv: readonly string[]): boolean {
   return (
-    scanArgv(argv).some((token) => token.raw === "--quiet") ||
-    scanArgv(argv).some((token) => token.raw === "-q")
+    scanArgv(optionArgv(argv)).some((token) => token.raw === "--quiet") ||
+    scanArgv(optionArgv(argv)).some((token) => token.raw === "-q")
   );
 }
 
 export function parseNoInputFromArgv(argv: readonly string[]): boolean {
-  return scanArgv(argv).some((token) => token.raw === "--no-input");
+  return scanArgv(optionArgv(argv)).some((token) => token.raw === "--no-input");
 }
 
 export function parseDebugFromArgv(argv: readonly string[], env: PresentationEnv): boolean {
-  if (scanArgv(argv).some((token) => token.raw === "--debug")) return true;
+  if (scanArgv(optionArgv(argv)).some((token) => token.raw === "--debug")) return true;
   if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
   if (env.DEBUG && env.DEBUG.length > 0) return true;
   return false;
@@ -84,14 +84,14 @@ export function parseDebugFromArgv(argv: readonly string[], env: PresentationEnv
 
 export function parseDryRunFromArgv(argv: readonly string[]): boolean {
   return (
-    scanArgv(argv).some((token) => token.raw === "--dry-run") ||
-    scanArgv(argv).some((token) => token.raw === "-n")
+    scanArgv(optionArgv(argv)).some((token) => token.raw === "--dry-run") ||
+    scanArgv(optionArgv(argv)).some((token) => token.raw === "-n")
   );
 }
 
 export function parseVerboseFromArgv(argv: readonly string[]): number {
   let count = 0;
-  for (const { raw: arg } of scanArgv(argv)) {
+  for (const { raw: arg } of scanArgv(optionArgv(argv))) {
     if (arg === "--verbose") {
       count += 1;
       continue;
@@ -106,7 +106,7 @@ export function parseVerboseFromArgv(argv: readonly string[]): number {
 /** Color suppression per protocol §10.2: `--no-color`, non-empty `NO_COLOR` or
  * `LOAF_NO_COLOR`, or `TERM=dumb`. */
 export function parseNoColorFromArgv(argv: readonly string[], env: PresentationEnv): boolean {
-  if (scanArgv(argv).some((token) => token.raw === "--no-color")) return true;
+  if (scanArgv(optionArgv(argv)).some((token) => token.raw === "--no-color")) return true;
   if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
   if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
   if (env.TERM === "dumb") return true;
@@ -135,7 +135,7 @@ function collectOutputFormatEntries(
   argv: readonly string[],
 ): Array<{ entry: string; canonical: OutputMode }> {
   const out: Array<{ entry: string; canonical: OutputMode }> = [];
-  for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+  for (const token of scanArgv(optionArgv(argv), FORMAT_VALUE_FLAGS)) {
     if (token.raw === "--plain") {
       out.push({ entry: "--plain", canonical: "text" });
       continue;

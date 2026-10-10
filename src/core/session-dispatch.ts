@@ -1,4 +1,4 @@
-import { scanArgv } from "./argv-scanner.js";
+import { scanArgv, optionArgv } from "./argv-scanner.js";
 import { diagnosticVariant, type Diagnostic, type CatalogDiagnostic } from "./error-catalog.js";
 // Phase 16 SC-8 — session dispatch resolver.
 //
@@ -89,7 +89,7 @@ export interface DispatchInput {
 /** Extract flag value (`--flag value` or `--flag=value`). Returns
  *  `undefined` when absent. */
 function pickFlagValue(argv: readonly string[], flag: string): string | undefined {
-  const token = scanArgv(argv, new Set([flag])).find(
+  const token = scanArgv(optionArgv(argv), new Set([flag])).find(
     (token) => token.kind === "option" && token.flag === flag,
   );
   if (token?.kind === "option") {

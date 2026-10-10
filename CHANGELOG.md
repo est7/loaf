@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CLI bootstrap, presentation and selector views now treat tokens after `--`
+  as positional data. Post-boundary help/version, format, selector, schema
+  and hook-list flags cannot bypass or change pre-boundary policy checks;
+  environment defaults and pre-boundary diagnostic priority remain intact.
+
 - `loaf spec init --dry-run` (and `-n`) now rejects with
   `DRY_RUN_NOT_APPLICABLE` as a scaffold writer before feature dispatch or scaffold I/O.
   It cannot create spec.md or modify feature, registry, runtime or trace files;

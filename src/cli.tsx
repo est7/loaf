@@ -2,7 +2,7 @@
 import { createCommandProgram, createPolicyCommandProgram } from "./cli/command-program.js";
 import { evaluateCommandPreparse, renderHookEvents } from "./cli/command-policy.js";
 import { CommandPolicyComplete } from "./cli/command-action-policy.js";
-import { scanArgv } from "./core/argv-scanner.js";
+import { scanArgv, optionArgv } from "./core/argv-scanner.js";
 import { diagnostic } from "./core/error-catalog.js";
 import { writeDiagnosticFailure } from "./cli/diagnostic-failure.js";
 
@@ -153,8 +153,9 @@ function preparseI18nFromEnv(
 
 function detectRenderAsJson(argv: string[]): boolean {
   // Preserve the pre-existing argv.indexOf(a) first-match behavior; changing duplicate --format handling is behavioral.
-  return argv.some(
-    (a) => a === "--format=json" || (a === "--format" && argv[argv.indexOf(a) + 1] === "json"),
+  const options = optionArgv(argv);
+  return options.some(
+    (a) => a === "--format=json" || (a === "--format" && options[options.indexOf(a) + 1] === "json"),
   );
 }
 
@@ -178,7 +179,7 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
   // help/version output).
   //
   // Tests: tests/cli/format-flag.test.ts + tests/cli/presentation-flags.test.ts.
-  const wantsHelpOrVersion = argv.some(
+  const wantsHelpOrVersion = optionArgv(argv).some(
     (a) => a === "--help" || a === "-h" || a === "--version" || a === "-V",
   );
   if (!wantsHelpOrVersion) {

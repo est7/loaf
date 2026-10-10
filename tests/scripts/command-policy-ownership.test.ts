@@ -7,6 +7,7 @@ import { expect, test } from "vitest";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const owners = new Map([
   ["scanArgv", "src/core/argv-scanner.ts"],
+  ["optionArgv", "src/core/argv-scanner.ts"],
   ["bootstrapCommandTokens", "src/cli/argv-bootstrap.ts"],
   ["collectPresentSelectors", "src/cli/selectors.ts"],
   ["declareCommandPolicy", "src/cli/command-policy.ts"],

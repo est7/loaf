@@ -1,3 +1,4 @@
+import { optionArgv } from "../core/argv-scanner.js";
 // Phase 16 SC-3 — CommandContext (presentation-layer plumbing).
 //
 // Encapsulates the cross-cutting concerns shared by ~29 action handlers
@@ -296,9 +297,10 @@ export type CommandContext = {
  *  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
  *  crash-log can agree on what "feature" means for a given invocation. */
 function extractFeature(argv: readonly string[]): string | null {
-  const i = argv.indexOf("--feature");
-  if (i < 0 || i + 1 >= argv.length) return null;
-  const v = argv[i + 1];
+  const options = optionArgv(argv);
+  const i = options.indexOf("--feature");
+  if (i < 0 || i + 1 >= options.length) return null;
+  const v = options[i + 1];
   return v && !v.startsWith("--") ? v : null;
 }
 

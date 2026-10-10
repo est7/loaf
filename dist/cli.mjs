@@ -17,6 +17,43 @@ import { Box, Text, useApp, useInput } from "ink";
 import { jsx, jsxs } from "react/jsx-runtime";
 import process$1 from "node:process";
 import { createServer } from "node:http";
+//#region src/core/argv-scanner.ts
+/** Keep every raw token, including option-looking values and duplicates.
+* No command recognition, validation, alias expansion or shell parsing occurs.
+*/
+function scanArgv(argv, valueFlags = /* @__PURE__ */ new Set()) {
+	return argv.map((raw, index) => {
+		if (raw === "--") return {
+			kind: "terminator",
+			index,
+			raw
+		};
+		if (!raw.startsWith("-") || raw === "-") return {
+			kind: "positional",
+			index,
+			raw
+		};
+		const equals = raw.startsWith("--") ? raw.indexOf("=") : -1;
+		const flag = equals === -1 ? raw : raw.slice(0, equals);
+		const arity = equals !== -1 || valueFlags.has(flag) ? 1 : 0;
+		return {
+			kind: "option",
+			index,
+			raw,
+			flag,
+			arity,
+			value: equals !== -1 ? raw.slice(equals + 1) : arity === 1 ? argv[index + 1] : void 0,
+			valueIndex: equals !== -1 ? index : arity === 1 && index + 1 < argv.length ? index + 1 : void 0
+		};
+	});
+}
+/** Option-bearing prefix. The first literal terminator and all following tokens
+* belong to the positional view; raw scanArgv provenance remains unchanged. */
+function optionArgv(argv) {
+	const boundary = argv.indexOf("--");
+	return boundary === -1 ? argv : argv.slice(0, boundary);
+}
+//#endregion
 //#region src/core/error-catalog.ts
 const TemplateKey = z.string().regex(/^[A-Za-z0-9_]+$/);
 const DiagnosticTemplate = z.object({
@@ -1716,51 +1753,29 @@ const HOOK_EVENT_TO_CLAUDE_CODE = {
 	"closure-check": "Stop"
 };
 //#endregion
-//#region src/core/argv-scanner.ts
-/** Keep every raw token, including option-looking values and duplicates.
-* No command recognition, validation, alias expansion or shell parsing occurs.
-*/
-function scanArgv(argv, valueFlags = /* @__PURE__ */ new Set()) {
-	return argv.map((raw, index) => {
-		if (raw === "--") return {
-			kind: "terminator",
-			index,
-			raw
-		};
-		if (!raw.startsWith("-") || raw === "-") return {
-			kind: "positional",
-			index,
-			raw
-		};
-		const equals = raw.startsWith("--") ? raw.indexOf("=") : -1;
-		const flag = equals === -1 ? raw : raw.slice(0, equals);
-		const arity = equals !== -1 || valueFlags.has(flag) ? 1 : 0;
-		return {
-			kind: "option",
-			index,
-			raw,
-			flag,
-			arity,
-			value: equals !== -1 ? raw.slice(equals + 1) : arity === 1 ? argv[index + 1] : void 0,
-			valueIndex: equals !== -1 ? index : arity === 1 && index + 1 < argv.length ? index + 1 : void 0
-		};
-	});
-}
-//#endregion
 //#region src/cli/argv-bootstrap.ts
-/** Preserve the bootstrap's positional view, including its legacy treatment
-* of `--` and unconditional consumption of a value-taking flag's next token.
+/** Bootstrap positional view: tokens after `--` are literal operands.
+* Retain pre-boundary consumption of a value-taking flag's next token.
 */
 function bootstrapCommandTokens(argv, max, valueFlags) {
 	const out = [];
 	let consumedThrough = 1;
+	let positionalOnly = false;
 	for (const token of scanArgv(argv, valueFlags)) {
+		if (!positionalOnly && token.kind === "terminator") {
+			positionalOnly = true;
+			continue;
+		}
+		if (positionalOnly) {
+			out.push(token.raw);
+			if (out.length >= max) break;
+			continue;
+		}
 		if (token.index <= consumedThrough) continue;
 		if (token.kind === "option") {
 			if (token.raw.startsWith("--") && token.arity === 1 && !token.raw.includes("=")) consumedThrough = token.index + 1;
 			continue;
 		}
-		if (token.kind === "terminator") continue;
 		out.push(token.raw);
 		if (out.length >= max) break;
 	}
@@ -1770,7 +1785,7 @@ function bootstrapCommandTokens(argv, max, valueFlags) {
 //#region src/cli/selectors.ts
 function collectPresentSelectors(argv, env) {
 	const selectors = [];
-	const tokens = scanArgv(argv);
+	const tokens = scanArgv(optionArgv(argv));
 	if (tokens.some((token) => token.kind === "option" && token.flag === "--session")) selectors.push("--session");
 	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature")) selectors.push("--feature");
 	if (tokens.some((token) => token.kind === "option" && token.flag === "--feature-dir")) selectors.push("--feature-dir");
@@ -1834,9 +1849,9 @@ function evaluateCommandPreparse(program, argv, env) {
 		diagnostic
 	});
 	if (policy?.selectorFailure && selectors.length > 0) return fail(diagnosticVariant(policy.selectorFailure, { conflicting: selectors }));
-	if (policy?.interactiveFormat && argv.some((arg) => arg === "--format" || arg.startsWith("--format="))) return fail(diagnosticVariant("failure.tui.interactive_only", { reason: "tui-interactive-only" }));
+	if (policy?.interactiveFormat && optionArgv(argv).some((arg) => arg === "--format" || arg.startsWith("--format="))) return fail(diagnosticVariant("failure.tui.interactive_only", { reason: "tui-interactive-only" }));
 	if (policy?.selectors === "optional-hook") {
-		if (argv.includes("--list-events")) return { kind: "hook-events" };
+		if (optionArgv(argv).includes("--list-events")) return { kind: "hook-events" };
 		const event = tokens[1];
 		if (event === void 0) return fail(diagnosticVariant("failure.hook.missing_event", { events: HOOK_EVENTS }));
 		if (!HOOK_EVENTS.includes(event)) return fail(diagnosticVariant("failure.hook.unknown_event", {
@@ -1845,7 +1860,7 @@ function evaluateCommandPreparse(program, argv, env) {
 			suggestion: HOOK_EVENTS.find((known) => known.startsWith(event.slice(0, 4))) ?? HOOK_EVENTS[0]
 		}));
 	}
-	if ((policy?.schema?.kind === "artifact" || policy?.schema?.kind === "input" && argv.includes("--schema")) && selectors.length > 0) return fail(diagnosticVariant("failure.schema.selector_conflict", {
+	if ((policy?.schema?.kind === "artifact" || policy?.schema?.kind === "input" && optionArgv(argv).includes("--schema")) && selectors.length > 0) return fail(diagnosticVariant("failure.schema.selector_conflict", {
 		subject: `${tokens.join(" ")}${policy?.schema?.kind === "input" ? " --schema" : ""}`,
 		conflicting: selectors
 	}));
@@ -9087,7 +9102,7 @@ const MIN_SHORT_UUID_PREFIX = 8;
 /** Extract flag value (`--flag value` or `--flag=value`). Returns
 *  `undefined` when absent. */
 function pickFlagValue(argv, flag) {
-	const token = scanArgv(argv, new Set([flag])).find((token) => token.kind === "option" && token.flag === flag);
+	const token = scanArgv(optionArgv(argv), new Set([flag])).find((token) => token.kind === "option" && token.flag === flag);
 	if (token?.kind === "option") {
 		const value = token.value;
 		return token.raw.includes("=") || value !== void 0 && !value.startsWith("--") ? value : void 0;
@@ -9501,7 +9516,7 @@ const FORMAT_MODES_HUMAN$1 = FORMAT_MODES$1.join("|");
 * This exhaustiveness is what gives INVALID_FORMAT its position-independent
 * precedence over the mutex check. */
 function findFirstInvalidFormat(argv) {
-	for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+	for (const token of scanArgv(optionArgv(argv), FORMAT_VALUE_FLAGS)) {
 		if (token.kind !== "option" || token.flag !== "--format") continue;
 		const value = token.value;
 		if (!token.raw.includes("=") && (value === void 0 || value.startsWith("--"))) continue;
@@ -9510,26 +9525,26 @@ function findFirstInvalidFormat(argv) {
 	return null;
 }
 function parsePlainFromArgv(argv) {
-	return scanArgv(argv).some((token) => token.raw === "--plain");
+	return scanArgv(optionArgv(argv)).some((token) => token.raw === "--plain");
 }
 function parseQuietFromArgv(argv) {
-	return scanArgv(argv).some((token) => token.raw === "--quiet") || scanArgv(argv).some((token) => token.raw === "-q");
+	return scanArgv(optionArgv(argv)).some((token) => token.raw === "--quiet") || scanArgv(optionArgv(argv)).some((token) => token.raw === "-q");
 }
 function parseNoInputFromArgv(argv) {
-	return scanArgv(argv).some((token) => token.raw === "--no-input");
+	return scanArgv(optionArgv(argv)).some((token) => token.raw === "--no-input");
 }
 function parseDebugFromArgv(argv, env) {
-	if (scanArgv(argv).some((token) => token.raw === "--debug")) return true;
+	if (scanArgv(optionArgv(argv)).some((token) => token.raw === "--debug")) return true;
 	if (env.LOAF_DEBUG && env.LOAF_DEBUG.length > 0) return true;
 	if (env.DEBUG && env.DEBUG.length > 0) return true;
 	return false;
 }
 function parseDryRunFromArgv(argv) {
-	return scanArgv(argv).some((token) => token.raw === "--dry-run") || scanArgv(argv).some((token) => token.raw === "-n");
+	return scanArgv(optionArgv(argv)).some((token) => token.raw === "--dry-run") || scanArgv(optionArgv(argv)).some((token) => token.raw === "-n");
 }
 function parseVerboseFromArgv(argv) {
 	let count = 0;
-	for (const { raw: arg } of scanArgv(argv)) {
+	for (const { raw: arg } of scanArgv(optionArgv(argv))) {
 		if (arg === "--verbose") {
 			count += 1;
 			continue;
@@ -9541,7 +9556,7 @@ function parseVerboseFromArgv(argv) {
 /** Color suppression per protocol §10.2: `--no-color`, non-empty `NO_COLOR` or
 * `LOAF_NO_COLOR`, or `TERM=dumb`. */
 function parseNoColorFromArgv(argv, env) {
-	if (scanArgv(argv).some((token) => token.raw === "--no-color")) return true;
+	if (scanArgv(optionArgv(argv)).some((token) => token.raw === "--no-color")) return true;
 	if (env.NO_COLOR && env.NO_COLOR.length > 0) return true;
 	if (env.LOAF_NO_COLOR && env.LOAF_NO_COLOR.length > 0) return true;
 	if (env.TERM === "dumb") return true;
@@ -9549,7 +9564,7 @@ function parseNoColorFromArgv(argv, env) {
 }
 function collectOutputFormatEntries(argv) {
 	const out = [];
-	for (const token of scanArgv(argv, FORMAT_VALUE_FLAGS)) {
+	for (const token of scanArgv(optionArgv(argv), FORMAT_VALUE_FLAGS)) {
 		if (token.raw === "--plain") {
 			out.push({
 				entry: "--plain",
@@ -9608,9 +9623,10 @@ function parsePresentation(argv, env = process.env) {
 *  Lifted here (was duplicated in src/core/crash-log.ts) so ctx and
 *  crash-log can agree on what "feature" means for a given invocation. */
 function extractFeature$1(argv) {
-	const i = argv.indexOf("--feature");
-	if (i < 0 || i + 1 >= argv.length) return null;
-	const v = argv[i + 1];
+	const options = optionArgv(argv);
+	const i = options.indexOf("--feature");
+	if (i < 0 || i + 1 >= options.length) return null;
+	const v = options[i + 1];
 	return v && !v.startsWith("--") ? v : null;
 }
 /** Derive `phase` from a `sub_state` like "EXECUTE.work" → "EXECUTE".
@@ -12525,7 +12541,7 @@ function selectorForFeature(feature, featureDir, explicitFeatureDir) {
 	};
 }
 function argvHasFlag(argv, flag) {
-	return scanArgv(argv).some((token) => token.kind === "option" && token.flag === flag);
+	return scanArgv(optionArgv(argv)).some((token) => token.kind === "option" && token.flag === flag);
 }
 function selectorForDispatch(dispatch, argv) {
 	if (dispatch.source === "session-flag" || dispatch.source === "session-env") {
@@ -19813,10 +19829,11 @@ function preparseI18nFromEnv(env) {
 	return createI18n("en", BUILTIN_BUNDLES);
 }
 function detectRenderAsJson(argv) {
-	return argv.some((a) => a === "--format=json" || a === "--format" && argv[argv.indexOf(a) + 1] === "json");
+	const options = optionArgv(argv);
+	return options.some((a) => a === "--format=json" || a === "--format" && options[options.indexOf(a) + 1] === "json");
 }
 async function main(argv = process.argv, deps = {}) {
-	const wantsHelpOrVersion = argv.some((a) => a === "--help" || a === "-h" || a === "--version" || a === "-V");
+	const wantsHelpOrVersion = optionArgv(argv).some((a) => a === "--help" || a === "-h" || a === "--version" || a === "-V");
 	if (!wantsHelpOrVersion) {
 		const presentation = parsePresentation(argv);
 		if (!presentation.ok) {

@@ -36,3 +36,10 @@ export function scanArgv(
     };
   });
 }
+
+/** Option-bearing prefix. The first literal terminator and all following tokens
+ * belong to the positional view; raw scanArgv provenance remains unchanged. */
+export function optionArgv(argv: readonly string[]): readonly string[] {
+  const boundary = argv.indexOf("--");
+  return boundary === -1 ? argv : argv.slice(0, boundary);
+}

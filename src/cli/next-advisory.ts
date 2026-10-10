@@ -1,4 +1,4 @@
-import { scanArgv } from "../core/argv-scanner.js";
+import { scanArgv, optionArgv } from "../core/argv-scanner.js";
 import type { I18n } from "./i18n.js";
 import { SUCCESS_KEYS } from "./runtime-i18n-keys.js";
 import {
@@ -44,7 +44,7 @@ export function selectorForFeature(
 }
 
 function argvHasFlag(argv: readonly string[], flag: string): boolean {
-  return scanArgv(argv).some((token) => token.kind === "option" && token.flag === flag);
+  return scanArgv(optionArgv(argv)).some((token) => token.kind === "option" && token.flag === flag);
 }
 
 export function selectorForDispatch(
