@@ -1035,15 +1035,8 @@ exports[`current public schema output baseline > artifact:state 1`] = `
       "minLength": 1
     },
     "loaf_version_required": {
-      "anyOf": [
-        {
-          "type": "string",
-          "pattern": "^[\\\\^~]?\\\\d+\\\\.\\\\d+(\\\\.\\\\d+)?(-[0-9A-Za-z.-]+)?(\\\\+[0-9A-Za-z.-]+)?$"
-        },
-        {
-          "type": "null"
-        }
-      ]
+      "type": "string",
+      "pattern": "^[\\\\^~]?\\\\d+\\\\.\\\\d+(\\\\.\\\\d+)?(-[0-9A-Za-z.-]+)?(\\\\+[0-9A-Za-z.-]+)?$"
     },
     "phase": {
       "type": "string",

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Current session starts require `ceremony_label`, `workspace`, and
+  `loaf_version_required`; state projections always carry a version requirement.
+  Unlabeled starts remain supported. Registry readers now require
+  `active_tasks`, `pending_queue_depth`, and `ceremony_label` instead of
+  synthesizing defaults for older rows.
+
 - Journal replay preflights every entry, including `session:started`, just as
   mutation does. Invalid bootstrap actors or payloads now fail before reducer
   application; replay retains `REDUCER_REJECTED` with the preflight `inner_code`.

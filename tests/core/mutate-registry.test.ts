@@ -45,6 +45,9 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440010",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -84,6 +87,9 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440011",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -125,6 +131,9 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440012",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -167,6 +176,9 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440015",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -212,6 +224,9 @@ describe("SC-7 — mutator step 9 registry refresh", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440014",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,

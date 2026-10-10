@@ -43,6 +43,29 @@ const validFile = (session_id: string): RegistryFile => ({
 describe("readRegistryEntry", () => {
   const ID = "550e8400-e29b-41d4-a716-000000000001";
 
+  test.each([
+    "active_tasks",
+    "pending_queue_depth",
+    "ceremony_label",
+  ])("missing current registry writer field %s is schema-invalid", async (field) => {
+    const file = { ...validFile(ID) } as Record<string, unknown>;
+    delete file[field];
+    await fs.writeFile(path.join(dir, `${ID}.json`), JSON.stringify(file));
+    const result = await readRegistryEntry(dir, ID);
+    expect(result).toMatchObject({ ok: false, reason: "schema-invalid" });
+    if (!result.ok) expect(result.strictDetail).toContain(field);
+  });
+
+  test("explicit empty registry values remain valid", async () => {
+    const file = { ...validFile(ID), ceremony_label: "" };
+    await fs.writeFile(path.join(dir, `${ID}.json`), JSON.stringify(file));
+    const result = await readRegistryEntry(dir, ID);
+    expect(result).toMatchObject({
+      ok: true,
+      file: { active_tasks: [], pending_queue_depth: 0, ceremony_label: "" },
+    });
+  });
+
   test("valid file → { ok: true, file }", async () => {
     await fs.writeFile(path.join(dir, `${ID}.json`), JSON.stringify(validFile(ID)));
     const r = await readRegistryEntry(dir, ID);

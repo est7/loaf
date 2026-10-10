@@ -60,6 +60,9 @@ async function seedSession(
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: featureName,
         ceremony: STANDARD_CEREMONY,
@@ -140,7 +143,7 @@ describe("SC-7 — buildRegistryFile shape derivation", () => {
     expect(typeof result!.session_label).toBe("string");
   });
 
-  test("T4: workspace defaults to 'default' when payload omits", async () => {
+  test("T4: workspace projects the current start writer value", async () => {
     const { snapshot, entries } = await seedSession("auth-refresh");
     const result = buildRegistryFile({
       snapshot,
@@ -151,7 +154,7 @@ describe("SC-7 — buildRegistryFile shape derivation", () => {
     expect(result!.workspace).toBe("default");
   });
 
-  test("T5: ceremony_label defaults to '' when payload omits", async () => {
+  test("T5: ceremony_label projects the current start writer value", async () => {
     const { snapshot, entries } = await seedSession("auth-refresh");
     const result = buildRegistryFile({
       snapshot,
@@ -159,7 +162,7 @@ describe("SC-7 — buildRegistryFile shape derivation", () => {
       now: FIXED_NOW,
       cwd: FIXED_CWD,
     });
-    expect(result!.ceremony_label).toBe("");
+    expect(result!.ceremony_label).toBe("standard");
   });
 
   test("T6: feature derived from session:started payload (NOT featureDir basename)", async () => {

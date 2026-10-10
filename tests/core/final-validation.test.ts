@@ -43,6 +43,9 @@ const sessionStart = (): JournalEntry => ({
   entry_schema_version: 1,
   kind: "session:started",
   payload: {
+    ceremony_label: "standard",
+    workspace: "default",
+    loaf_version_required: "^0.8.0",
     session_id: "550e8400-e29b-41d4-a716-446655440000",
     feature: "auth-refresh",
     ceremony: STANDARD,
@@ -226,6 +229,9 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "x",
         ceremony: STANDARD,

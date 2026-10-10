@@ -68,6 +68,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,
@@ -105,6 +108,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "auth-refresh",
             ceremony: STANDARD,
@@ -175,6 +181,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,
@@ -257,6 +266,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -400,6 +412,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,
@@ -470,6 +485,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,
@@ -532,6 +550,9 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,
@@ -593,6 +614,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "auth-refresh",
             ceremony: STANDARD,
@@ -634,6 +658,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "auth-refresh",
             ceremony: STANDARD,
@@ -679,6 +706,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "auth-refresh",
             ceremony: STANDARD,
@@ -732,6 +762,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -899,6 +932,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "f",
             ceremony: STANDARD,
@@ -954,6 +990,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "f",
             ceremony: STANDARD,
@@ -994,6 +1033,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -1133,6 +1175,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "f",
             ceremony: STANDARD,
@@ -1192,6 +1237,9 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "f",
             ceremony: STANDARD,
@@ -1415,6 +1463,9 @@ prose body here
           entry_schema_version: 1,
           kind: "session:started",
           payload: {
+            ceremony_label: "standard",
+            workspace: "default",
+            loaf_version_required: "^0.8.0",
             session_id: "550e8400-e29b-41d4-a716-446655440000",
             feature: "f",
             ceremony: STANDARD,
@@ -1457,6 +1508,9 @@ prose body here
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -1531,6 +1585,9 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -1783,6 +1840,9 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -2021,6 +2081,9 @@ scenarios: []
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "f",
           ceremony: STANDARD,
@@ -2345,6 +2408,9 @@ describe("W3 — per-feature write-contention fence", () => {
     entry_schema_version: 1 as const,
     kind: "session:started" as const,
     payload: {
+      ceremony_label: "standard",
+      workspace: "default",
+      loaf_version_required: "^0.8.0",
       session_id: "550e8400-e29b-41d4-a716-446655440000",
       feature: "auth-refresh",
       ceremony: STANDARD,

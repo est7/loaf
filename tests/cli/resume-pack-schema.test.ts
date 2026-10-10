@@ -12,7 +12,7 @@ const VALID_FIXTURE = {
     session_id: "550e8400-e29b-41d4-a716-446655440000",
     session_label: null,
     workspace: "default",
-    loaf_version_required: null,
+    loaf_version_required: "^0.8.0",
     phase: "EXECUTE" as const,
     sub_state: "EXECUTE.work" as const,
     iteration: 1,

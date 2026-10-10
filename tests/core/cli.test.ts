@@ -99,6 +99,18 @@ describe("loaf CLI — Blocker #7 MVP surface", () => {
     // Journal landed on disk.
     const journal = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journal.trim().split("\n")).toHaveLength(1);
+    const started = JSON.parse(journal.trim());
+    expect(started.payload).toMatchObject({
+      ceremony_label: "standard",
+      workspace: "default",
+    });
+    expect(typeof started.payload.loaf_version_required).toBe("string");
+    expect(started.payload.loaf_version_required).toMatch(/^\^\d+\.\d+\.\d+/);
+    expect(started.payload).not.toHaveProperty("session_label");
+    const state = JSON.parse(await fs.readFile(path.join(dir, "snapshots", "state.json"), "utf8"));
+    expect(state.session_label).toBeNull();
+    expect(state.loaf_version_required).toBe(started.payload.loaf_version_required);
+
   });
 
   test("loaf advance moves the cursor (TRIAGE.score → TRIAGE.confirm)", async () => {
@@ -369,6 +381,9 @@ prose body here
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony,
@@ -655,6 +670,9 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -799,6 +817,9 @@ describe("loaf gate decide spec-lock — Slice 1.B sub-cycle 4 (MVP)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -1465,6 +1486,9 @@ prose body here
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: DEEP_NO_STRICT_REVIEW_CEREMONY,
@@ -2197,6 +2221,9 @@ needs_clarification: []
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: DEEP_NO_STRICT_REVIEW_CEREMONY,
@@ -2543,6 +2570,9 @@ needs_clarification: []
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -2824,6 +2854,9 @@ needs_clarification: []
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -3468,6 +3501,9 @@ describe("loaf tasks list — Slice 2 SC4 (MVP)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -3746,6 +3782,9 @@ needs_clarification: []
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: STANDARD_CEREMONY,

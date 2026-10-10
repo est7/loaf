@@ -47,6 +47,9 @@ function entry(bootstrap: boolean, passes: boolean): JournalEntry {
     kind: bootstrap ? "session:started" : "pending:added",
     payload: bootstrap
       ? {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "admission",
           ceremony,

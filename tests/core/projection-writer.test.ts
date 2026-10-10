@@ -22,6 +22,7 @@
 // so the {snapshot, entries, meta} triple is authentic journal truth.
 
 import { describe, expect, test } from "vitest";
+import { StateProjection } from "../../src/core/projection-schema.js";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -435,6 +436,9 @@ async function buildFullFeatureJournal(opts: { withPlan: boolean }): Promise<str
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: STANDARD,
@@ -621,18 +625,27 @@ function startedWidened(): JournalEntry {
   });
 }
 
-/** A legacy (pre-SC1) session:started entry — bucket-C fields absent. */
-function startedLegacy(): JournalEntry {
+/** A current unlabeled start still carries required identity metadata. */
+function startedUnlabeled(): JournalEntry {
   return entry(0, "session:started", {
     session_id: "550e8400-e29b-41d4-a716-446655440000",
     feature: "auth-refresh",
     ceremony: STANDARD,
+    ceremony_label: "standard",
+    workspace: "default",
+    loaf_version_required: "^0.8.0",
   });
 }
 
 describe("composeStateProjection — Phase 15 SC1", () => {
   test("returns null when the snapshot has no session (empty journal → file skipped)", () => {
     expect(composeStateProjection(initialSnapshot(), [])).toBeNull();
+  });
+
+  test("current state projection rejects a null version requirement", () => {
+    const current = composeStateProjection(stateSnapshot(), [startedWidened()]);
+    expect(current).not.toBeNull();
+    expect(StateProjection.safeParse({ ...current, loaf_version_required: null }).success).toBe(false);
   });
 
   test("widened session:started — bucket-C fields project verbatim", () => {
@@ -644,12 +657,12 @@ describe("composeStateProjection — Phase 15 SC1", () => {
     expect(state!.loaf_version_required).toBe("^0.1.0");
   });
 
-  test("legacy session:started — bucket-C fields fall back to the documented defaults", () => {
-    const state = composeStateProjection(stateSnapshot(), [startedLegacy()]);
+  test("unlabeled current start preserves its metadata and projects a null label", () => {
+    const state = composeStateProjection(stateSnapshot(), [startedUnlabeled()]);
     expect(state!.session_label).toBeNull();
-    expect(state!.loaf_version_required).toBeNull();
+    expect(state!.loaf_version_required).toBe("^0.8.0");
     expect(state!.workspace).toBe("default");
-    expect(state!.ceremony_label).toBe("");
+    expect(state!.ceremony_label).toBe("standard");
   });
 
   test("complexity_score is always null — no journal source (F-019)", () => {
@@ -708,6 +721,9 @@ describe("composeStateProjection — Phase 15 SC1", () => {
   test("THROWS on a present-but-invalid bucket-C field — rebuild must not launder corruption (BLOCK 2)", () => {
     // session_label present but not a string — corruption, not legacy absence.
     const badLabel = entry(0, "session:started", {
+      ceremony_label: "standard",
+      workspace: "default",
+      loaf_version_required: "^0.8.0",
       session_id: "550e8400-e29b-41d4-a716-446655440000",
       feature: "auth-refresh",
       ceremony: STANDARD,
@@ -717,6 +733,8 @@ describe("composeStateProjection — Phase 15 SC1", () => {
 
     // loaf_version_required present but malformed — fails the version regex.
     const badVersion = entry(0, "session:started", {
+      ceremony_label: "standard",
+      workspace: "default",
       session_id: "550e8400-e29b-41d4-a716-446655440000",
       feature: "auth-refresh",
       ceremony: STANDARD,

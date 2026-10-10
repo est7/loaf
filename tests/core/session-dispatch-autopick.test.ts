@@ -44,6 +44,9 @@ async function seedFeature(cwd: string, feature: string, regDir: string): Promis
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: `550e8400-e29b-41d4-a716-${Math.random().toString(16).slice(2, 14).padStart(12, "0")}`,
         feature,
         ceremony: STANDARD_CEREMONY,
@@ -155,6 +158,9 @@ describe("SC-8 — auto-pick (level 5)", () => {
         kind: "session:started",
         schema_version: 2,
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-deadbeefdead",
           feature: "stale-feature",
           ceremony: STANDARD_CEREMONY,
@@ -202,6 +208,9 @@ describe("SC-8 — auto-pick (level 5)", () => {
         kind: "session:started",
         schema_version: 2,
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-deadbeefdea1",
           feature: "stale-only",
           ceremony: STANDARD_CEREMONY,

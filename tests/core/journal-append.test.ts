@@ -46,6 +46,9 @@ describe("appendEntry — Stage 1", () => {
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: {
@@ -421,6 +424,9 @@ describe("appendMany — post-append SnapshotMeta (Phase 15 SC2)", () => {
         ...base,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STD_CEREMONY,

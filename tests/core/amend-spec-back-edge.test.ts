@@ -303,6 +303,9 @@ async function seedRealJournalAtExecuteWork(dir: string): Promise<{
       seq++,
       "session:started",
       {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: STANDARD,
@@ -629,6 +632,9 @@ describe("replay anchor — Slice B journal-derivability", () => {
         seq++,
         "session:started",
         {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,
@@ -762,6 +768,9 @@ describe("replay anchor — Slice B journal-derivability", () => {
         seq++,
         "session:started",
         {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "660e8400-e29b-41d4-a716-446655440001",
           feature: "auth-refresh",
           ceremony: STANDARD,

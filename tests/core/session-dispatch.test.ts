@@ -53,6 +53,9 @@ async function seedFeatureWithRegistry(
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: sessionId,
         feature,
         ceremony: STANDARD_CEREMONY,
@@ -345,6 +348,9 @@ describe("SC-8 — --feature-dir matrix (codex r285 P1 + r286 locked)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-fffd00000001",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,
@@ -418,6 +424,9 @@ describe("SC-8 — --feature-dir matrix (codex r285 P1 + r286 locked)", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-fffd00000002",
           feature: "auth-refresh",
           ceremony: STANDARD_CEREMONY,

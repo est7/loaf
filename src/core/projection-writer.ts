@@ -60,17 +60,11 @@ import {
  * (`snapshot.state` null — empty journal): there is no session to project,
  * so the file is SKIPPED, never written empty (mirrors `composeTasksJson`).
  *
- * The bucket-C identity fields (`session_label` / `workspace` /
- * `ceremony_label` / `loaf_version_required`) come off the `session:started`
- * payload, re-parsed through `SessionStartedPayload`: a pre-SC1 (legacy)
- * entry lacks them (field `undefined` → documented fallback —
- * `workspace`→"default", `ceremony_label`→"", `session_label` &
- * `loaf_version_required`→null), but a field PRESENT-but-malformed fails
- * fast — `--rebuild` must not launder payload corruption into a fallback
- * (codex r168 BLOCK 2). `complexity_score` has no journal source — always
- * `null` (F-019). `created_at` is the `session:started` envelope timestamp;
- * `updated_at` is the last replayed entry's. `based_on.tasks` counts
- * `event:tasks_planned` + `event:tasks_amended` (= `TasksJson.version`).
+ * Start identity fields are read from the validated `session:started`
+ * payload. Only session_label is optional and projects as null when omitted.
+ * complexity_score has no journal source and remains null. created_at is the
+ * start envelope timestamp; updated_at is the last replayed entry timestamp.
+ * based_on.tasks counts tasks_planned + tasks_amended entries.
  *
  * `pending` is the LIVE queue — `composePendingJson` minus every entry with
  * a matching `pending:resolved`, mapped down to `PendingQueueEntry` (the
@@ -101,17 +95,13 @@ export function composeStateProjection(
     );
   }
 
-  // Re-parse the `session:started` payload through `SessionStartedPayload`
-  // (codex r168 BLOCK 2): `replayJournal` validates only the envelope, not
-  // `PER_KIND_PAYLOAD`, so `--rebuild` must distinguish a LEGACY entry
-  // (bucket-C field absent → documented fallback) from a CORRUPT one
-  // (bucket-C field present but malformed → fail fast). `.parse` throws on
-  // the corrupt case; an absent optional field is `undefined` → fallback.
+  // Validate independently because this exported composer accepts an entry
+  // stream directly; replay callers have already passed the same schema.
   const startPayload = SessionStartedPayload.parse(startEntry.payload);
   const sessionLabel = startPayload.session_label ?? null;
-  const ceremonyLabel = startPayload.ceremony_label ?? "";
-  const workspace = startPayload.workspace ?? "default";
-  const loafVersionRequired = startPayload.loaf_version_required ?? null;
+  const ceremonyLabel = startPayload.ceremony_label;
+  const workspace = startPayload.workspace;
+  const loafVersionRequired = startPayload.loaf_version_required;
 
   const tasksVersion = entries.filter(
     (e) => e.kind === "event:tasks_planned" || e.kind === "event:tasks_amended",

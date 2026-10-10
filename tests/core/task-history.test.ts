@@ -273,6 +273,9 @@ describe("SessionLoad.entries — Slice C SC-C2a", () => {
         entry_schema_version: 1,
         kind: "session:started",
         payload: {
+          ceremony_label: "standard",
+          workspace: "default",
+          loaf_version_required: "^0.8.0",
           session_id: "550e8400-e29b-41d4-a716-446655440000",
           feature: "auth-refresh",
           ceremony: STANDARD,

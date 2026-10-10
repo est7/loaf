@@ -163,6 +163,9 @@ async function seedJournal(
       entry_schema_version: 1,
       kind: "session:started",
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: "550e8400-e29b-41d4-a716-446655440000",
         feature: "auth-refresh",
         ceremony: STANDARD,
@@ -555,12 +558,11 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(state.phase).toBe("EXECUTE");
       expect(state.sub_state).toBe("EXECUTE.work");
       expect(state.based_on).toEqual({ spec: 1, tasks: 1 });
-      // seedJournal's hand-rolled session:started predates the SC1 widening
-      // — the documented legacy fallback applies.
+      // Current start metadata is replayed; an omitted display label stays null.
       expect(state.session_label).toBeNull();
-      expect(state.loaf_version_required).toBeNull();
+      expect(state.loaf_version_required).toBe("^0.8.0");
       expect(state.workspace).toBe("default");
-      expect(state.ceremony_label).toBe("");
+      expect(state.ceremony_label).toBe("standard");
       // complexity_score has no journal source — always null (F-019).
       expect(state.complexity_score).toBeNull();
       // D-bucket machine-local fields never appear in the projection.

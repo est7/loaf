@@ -488,10 +488,10 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 > **rev 5.0 note**: 本节字段语义未变;变的是 layer——`state.json` 不再是 mutation 入口,任何 phase / sub_state / ceremony / pending / iteration 推进都通过 journal entry 由 reducer derive。原"单源真理"标题在 rev 5.0 退场,canonical truth 移至 `journal.jsonl`(§4 intro + §13.1)。
 
-> **Phase 15 SC1–SC2 note**(F-019 / F-027):原单体 `StateJson` 按 journal 溯源拆成两个契约 —— `StateProjection`(本节,journal 全派生,`loaf doctor --rebuild` 重建)+ `SessionRuntimeFile`(§4.1a,机器本地 `cwd` / `debug` / `heartbeat_at` / `pending_scope`,无 journal 来源,`--rebuild` 不碰)。`session_label` / `loaf_version_required` 改 nullable(pre-SC1 的 legacy `session:started` 缺这些字段,走兜底);`complexity_score` 无 journal 来源,恒为 `null` 直到将来的 TRIAGE-scoring slice。
+> **Phase 15 SC1–SC2 note**(F-019 / F-027):原单体 `StateJson` 按 journal 溯源拆成两个契约 —— `StateProjection`(本节,journal 全派生,`loaf doctor --rebuild` 重建)+ `SessionRuntimeFile`(§4.1a,机器本地 `cwd` / `debug` / `heartbeat_at` / `pending_scope`,无 journal 来源,`--rebuild` 不碰)。F8 A 要求 `session:started` 提供 `workspace` / `ceremony_label` / `loaf_version_required`；只保留 `session_label` nullable 以支持当前无 `--label` 的 start；旧 metadata 缺失不再兜底；`complexity_score` 无 journal 来源,恒为 `null` 直到将来的 TRIAGE-scoring slice。
 
 `StateProjection` 字段分组(active-set detail 不再 store 在 state):
-- **identity**:`session_id` / `session_label`(nullable)/ `workspace` / `loaf_version_required`(nullable)
+- **identity**:`session_id` / `session_label`(nullable)/ `workspace` / `loaf_version_required`(required string)
 - **state machine**:`phase` / `sub_state` / `iteration`
 - **gate flags**:`spec_locked` / `verify_accepted`
 - **control**:`pending`(live FIFO 队列 — 只含未 resolved 的 blocker)
@@ -533,7 +533,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 ```
 
 > `complexity_score` 示例为 `null` —— Phase 15 SC1 无 journal 来源,恒 null(F-019);
-> `session_label` / `loaf_version_required` 在 legacy `session:started` 缺失时同为 `null`。
+> 当前无 `--label` 的 start 投影 `session_label=null`；`loaf_version_required` 必须由 start writer 写入，projection 不接受 null。
 
 **非空 pending 队列示例**(fan-out 中 worker A 撞 profile_escalation,worker B 撞 finding_decision,user 还没答 head):
 

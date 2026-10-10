@@ -1109,9 +1109,9 @@ const SessionStartedPayload = z.object({
 	feature: z.string().min(1),
 	ceremony: CeremonyPayload,
 	session_label: z.string().min(3).optional(),
-	ceremony_label: z.string().optional(),
-	workspace: z.string().min(1).optional(),
-	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/).optional()
+	ceremony_label: z.string(),
+	workspace: z.string().min(1),
+	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
 }).passthrough();
 const BackEdgeAmendSpec = z.object({
 	action: z.literal("amend-spec"),
@@ -1336,7 +1336,7 @@ const StateProjection = z.object({
 	session_id: z.string().min(1),
 	session_label: z.string().min(3).nullable(),
 	workspace: z.string().min(1),
-	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/).nullable(),
+	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
 	phase: StateProjectionPhase,
 	sub_state: SubState,
 	iteration: z.number().int().positive(),
@@ -1365,10 +1365,10 @@ const RegistryFile = z.object({
 	phase: StateProjectionPhase,
 	sub_state: SubState,
 	iteration: z.number().int().positive(),
-	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
+	active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)),
 	pending: PendingQueueEntry.nullable(),
-	pending_queue_depth: z.number().int().nonnegative().default(0),
-	ceremony_label: z.string().default("")
+	pending_queue_depth: z.number().int().nonnegative(),
+	ceremony_label: z.string()
 }).strict();
 //#endregion
 //#region src/core/snapshot.ts
@@ -7460,17 +7460,11 @@ function composeLessonsProjection(resolved, header) {
 * (`snapshot.state` null — empty journal): there is no session to project,
 * so the file is SKIPPED, never written empty (mirrors `composeTasksJson`).
 *
-* The bucket-C identity fields (`session_label` / `workspace` /
-* `ceremony_label` / `loaf_version_required`) come off the `session:started`
-* payload, re-parsed through `SessionStartedPayload`: a pre-SC1 (legacy)
-* entry lacks them (field `undefined` → documented fallback —
-* `workspace`→"default", `ceremony_label`→"", `session_label` &
-* `loaf_version_required`→null), but a field PRESENT-but-malformed fails
-* fast — `--rebuild` must not launder payload corruption into a fallback
-* (codex r168 BLOCK 2). `complexity_score` has no journal source — always
-* `null` (F-019). `created_at` is the `session:started` envelope timestamp;
-* `updated_at` is the last replayed entry's. `based_on.tasks` counts
-* `event:tasks_planned` + `event:tasks_amended` (= `TasksJson.version`).
+* Start identity fields are read from the validated `session:started`
+* payload. Only session_label is optional and projects as null when omitted.
+* complexity_score has no journal source and remains null. created_at is the
+* start envelope timestamp; updated_at is the last replayed entry timestamp.
+* based_on.tasks counts tasks_planned + tasks_amended entries.
 *
 * `pending` is the LIVE queue — `composePendingJson` minus every entry with
 * a matching `pending:resolved`, mapped down to `PendingQueueEntry` (the
@@ -7487,9 +7481,9 @@ function composeStateProjection(snapshot, entries) {
 	if (lastEntry === void 0) throw new Error("composeStateProjection: snapshot carries session state but the entry stream is empty — projection corruption");
 	const startPayload = SessionStartedPayload.parse(startEntry.payload);
 	const sessionLabel = startPayload.session_label ?? null;
-	const ceremonyLabel = startPayload.ceremony_label ?? "";
-	const workspace = startPayload.workspace ?? "default";
-	const loafVersionRequired = startPayload.loaf_version_required ?? null;
+	const ceremonyLabel = startPayload.ceremony_label;
+	const workspace = startPayload.workspace;
+	const loafVersionRequired = startPayload.loaf_version_required;
 	const tasksVersion = entries.filter((e) => e.kind === "event:tasks_planned" || e.kind === "event:tasks_amended").length;
 	return StateProjection.parse({
 		schema_version: 2,
@@ -7749,8 +7743,8 @@ function buildRegistryFile(input) {
 	if (!startEntry) throw new Error("buildRegistryFile: snapshot has state.session_id but entries lacks session:started — projection corruption");
 	const startPayload = SessionStartedPayload.parse(startEntry.payload);
 	const sessionLabel = startPayload.session_label ?? "";
-	const workspace = startPayload.workspace ?? "default";
-	const ceremonyLabel = startPayload.ceremony_label ?? "";
+	const workspace = startPayload.workspace;
+	const ceremonyLabel = startPayload.ceremony_label;
 	const unresolved = composePendingJson(entries).pending.filter((p) => !p.resolved).map(({ resolved: _resolved, ...rest }) => rest);
 	const pendingHead = unresolved[0] ?? null;
 	const pendingQueueDepth = unresolved.length;

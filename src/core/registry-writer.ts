@@ -91,11 +91,11 @@ export function buildRegistryFile(input: BuildRegistryFileInput): RegistryFile |
   }
   const startPayload = SessionStartedPayload.parse(startEntry.payload);
 
-  // Bucket-C fallbacks — schema-valid (per codex r280 P2 for
-  // session_label specifically, which is z.string() not nullable).
+  // Unlabeled current starts use an empty registry label; other identity
+  // fields are required by the start payload schema.
   const sessionLabel = startPayload.session_label ?? "";
-  const workspace = startPayload.workspace ?? "default";
-  const ceremonyLabel = startPayload.ceremony_label ?? "";
+  const workspace = startPayload.workspace;
+  const ceremonyLabel = startPayload.ceremony_label;
 
   // pending: rich PendingQueueEntry head (NOT slim Snapshot.pending
   // shape) + unresolved-only queue depth. Codex r280 P3:

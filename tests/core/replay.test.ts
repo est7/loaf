@@ -41,6 +41,9 @@ function startEntry(seq = 0, entryId = "JE-000001"): JournalEntry {
       session_id: "550e8400-e29b-41d4-a716-446655440000",
       feature: "auth-refresh",
       ceremony: STANDARD,
+      ceremony_label: "standard",
+      workspace: "default",
+      loaf_version_required: "^0.8.0",
     },
   };
 }
@@ -358,6 +361,9 @@ test("replay rejects the removed SETTLE.reconcile edge without producing a snaps
   const filePath = await tmpJournal();
   const started = startEntry();
   started.payload = {
+    ceremony_label: "standard",
+    workspace: "default",
+    loaf_version_required: "^0.8.0",
     session_id: "550e8400-e29b-41d4-a716-446655440000",
     feature: "auth-refresh",
     ceremony: { ...STANDARD, settle_phase: true, lessons_required: "must" },
@@ -448,11 +454,40 @@ test("replay preflights a truthy malformed session bootstrap before producing a 
     JSON.stringify({
       ...startEntry(),
       payload: {
+        ceremony_label: "standard",
+        workspace: "default",
+        loaf_version_required: "^0.8.0",
         session_id: 42,
         feature: "auth-refresh",
         ceremony: STANDARD,
       },
     }) + "\n";
+  try {
+    await fs.writeFile(filePath, original);
+    const result = await replayJournal(filePath);
+    expect(result).toMatchObject({
+      ok: false,
+      code: "REDUCER_REJECTED",
+      at_seq: 0,
+      detail: { inner_code: "INVALID_PAYLOAD" },
+    });
+    expect(result).not.toHaveProperty("snapshot");
+    expect(await fs.readFile(filePath, "utf8")).toBe(original);
+  } finally {
+    await fs.rm(path.dirname(filePath), { recursive: true, force: true });
+  }
+});
+
+test.each([
+  "ceremony_label",
+  "workspace",
+  "loaf_version_required",
+])("replay rejects session:started missing current writer metadata %s", async (field) => {
+  const filePath = await tmpJournal();
+  const entry = startEntry();
+  const payload = { ...(entry.payload as Record<string, unknown>) };
+  delete payload[field];
+  const original = JSON.stringify({ ...entry, payload }) + "\n";
   try {
     await fs.writeFile(filePath, original);
     const result = await replayJournal(filePath);

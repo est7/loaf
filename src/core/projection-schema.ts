@@ -197,14 +197,8 @@ export type PendingJson = z.infer<typeof PendingJson>;
 // machine-local `pending_scope`. This runtime state is never replay-derived and
 // never written by `--rebuild` (codex r167 Q3).
 //
-// Bucket-C identity fields (`session_label` / `workspace` /
-// `loaf_version_required` / `ceremony_label`) ride the widened
-// `session:started` payload. A pre-SC1 (legacy) entry lacks them;
-// `composeStateProjection` applies the documented fallback — `workspace`
-// → "default", `ceremony_label` → "", `session_label` &
-// `loaf_version_required` → null. `complexity_score` has no journal
-// source at all (codex r167 Q2) so it is `null` until a future
-// TRIAGE-scoring slice — nullable here, never invented.
+// Current start metadata is required. Only session_label is nullable for
+// unlabeled starts. complexity_score has no journal source and stays null.
 const StateProjectionPhase = z.enum(["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"]);
 
 // `pending` is the LIVE FIFO queue — only entries with no matching
@@ -223,8 +217,7 @@ export const StateProjection = z
       .string()
       // Mirrors SessionStartedPayload — accepts semver prerelease +
       // build-metadata pins (codex r181 → r182).
-      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
-      .nullable(),
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
     // ── state machine ──
     phase: StateProjectionPhase,
     sub_state: SubState,
@@ -276,8 +269,8 @@ export type StateProjection = z.infer<typeof StateProjection>;
 //   - session_label = SessionStartedPayload.session_label ?? ""
 //     (NOT nullable — empty-string fallback
 //     is the narrowest schema-valid choice; codex r280 P2)
-//   - workspace = SessionStartedPayload.workspace ?? "default"
-//   - ceremony_label = SessionStartedPayload.ceremony_label ?? ""
+//   - workspace = SessionStartedPayload.workspace
+//   - ceremony_label = SessionStartedPayload.ceremony_label
 //   - feature = SessionStartedPayload.feature (canonical journal source;
 //     NOT path.basename(featureDir) — tmp featureDir paths in tests
 //     don't carry the canonical name)
@@ -304,12 +297,12 @@ export const RegistryFile = z
     phase: StateProjectionPhase,
     sub_state: SubState,
     iteration: z.number().int().positive(),
-    active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)).default([]),
+    active_tasks: z.array(z.string().regex(/^T-\d{3,}$/)),
     // Rich `PendingPromptEntry` (NOT slim Snapshot.pending shape) per
     // codex r280 P3. Head = unresolved[0]; null when queue is empty.
     pending: PendingQueueEntry.nullable(),
-    pending_queue_depth: z.number().int().nonnegative().default(0),
-    ceremony_label: z.string().default(""),
+    pending_queue_depth: z.number().int().nonnegative(),
+    ceremony_label: z.string(),
   })
   .strict();
 export type RegistryFile = z.infer<typeof RegistryFile>;

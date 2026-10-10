@@ -313,23 +313,18 @@ export const CeremonyPayload = z
   })
   .passthrough();
 
-// Phase 15 SC1 (F-019): bucket-C identity fields widened onto the payload
-// so `state.json` becomes a fully journal-derived projection. All four are
-// `.optional()` — a pre-SC1 (legacy) `session:started` entry lacks them,
-// and `composeStateProjection` applies the documented fallback (workspace
-// → "default", ceremony_label → "", session_label / loaf_version_required
-// → null). `complexity_score` is deliberately NOT widened here: it is a
-// TRIAGE-phase score with no value at `loaf start` time and no journal
-// source yet (codex r167 Q2) — the projection field stays `null` until a
-// future TRIAGE-scoring slice.
+// Current start writers always provide ceremony_label, workspace, and the
+// version requirement. session_label remains optional for unlabeled starts.
+// complexity_score has no start-time journal source and stays outside this
+// payload; the state projection represents that absence as null.
 export const SessionStartedPayload = z
   .object({
     session_id: z.string().min(1),
     feature: z.string().min(1),
     ceremony: CeremonyPayload,
     session_label: z.string().min(3).optional(),
-    ceremony_label: z.string().optional(),
-    workspace: z.string().min(1).optional(),
+    ceremony_label: z.string(),
+    workspace: z.string().min(1),
     // Widened to accept semver prerelease + build-metadata pins
     // (codex r181 → r182): the CLI auto-derives this as
     // `^${packageJson.version}`, so an RC / alpha / build-tagged
@@ -337,8 +332,7 @@ export const SessionStartedPayload = z
     // Backward-compatible — old `^0.1.0` / `~1.0` pins still parse.
     loaf_version_required: z
       .string()
-      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
-      .optional(),
+      .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
   })
   .passthrough();
 export type SessionStartedPayload = z.infer<typeof SessionStartedPayload>;
