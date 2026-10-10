@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Command } from "commander";
 import { createPolicyCommandProgram } from "../../src/cli/command-program.js";
+import { bootstrapCommandTokens } from "../../src/cli/argv-bootstrap.js";
 import {
   assertLeafCommandPolicies,
   bootstrapValueFlags,
@@ -11,6 +12,20 @@ import {
 } from "../../src/cli/command-policy.js";
 
 const argv = (...args: string[]) => ["node", "loaf", ...args];
+
+test("bootstrap arities follow new registrations without a second flag manifest", () => {
+  const tree = createPolicyCommandProgram();
+  tree.option("--inventory-probe <value>", "Probe a newly registered global option");
+  const start = tree.commands.find((command) => command.name() === "start")!;
+  start.option("--inventory-tag <value>", "Probe a newly registered start option");
+  const flags = bootstrapValueFlags(tree);
+  expect(flags.has("--inventory-probe")).toBe(true);
+  expect(flags.has("--inventory-tag")).toBe(true);
+  expect(flags.has("--input")).toBe(false);
+  expect(
+    bootstrapCommandTokens(argv("--inventory-probe", "value", "sessions", "list"), 2, flags),
+  ).toEqual(["sessions", "list"]);
+});
 
 test("actual command inventory declares every leaf and binds aliases to the same policy", () => {
   const tree = createPolicyCommandProgram();

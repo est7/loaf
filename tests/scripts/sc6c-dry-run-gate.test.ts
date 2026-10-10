@@ -1,14 +1,17 @@
-// SC-6c compatibility table: retain the existing expected command labels
-// while registered action policy replaces per-handler markers. Slice 4
-// will close inventory ownership without this historical hand-maintained table.
+// SC-6c registered-inventory behavior coverage and dry-run protocol invariants.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPolicyCommandProgram } from "../../src/cli/command-program.js";
-import { commandPolicyInventory } from "../../src/cli/command-policy.js";
-import { evaluateCommandAction } from "../../src/cli/command-action-policy.js";
+import type { Command } from "commander";
+import { createCommandContext } from "../../src/cli/command-context.js";
+import { createCommandMutator } from "../../src/cli/command-mutator.js";
+import { createJsonInputIngestor } from "../../src/cli/input-ingestion.js";
+import { createI18n, BUILTIN_BUNDLES } from "../../src/cli/i18n.js";
+import { createCommandProgram, createPolicyCommandProgram } from "../../src/cli/command-program.js";
+import { commandPolicyInventory, type CommandPolicy } from "../../src/cli/command-policy.js";
+import { CommandPolicyComplete } from "../../src/cli/command-action-policy.js";
 import { DiagnosticCode, ERROR_CATALOG } from "../../src/core/error-catalog.js";
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -17,52 +20,162 @@ async function readRepo(rel: string): Promise<string> {
   return await fs.readFile(path.join(REPO_ROOT, rel), "utf8");
 }
 
-/** Historical expected labels, retained unchanged for this intermediate slice. */
-const READ_ONLY_COMMANDS: readonly string[] = [
-  "status",
-  "tasks list",
-  "tasks next",
-  "tasks complete",
-  "pending list",
-  "pending status",
-  "finding list",
-  "journal list",
-  "evidence list",
-  "spec status",
-  "doctor", // bare + --rebuild both go through the same handler
-  "sessions list", // Phase 16 SC-9b
-  "verify status", // Phase 16 SC-9a-1
-  "check", // Phase 16 SC-9c
-  // `--schema` modifier mode on schema-emitting mutators
-  // + 5 `<kind> schema` artifact subs. All are read-only schema dumps.
-  "spec add-req --schema",
-  "spec add-scenario --schema",
-  "spec add-visual --schema",
-  "tasks submit --schema",
-  "tasks add --schema",
-  "evidence add --schema",
-  "spec schema",
-  "tasks schema",
-  "evidence schema",
-  "finding schema",
-  "state schema",
-  "spec edit", // Phase 16 SC-12a-2 (wrapping mutator)
-  "handoff", // Phase 16 SC-13a (projection-writer)
-  "tui", // Phase 16 SC-14 (read-only)
-  "config init", // rev 5.0 (scaffold-writer) — rejects --dry-run
-];
+// Discover every leaf and exercise its installed hook, not a manually listed subset.
+// Expected outcomes follow the declared category contract; labels come from the
+// public registration path, independently of production commandLabel().
+class BusinessBoundary extends Error {}
 
-describe("SC-6c — historical read-only labels remain rejected by registered action policy", () => {
-  test("each compatibility-table label produces the same dry-run diagnostic", () => {
-    const rejected = new Set<string>();
-    for (const { command, policy } of commandPolicyInventory(createPolicyCommandProgram())) {
-      if (!policy) continue;
-      if (policy.schema?.kind === "input") command.setOptionValue("schema", true);
-      const result = evaluateCommandAction(command, { dryRun: true, argv: [], env: {} });
-      if (result.kind === "failure" && result.diagnostic.code === "DRY_RUN_NOT_APPLICABLE")
-        rejected.add(String(result.diagnostic.detail.command));
+function probeProgram(args: string[]) {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const argv = ["node", "loaf", ...args];
+  const i18n = createI18n("en", BUILTIN_BUNDLES);
+  const ctx = createCommandContext(argv, {
+    i18n,
+    writeStdout: (line) => stdout.push(line),
+    writeStderr: (line) => stderr.push(line),
+  });
+  const input = createJsonInputIngestor({
+    readStdin: async () => {
+      throw new Error("inventory probe must not read business input");
+    },
+    isStdinTty: () => false,
+  });
+  const program = createCommandProgram(
+    ctx,
+    createCommandMutator(ctx, { registryWriter: undefined }),
+    input,
+    i18n,
+    "cli:inventory-test",
+    {},
+    () => false,
+    () => new Date("2026-01-01T00:00:00Z"),
+  );
+  let reached: string | undefined;
+  program.hook("preAction", (_root, command) => {
+    reached = command.name();
+    throw new BusinessBoundary();
+  });
+  return { program, argv, ctx, stdout, stderr, reached: () => reached };
+}
+
+function invocation(command: Command): string[] {
+  const chain: Command[] = [];
+  for (let current: Command | null = command; current?.parent; current = current.parent)
+    chain.unshift(current);
+  return chain.flatMap((part) => [
+    part.name(),
+    ...part.registeredArguments
+      .filter((arg) => arg.required)
+      .map((arg) => arg.argChoices?.[0] ?? "probe"),
+    ...part.options
+      .filter((option) => option.mandatory && option.defaultValue === undefined)
+      .flatMap((option) =>
+        option.required
+          ? [option.long ?? option.short!, option.argChoices?.[0] ?? "probe"]
+          : [option.long ?? option.short!],
+      ),
+  ]);
+}
+
+const leaves = commandPolicyInventory(createPolicyCommandProgram()).filter(
+  ({ command }) => command.commands.length === 0,
+);
+const rejectingTypes = new Map([
+  ["read-only", "read-only"],
+  ["wrapping", "wrapping"],
+  ["projection-writer", "projection-writer"],
+  ["scaffold-writer", "scaffold-writer"],
+  ["spec-edit", "wrapping"],
+]);
+
+function modes(policy: CommandPolicy) {
+  const result: Array<{
+    flags: string[];
+    schema: boolean;
+    commandType: string | undefined;
+    suffix: string;
+  }> = [
+    {
+      flags: [],
+      schema: policy.schema?.kind === "artifact",
+      commandType: rejectingTypes.get(policy.dryRun),
+      suffix: "",
+    },
+  ];
+  if (policy.schema?.kind === "input")
+    result.push({
+      flags: ["--schema"],
+      schema: true,
+      commandType: "read-only",
+      suffix: " --schema",
+    });
+  if (policy.dryRun === "spec-edit")
+    for (const value of ["", "/missing"])
+      result.push({
+        flags: [`--input=${value}`],
+        schema: false,
+        commandType: undefined,
+        suffix: "",
+      });
+  if (policy.selectors === "recovery")
+    result.push({
+      flags: ["--rebuild"],
+      schema: false,
+      commandType: "read-only",
+      suffix: " --rebuild",
+    });
+  return result;
+}
+
+describe("SC-6c — registered inventory covers installed action policy", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  test.each(leaves)("$path: every registered mode preserves rejection or continuation", async ({
+    command,
+    policy,
+    path: label,
+  }) => {
+    expect(policy, `missing policy for ${label}`).toBeDefined();
+    vi.stubEnv("LOAF_SESSION", undefined);
+    vi.stubEnv("LOAF_FEATURE", undefined);
+    for (const mode of modes(policy!)) {
+      for (const dryRun of [false, true]) {
+        const probe = probeProgram([
+          ...invocation(command),
+          ...mode.flags,
+          ...(dryRun ? ["--dry-run"] : []),
+          "--format=json",
+        ]);
+        const rejected = dryRun && mode.commandType !== undefined;
+        await expect(
+          probe.program.parseAsync(probe.argv),
+          `${label} ${mode.flags} dry-run=${dryRun}`,
+        ).rejects.toBeInstanceOf(
+          rejected || mode.schema ? CommandPolicyComplete : BusinessBoundary,
+        );
+        if (rejected) {
+          expect(probe.reached()).toBeUndefined();
+          expect(probe.stdout).toEqual([]);
+          expect(probe.ctx.exitCode).toBe(2);
+          expect(JSON.parse(probe.stderr.join(""))).toMatchObject({
+            code: "DRY_RUN_NOT_APPLICABLE",
+            detail: { command: label + mode.suffix, command_type: mode.commandType },
+          });
+        } else if (mode.schema) {
+          expect(probe.reached()).toBeUndefined();
+          expect(probe.ctx.exitCode).toBe(0);
+          expect(probe.stderr).toEqual([]);
+          const schema = JSON.parse(probe.stdout.join(""));
+          expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+          expect(schema.type === "object" || Array.isArray(schema.anyOf)).toBe(true);
+        } else {
+          expect(probe.reached()).toBe(command.name());
+          expect(probe.ctx.exitCode).toBe(0);
+          expect(probe.stdout).toEqual([]);
+          expect(probe.stderr).toEqual([]);
+        }
+      }
     }
-    expect(READ_ONLY_COMMANDS.filter((label) => !rejected.has(label))).toEqual([]);
   });
 });
 

@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Command-policy ownership checks now cover the registered command tree and
+  every declared action mode, replacing the hand-maintained dry-run command
+  table. AST checks reject retired local policy helpers and duplicate owners;
+  scanner and policy behavior remain unchanged.
+
 - Registered command policy now owns action-entry dry-run rejection, Board
   selector rejection and schema-output short circuits. Commander syntax
   validation and existing diagnostic priority still run in the same order;
