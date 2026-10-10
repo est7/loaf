@@ -6,7 +6,7 @@ import { main, type MainDeps } from "../../src/cli.js";
 import { loadSession } from "../../src/core/cli-runtime.js";
 import { mutate } from "../../src/core/journal-mutate.js";
 import { replayJournal } from "../../src/core/journal-bootstrap.js";
-import { evaluateSpecLock } from "../../src/core/gates/spec-lock-eval.js";
+import { evaluateSpecLockFromSnapshot } from "../../src/core/gates/spec-lock-eval.js";
 
 async function run(args: string[], deps: MainDeps) {
   let stdout = "",
@@ -84,7 +84,7 @@ test("next routes an admitted real journal after standalone approved spec-lock w
     );
     await success(["tasks", "submit", "--input", tasks, ...selector]);
     const loaded = await loadSession(feature);
-    expect(await evaluateSpecLock(loaded.snapshot, feature)).toEqual({ ok: true });
+    expect(evaluateSpecLockFromSnapshot(loaded.snapshot)).toEqual({ ok: true });
     const mutation = await mutate(
       {
         at: "2026-10-10T12:25:00.000Z",

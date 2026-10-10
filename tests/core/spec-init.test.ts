@@ -319,15 +319,8 @@ describe("loaf spec init — SC4 scaffold", () => {
 
 describe("Slice 4 e2e — init → submit → add-* → SPEC.design", () => {
   // Slice 4 e2e is scoped to the SPEC content CLI surface itself.
-  // Carrying the workflow through `gate decide spec-lock --approve`
-  // requires spec.md projection rebuild on each submit/add-* (so
-  // evaluateSpecLock's frontmatter read matches the snapshot's REQ/
-  // SCEN/VIS arrays) PLUS a task graph emitted by `event:tasks_planned`
-  // that drives REQ-AUTH-001 to clear spec-lock check 4. Both
-  // dependencies live outside the SPEC content kind set (spec.md
-  // rebuild is a derived-projection writer; tasks_planned is Slice 2
-  // territory). Codex r74's "e2e ... spec-lock approve" target is
-  // tracked as a follow-up alongside the spec.md projection writer.
+  // Gate approval additionally requires a task graph driving REQ-AUTH-001.
+  // That lifecycle is exercised separately from the SPEC content surface.
   test("full SPEC content workflow lands at SPEC.design with spec_version=4 + populated projections", async () => {
     const { dir, feature } = await seedAtSpecProposal();
 

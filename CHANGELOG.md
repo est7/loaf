@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Spec-lock approval now shares the snapshot evaluator used by spec status.
+  Spec-lock decisions ignore derived spec.md; missing or malformed canonical spec
+  still fails closed with snapshot-sourced check-1 detail, without a file path
+  or YAML subcode. Task-graph freshness and pre-batch approval ordering remain
+  enforced. This explicitly retires the historical file-truth gate behavior.
+
 - Completed pending/finding intervention ownership: TUI/Board independently
   consume the core live-queue query, and an AST ownership gate rejects known
   duplicate policy/query forms and reverse dependencies. Rendering models,

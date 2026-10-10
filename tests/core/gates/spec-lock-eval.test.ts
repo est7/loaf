@@ -1,23 +1,11 @@
-// spec-lock-eval — IO boundary tests for evaluateSpecLock(snapshot, featureDir).
-//
-// Ticket #12B keeps spec-lock's spec.md IO boundary for gate compatibility,
-// while semantic checks run through the shared replay constructor. These tests
-// pin the gate-only check-1 mapping and all eight check outputs.
+// Spec-lock snapshot boundary and eight-check characterization.
 
 import { describe, expect, test } from "vitest";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { stringify as yamlStringify } from "yaml";
 
-import { evaluateSpecLock } from "../../../src/core/gates/spec-lock-eval.js";
+import { evaluateSpecLockFromSnapshot } from "../../../src/core/gates/spec-lock-eval.js";
 import { initialSnapshot } from "../../../src/core/reducer.js";
 import type { Snapshot, TaskState } from "../../../src/core/reducer.js";
 import type { SpecFrontmatter } from "../../../src/core/spec-schema.js";
-
-async function tmpFeatureDir(): Promise<string> {
-  return await fs.mkdtemp(path.join(os.tmpdir(), "loaf-spec-lock-eval-"));
-}
 
 function specDesignSnapshot(): Snapshot {
   const base = initialSnapshot();
@@ -103,84 +91,77 @@ function replaySnapshot(fm: SpecFrontmatter, overrides: Partial<Snapshot> = {}):
   };
 }
 
-async function writeSpecFrontmatter(dir: string, fm: SpecFrontmatter): Promise<void> {
-  await fs.writeFile(path.join(dir, "spec.md"), `---\n${yamlStringify(fm)}---\n`);
-}
-
-describe("evaluateSpecLock — gate IO boundary mapping", () => {
-  test("SPEC_NOT_FOUND → check:1 FailedCheck with subcode detail", async () => {
-    const dir = await tmpFeatureDir();
-    // No spec.md created.
-    const result = await evaluateSpecLock(specDesignSnapshot(), dir);
-    const specPath = path.join(dir, "spec.md");
-    expect(result).toEqual({
+describe("snapshot spec boundary", () => {
+  test.each([
+    "session",
+    "header",
+  ])("missing %s fails closed with snapshot-sourced check 1", (missing) => {
+    const snapshot = replaySnapshot(frontmatter());
+    if (missing === "session") snapshot.state = null;
+    else snapshot.spec_header = null;
+    expect(evaluateSpecLockFromSnapshot(snapshot)).toEqual({
       ok: false,
       checks: [
         {
           check: 1,
           code: "SPEC_FRONTMATTER_INVALID",
-
-          detail: { subcode: "SPEC_NOT_FOUND", path: specPath },
+          detail: {
+            source: "snapshot",
+            subcode: "SPEC_NOT_FOUND",
+            reason: missing === "session" ? "session_state_missing" : "spec_header_missing",
+          },
         },
       ],
     });
   });
 
-  test("SPEC_YAML_INVALID → check:1 FailedCheck preserves subcode", async () => {
-    const dir = await tmpFeatureDir();
-    await fs.writeFile(path.join(dir, "spec.md"), "---\n[: bogus yaml :]\n---\n");
-    const result = await evaluateSpecLock(specDesignSnapshot(), dir);
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
-    expect(result.checks[0]!.code).toBe("SPEC_FRONTMATTER_INVALID");
-    expect(result.checks[0]!.detail?.subcode).toBe("SPEC_YAML_INVALID");
-  });
-
-  test("SPEC_FRONTMATTER_INVALID (schema-invalid) → check:1 preserves subcode", async () => {
-    const dir = await tmpFeatureDir();
-    await fs.writeFile(
-      path.join(dir, "spec.md"),
-      "---\nschema_version: 99\nspec_version: 1\n---\n",
-    );
-    const result = await evaluateSpecLock(specDesignSnapshot(), dir);
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
-    expect(result.checks[0]!.code).toBe("SPEC_FRONTMATTER_INVALID");
-    expect(result.checks[0]!.detail?.subcode).toBe("SPEC_FRONTMATTER_INVALID");
+  test("malformed snapshot spec fails closed without a file path or YAML subcode", () => {
+    const snapshot = replaySnapshot(frontmatter({ intent: "short" }));
+    const result = evaluateSpecLockFromSnapshot(snapshot);
+    expect(result).toMatchObject({
+      ok: false,
+      checks: [
+        {
+          check: 1,
+          code: "SPEC_FRONTMATTER_INVALID",
+          detail: {
+            source: "snapshot",
+            subcode: "SPEC_FRONTMATTER_INVALID",
+            issues: [expect.objectContaining({ path: ["intent"] })],
+          },
+        },
+      ],
+    });
+    if (result.ok) throw new Error("expected invalid snapshot spec");
+    expect(result.checks[0]!.detail).not.toHaveProperty("path");
   });
 });
 
-describe("evaluateSpecLock — eight-check characterization before replay-input extraction", () => {
+describe("evaluateSpecLockFromSnapshot — eight-check characterization before replay-input extraction", () => {
   test("clean replay returns the exact pass shape", async () => {
-    const dir = await tmpFeatureDir();
     const fm = frontmatter();
-    await writeSpecFrontmatter(dir, fm);
 
-    await expect(evaluateSpecLock(replaySnapshot(fm), dir)).resolves.toEqual({ ok: true });
+    await expect(evaluateSpecLockFromSnapshot(replaySnapshot(fm))).toEqual({ ok: true });
   });
 
   test("check 3 failure has the exact shape and suppresses checks 4, 6, and 7", async () => {
-    const dir = await tmpFeatureDir();
     const fm = frontmatter();
-    await writeSpecFrontmatter(dir, fm);
 
     await expect(
-      evaluateSpecLock(replaySnapshot(fm, { tasks_based_on: null }), dir),
-    ).resolves.toEqual({
+      evaluateSpecLockFromSnapshot(replaySnapshot(fm, { tasks_based_on: null })),
+    ).toEqual({
       ok: false,
       checks: [
         {
           check: 3,
           code: "TASKS_NOT_PLANNED",
           detail: {},
-
         },
       ],
     });
   });
 
   test("checks 2, 4, 5, 6, 7, and 8 retain exact failure ordering and shapes", async () => {
-    const dir = await tmpFeatureDir();
     const unverifiableReq: SpecFrontmatter["requirements"][number] = {
       id: "REQ-AUTH-099",
       type: "ubiquitous",
@@ -223,11 +204,10 @@ describe("evaluateSpecLock — eight-check characterization before replay-input 
       labels: [],
       visual_contract_refs: [],
     };
-    await writeSpecFrontmatter(dir, fm);
 
     await expect(
-      evaluateSpecLock(replaySnapshot(fm, { tasks: [invalidVisualTask] }), dir),
-    ).resolves.toEqual({
+      evaluateSpecLockFromSnapshot(replaySnapshot(fm, { tasks: [invalidVisualTask] })),
+    ).toEqual({
       ok: false,
       checks: [
         {

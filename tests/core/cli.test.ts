@@ -342,7 +342,7 @@ async function seedFeatureAtSpecDesign(
   dir: string,
   ceremony: Ceremony = STANDARD_CEREMONY,
 ): Promise<void> {
-  // Write spec.md to disk first — evaluateSpecLock reads from this.
+  // Seed an initial derived spec.md; admitted entries below own gate truth.
   await fsP.writeFile(
     path.join(dir, "spec.md"),
     `---
@@ -4587,7 +4587,7 @@ describe("loaf config init", () => {
 // Snapshot.spec_header + .requirements / .scenarios / .visual_contracts.
 //
 // Closes Slice 4 SC4 deferred e2e (`gate decide spec-lock --approve`
-// previously blocked because evaluateSpecLock reads spec.md from disk
+// historically blocked because the gate read spec.md from disk
 // and no reducer apply wrote it; Slice A widens Snapshot + Pass 5
 // renders the projection).
 // ─────────────────────────────────────────────────────────────────────────
@@ -4703,8 +4703,8 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     expect(r.exit).toBe(0);
 
     // 8. THE UNLOCK — gate decide spec-lock --approve walks through.
-    // evaluateSpecLock reads spec.md (Pass-5-rendered) + parses
-    // SpecFrontmatter + runs 8 checks. Returns ok → batch [gate:decided,
+    // Snapshot evaluation validates the admitted spec and runs 8 checks.
+    // Returns ok → batch [gate:decided,
     // phase_advanced SPEC.design → EXECUTE.plan] appends.
     //
     // Note: this batch contains NO kinds from SPEC_EMITTING_KINDS so
@@ -4712,8 +4712,7 @@ describe("End-to-end SPEC content → spec-lock approve (Slice A SC-A2)", () => 
     // (spec_locked=true + cursor=EXECUTE.plan) comes from the reducer
     // apply of the batch + the next `loaf status` projection read.
     // Pass 5 was already exercised by steps 4 (spec submit) and 5
-    // (spec add-req); evaluateSpecLock now reads what those writes
-    // produced.
+    // (spec add-req); gate evaluation uses their admitted snapshot state.
     r = await cli(
       [
         "gate",

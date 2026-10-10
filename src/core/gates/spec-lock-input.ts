@@ -1,8 +1,6 @@
 // Pure replay constructor for the spec-lock evaluator.
 //
-// The journal-derived Snapshot is authoritative for read-side diagnostics.
-// Gate approval retains its historical spec.md semantics by projecting parsed
-// frontmatter into a transient Snapshot before calling this same constructor.
+// The journal-derived Snapshot is authoritative for approval and diagnostics.
 
 import type { Snapshot } from "../projection-types.js";
 import { SCHEMA_VERSION, SpecFrontmatter } from "../spec-schema.js";
@@ -16,33 +14,6 @@ export type SpecLockCheckInput = {
 export type SpecLockCheckInputResult =
   | { ok: true; input: SpecLockCheckInput }
   | { ok: false; failure: FailedCheck };
-
-/**
- * Compatibility adapter for the gate IO path. It projects an already parsed
- * spec.md frontmatter value into a transient snapshot view, after which the
- * gate uses the same replay constructor as read-side diagnostics. This keeps
- * the historical gate behavior for a divergent derived file without teaching
- * the checker or constructor about file IO.
- */
-export function withSpecFrontmatterProjection(
-  snapshot: Snapshot,
-  frontmatter: SpecFrontmatter,
-): Snapshot {
-  if (snapshot.state === null) return snapshot;
-  return {
-    ...snapshot,
-    state: { ...snapshot.state, spec_version: frontmatter.spec_version },
-    spec_header: {
-      feature: frontmatter.feature,
-      intent: frontmatter.intent,
-      adr_refs: frontmatter.adr_refs,
-      needs_clarification: frontmatter.needs_clarification,
-    },
-    requirements: frontmatter.requirements,
-    scenarios: frontmatter.scenarios,
-    visual_contracts: frontmatter.visual_contracts ?? [],
-  };
-}
 
 /**
  * Reconstruct the full spec-lock input from replayed snapshot state.

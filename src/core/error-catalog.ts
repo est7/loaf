@@ -1052,12 +1052,12 @@ export const ERROR_CATALOG = {
   SPEC_FRONTMATTER_INVALID: {
     exit_code: 2,
     // gate context lives on the parent GATE_PRECONDITION_VIOLATION envelope
-    // (detail.gate). FailedCheck.detail only carries {subcode, ...read.detail}
+    // (detail.gate). FailedCheck.detail carries a subcode and source detail
     // — no gate or readable detail placeholder, so the template intentionally
     // avoids those vars to stay correctly substituted.
-    message_template: "spec.md frontmatter failed gate check 1 (subcode={subcode})",
+    message_template: "spec frontmatter failed gate check 1 (subcode={subcode})",
     fix_template:
-      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Both spec-lock and verify-accept require a valid spec.md at check 1.",
+      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy spec-lock.",
     template_keys: ["subcode"],
     doc_anchor: "protocol.md#§5.1",
     detail_keys: ["subcode"],

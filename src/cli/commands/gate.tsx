@@ -95,7 +95,7 @@ export function registerGate(
         if (approve) {
           if (gateName === "spec-lock") {
             // dual-entry batch: human gate:decided + machine event:phase_advanced.
-            // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
+            // mutateBatch Pass 1.5 evaluates spec-lock from the pre-batch snapshot; any
             // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
             // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
             // SC4: when pendingHead exists, insert pending:resolved between

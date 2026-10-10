@@ -1,12 +1,4 @@
-// Gate-mode IO helpers. verify-accept uses the evaluator factory directly;
-// spec-lock shares the same check-1 failure mapper but keeps an explicit IO
-// adapter so parsed spec.md can be projected through its replay constructor.
-//
-// The DIAGNOSTIC eval (evaluateVerifyAcceptDiagnostic) is intentionally NOT
-// built here: on read failure it returns a structured `{ok:false, code, ...}`
-// error rather than a synthesized check-1 row — a divergence codex r302 locked
-// so `loaf verify status` does not pretend 5 checks ran when 0 could. Keeping it
-// out of this factory keeps gate-mode vs diagnostic-mode explicit.
+// Verify-accept gate-mode IO helpers. Spec-lock uses snapshot evaluation.
 
 import { readSpecFrontmatter } from "../spec-frontmatter.js";
 import type { ReadSpecResult } from "../spec-frontmatter.js";

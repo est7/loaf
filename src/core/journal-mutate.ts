@@ -68,7 +68,7 @@ import {
   type FeatureWriteLease,
   type FeatureWriteLeaseOptions,
 } from "./feature-write-lease.js";
-import { evaluateSpecLock } from "./gates/spec-lock-eval.js";
+import { evaluateSpecLockFromSnapshot } from "./gates/spec-lock-eval.js";
 import { evaluateVerifyAccept } from "./gates/verify-accept-eval.js";
 import type { JournalEntry } from "./journal-entry.js";
 import { SPEC_EMITTING_KINDS } from "./kind-registry.js";
@@ -477,7 +477,7 @@ async function mutateBatchUnderLease(
     const approval = gateApprovals[0]!;
     const gateKind = (approval.payload as { gate_kind?: string }).gate_kind;
     if (gateKind === "spec-lock") {
-      const gateResult = await evaluateSpecLock(ctx.snapshot, ctx.feature_dir);
+      const gateResult = evaluateSpecLockFromSnapshot(ctx.snapshot);
       if (!gateResult.ok) {
         return {
           ok: false,

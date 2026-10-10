@@ -105,8 +105,8 @@ async function readJournalLines(dir: string): Promise<string[]> {
 async function seedAtSpecDesignWithTask(): Promise<{ dir: string; feature: string }> {
   const dir = await tmpFeatureDir();
   const feature = "F1";
-  // Write a parser-valid spec.md so evaluateSpecLock (gate-decide Pass 1.5)
-  // can read it. REQ-AUTH-001 uses acceptance_na=true to pass spec-lock
+  // Seed a parser-valid derived spec.md; the snapshot owns gate truth.
+  // REQ-AUTH-001 uses acceptance_na=true to pass spec-lock
   // check 2 (verifiability) without needing scenarios. Mirrors the
   // seedFeatureAtSpecDesign helper in cli.test.ts.
   await fs.writeFile(

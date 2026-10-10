@@ -1219,7 +1219,7 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
     // through real reducer/mutate entries — write spec.md to disk, emit
     // spec_submitted + companion REQ entries, plan tasks at SPEC.design,
     // then run the gate batch. mutateBatch Pass 1.5 will invoke
-    // evaluateSpecLock which reads spec.md and runs all 8 checks against
+    // evaluateSpecLockFromSnapshot which runs all 8 checks against
     // the now-populated snapshot.
     const dir = await tmpFeatureDir();
     let snapshot = initialSnapshot();
@@ -1277,7 +1277,7 @@ describe("mutateBatch — Slice 1.0 Cycle 3 (multi-entry transactional)", () => 
       meta = r.meta;
     }
 
-    // Write spec.md to disk so evaluateSpecLock can read it at gate time.
+    // Write an initial projection body; spec-lock evaluates the admitted snapshot.
     // Frontmatter matches the projection that spec_submitted + companion
     // REQ will populate, so check 3 (tasks_based_on.spec === spec.spec_version)
     // and check 4 (REQ-AUTH-001 driven by some task) pass.
@@ -1625,7 +1625,7 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
     return { dir, snapshot, tailSeq, entries, meta };
   }
 
-  test("missing spec.md → GATE_PRECONDITION_VIOLATION with check 1 subcode=SPEC_NOT_FOUND", async () => {
+  test("missing snapshot spec → GATE_PRECONDITION_VIOLATION with snapshot-sourced check 1", async () => {
     const { dir, snapshot, tailSeq, entries, meta } = await seedAtSpecDesign();
     const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
 
@@ -1656,82 +1656,15 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
       expect(detail?.failure_count).toBe(1);
       expect(detail?.checks?.[0]?.check).toBe(1);
       expect(detail?.checks?.[0]?.code).toBe("SPEC_FRONTMATTER_INVALID");
-      expect(detail?.checks?.[0]?.detail?.subcode).toBe("SPEC_NOT_FOUND");
+      expect(detail?.checks?.[0]?.detail).toEqual({ source: "snapshot", subcode: "SPEC_NOT_FOUND", reason: "spec_header_missing" });
     }
     // Journal must be untouched — gate fails before Pass 2 (sidecar/append).
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
     expect(journalAfter).toBe(journalBefore);
   });
 
-  test("stale tasks_based_on → GATE_PRECONDITION_VIOLATION with check 3 TASKS_BASED_ON_STALE", async () => {
-    const { dir, snapshot, tailSeq, entries, meta } = await seedAtSpecDesign();
-    // spec.md says spec_version: 2, but we'll plan tasks with based_on.spec: 1
-    // by emitting tasks_planned then submitting a higher spec_version via
-    // raw fixture (mock state to skip the spec_submitted bump path here).
-    await fs.writeFile(
-      path.join(dir, "spec.md"),
-      `---
-schema_version: 2
-spec_version: 2
-feature:
-  id: F-001
-  name: feat
-intent: twenty char minimum intent body required by zod min
-adr_refs: []
-requirements:
-  - id: REQ-AUTH-001
-    type: ubiquitous
-    response: the system shall do something measurable here
-    acceptance_na: true
-    acceptance_na_reason: subjective UX validated via manual testing scope
-scenarios: []
-needs_clarification: []
----
-`,
-    );
-    // Stale snapshot: tasks_based_on.spec=1 (set by manual reducer write)
-    const staleSnapshot: Snapshot = {
-      ...snapshot,
-      tasks_based_on: { spec: 1 },
-      tasks: [
-        {
-          id: "T-001",
-          kind: "behavioral",
-          status: "pending",
-          steps: {
-            red: { applicability: "must", status: "pending" },
-            implement: { applicability: "must", status: "pending" },
-            refactor: { applicability: "optional", status: "pending" },
-          },
-          drives: ["REQ-AUTH-001"],
-          depends_on: [],
-          labels: [],
-        },
-      ],
-    };
-
-    const result = await mutateBatch(
-      [
-        {
-          at: "2026-05-15T11:00:00.000Z",
-          actor: "human:est9",
-          entry_schema_version: 1,
-          kind: "gate:decided",
-          payload: { gate_kind: "spec-lock", decision: "approved", reason: "go" },
-        },
-      ],
-      { feature_dir: dir, snapshot: staleSnapshot, tail_seq: tailSeq, entries, meta, fsync: false },
-    );
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("GATE_PRECONDITION_VIOLATION");
-      const checks = (
-        result.detail as { checks?: Array<{ check: number; code: string }> } | undefined
-      )?.checks;
-      expect(checks?.some((c) => c.check === 3 && c.code === "TASKS_BASED_ON_STALE")).toBe(true);
-    }
-  });
+  // The former file-truth version-mismatch fixture is superseded by the
+  // admitted canonical spec-bump regression in spec-lock-snapshot-admission.
 
   test("multiple approved gate:decided in batch → MULTIPLE_GATE_DECISIONS", async () => {
     const { dir, snapshot, tailSeq, entries, meta } = await seedAtSpecDesign();
@@ -1766,9 +1699,9 @@ needs_clarification: []
     expect(journalAfter).toBe(journalBefore);
   });
 
-  test("rejected spec-lock pass-through — evaluateSpecLock NOT called (no spec.md needed)", async () => {
+  test("rejected spec-lock pass-through — snapshot evaluator skipped (no canonical spec needed)", async () => {
     const { dir, snapshot, tailSeq, entries, meta } = await seedAtSpecDesign();
-    // Deliberately do NOT write spec.md — proves gate evaluator was skipped.
+    // Deliberately leave spec_header null — proves gate evaluator was skipped.
 
     const result = await mutateBatch(
       [

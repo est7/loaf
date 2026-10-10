@@ -132,7 +132,11 @@ describe("failure outlet extraction baseline", () => {
             {
               check: 1,
               code: "SPEC_FRONTMATTER_INVALID",
-              detail: { subcode: "SPEC_NOT_FOUND", path: path.join(dir, "spec.md") },
+              detail: {
+                source: "snapshot",
+                subcode: "SPEC_NOT_FOUND",
+                reason: "spec_header_missing",
+              },
             },
           ],
         },
