@@ -4,7 +4,9 @@
 import type { FindingAction, FindingCategory, FindingActionRisk } from "./finding-schema.js";
 import type { Diagnostic } from "./error-catalog.js";
 import { diagnostic } from "./error-catalog.js";
-import type { PendingState } from "./projection-types.js";
+import type { z } from "zod";
+import type { FindingRaisedPayload, TaskStepResetPayload } from "./journal-entry.js";
+import type { FindingState, Snapshot, PendingState } from "./projection-types.js";
 import type { GateName, SubState } from "./journal-entry.js";
 import { backEdgeTarget } from "./reducer/transition.js";
 
@@ -238,4 +240,274 @@ export function pendingResolutionOwner(
     return { owner: "gate decide", gate: gateAtCursor };
   if (kind === "profile_escalation") return { owner: "profile escalate" };
   return { owner: "pending resolve" };
+}
+
+type FindingLookup<Action extends string = string> =
+  | { ok: true; finding: FindingState & { action: Action }; index: number }
+  | ({ ok: false } & Diagnostic<"FINDING_NOT_FOUND">);
+
+function openFinding(rows: readonly FindingState[], id: string): FindingLookup {
+  const index = rows.findIndex((finding) => finding.id === id);
+  if (index === -1)
+    return { ok: false, code: "FINDING_NOT_FOUND", detail: { id, reason: "not_found" } };
+  const finding = rows[index]!;
+  if (finding.status === "closed")
+    return { ok: false, code: "FINDING_NOT_FOUND", detail: { id, reason: "already_closed" } };
+  return { ok: true, finding, index };
+}
+
+/** Preserve each operation's single-action/string versus fix-action/array detail. */
+export function requireFindingSponsor<const Action extends string>(
+  rows: readonly FindingState[],
+  id: string,
+  expectedAction: Action | readonly Action[],
+): FindingLookup<Action> {
+  const found = openFinding(rows, id);
+  if (!found.ok) return found;
+  const matches =
+    typeof expectedAction === "string"
+      ? found.finding.action === expectedAction
+      : (expectedAction as readonly string[]).includes(found.finding.action);
+  if (!matches)
+    return {
+      ok: false,
+      code: "FINDING_NOT_FOUND",
+      detail: {
+        id,
+        reason: "action_mismatch",
+        expected_action: expectedAction,
+        actual_action: found.finding.action,
+      },
+    };
+  // The equality/includes check above refines the loose historical action.
+  return { ...found, finding: found.finding as FindingState & { action: Action } };
+}
+
+/** Closure retains its historical missing-id reason and reducer-stage check. */
+export function findingForClosure(rows: readonly FindingState[], id: string): FindingLookup {
+  const found = openFinding(rows, id);
+  return !found.ok && found.detail.reason === "not_found"
+    ? { ok: false, code: "FINDING_NOT_FOUND", detail: { id, reason: "unknown" } }
+    : found;
+}
+
+type FindingPolicyFailure = { ok: false } & Diagnostic<
+  | "FINDING_ACTION_INCOHERENT"
+  | "FINDING_ACTION_UNUSUAL_REASON_REQUIRED"
+  | "FINDING_TARGET_REQUIRED"
+  | "FINDING_AMEND_SPEC_NOT_LOCKED"
+  | "FINDING_NOT_FOUND"
+  | "MUTATION_OUT_OF_RIGHTS"
+>;
+
+/** Runs after general kind/actor/sub-state admission; preserves the existing
+ * risk -> reason -> target -> spec-lock order. */
+export function checkFindingRaise(
+  payload: z.infer<typeof FindingRaisedPayload>,
+  snapshot: Pick<Snapshot, "tasks" | "state">,
+  sub_state: SubState,
+): FindingPolicyFailure | null {
+  const risk = cellRisk(payload.category, payload.action);
+  if (risk === "incoherent") {
+    return {
+      ok: false,
+      code: "FINDING_ACTION_INCOHERENT",
+      detail: { category: payload.category, action: payload.action },
+    };
+  }
+  if (risk === "unusual") {
+    const reasonLength = payload.reason?.length ?? 0;
+    if (reasonLength < FINDING_UNUSUAL_REASON_MIN_LENGTH) {
+      return {
+        ok: false,
+        ...diagnostic("FINDING_ACTION_UNUSUAL_REASON_REQUIRED", {
+          category: payload.category,
+          action: payload.action,
+          current_reason_length: reasonLength,
+          min_reason_length: FINDING_UNUSUAL_REASON_MIN_LENGTH,
+        }),
+      };
+    }
+  }
+  const mode = FINDING_ACTION_TARGET_MODE[payload.action];
+  if (mode === "task_id_step") {
+    if (!payload.target) {
+      return {
+        ok: false,
+        code: "FINDING_TARGET_REQUIRED",
+        detail: { action: payload.action, reason: "missing" },
+      };
+    }
+    const expectedStep = FIX_ACTION_STEP[payload.action];
+    if (expectedStep && payload.target.step !== expectedStep) {
+      return {
+        ok: false,
+        code: "FINDING_TARGET_REQUIRED",
+        detail: {
+          action: payload.action,
+          task_id: payload.target.task_id,
+          step: payload.target.step,
+          expected_step: expectedStep,
+          reason: "step_mismatch",
+        },
+      };
+    }
+  }
+  if (mode === "none" && payload.target) {
+    // codex r69 BLOCK 1: amend-spec / defer / backlog must not carry a
+    // target — `requires_target_payload="none"` is the action-effect
+    // contract from FINDING_ACTION_EFFECTS, not advisory prose. Accepting
+    // a bogus target would project misleading state into snapshot.findings
+    // and break strict-over-Postel for the journal payload.
+    return {
+      ok: false,
+      code: "FINDING_TARGET_REQUIRED",
+      detail: {
+        action: payload.action,
+        task_id: payload.target.task_id,
+        step: payload.target.step,
+        reason: "target_not_allowed",
+      },
+    };
+  }
+  if (mode === "task_id_step" || mode === "task_id_optional") {
+    if (payload.target) {
+      const task = snapshot.tasks.find((t) => t.id === payload.target!.task_id);
+      if (!task) {
+        return {
+          ok: false,
+          code: "FINDING_TARGET_REQUIRED",
+          detail: {
+            action: payload.action,
+            task_id: payload.target.task_id,
+            reason: "task_not_found",
+          },
+        };
+      }
+      if (!(payload.target.step in task.steps)) {
+        return {
+          ok: false,
+          code: "FINDING_TARGET_REQUIRED",
+          detail: {
+            action: payload.action,
+            task_id: payload.target.task_id,
+            step: payload.target.step,
+            available_steps: Object.keys(task.steps),
+            reason: "step_not_found",
+          },
+        };
+      }
+    }
+  }
+
+  // Slice B — amend-spec specifically requires state.spec_locked=true
+  // (codex r94 Finding 3 placement: AFTER generic sub_state authority
+  // L164+ so SUB_STATE_AUTHORITY_VIOLATION wins at SPEC.* / SETTLE.* /
+  // TRIAGE.*; this refine only fires at the legal raise lanes
+  // EXECUTE.* + VERIFY.* where finding:raised is authorized).
+  // Pre-lock callers should edit via `loaf spec submit / add-*`
+  // directly — SPEC_LOCKED_NO_DIRECT_EDIT is the inverse gate.
+  if (payload.action === "amend-spec" && !snapshot.state?.spec_locked) {
+    return {
+      ok: false,
+      code: "FINDING_AMEND_SPEC_NOT_LOCKED",
+      detail: {
+        current_spec_locked: false,
+        current_sub_state: sub_state,
+        hint: "use loaf spec submit / add-* directly to edit spec when not locked",
+      },
+    };
+  }
+  return null;
+}
+
+/** Sponsor -> canonical step -> exact target -> task/step -> abandoned order. */
+export function checkFindingReset(
+  payload: TaskStepResetPayload,
+  snapshot: Pick<Snapshot, "findings" | "tasks">,
+  sub_state: SubState,
+): FindingPolicyFailure | null {
+  const sponsor = requireFindingSponsor(snapshot.findings, payload.finding_id, [
+    "fix-impl",
+    "fix-test",
+  ]);
+  if (!sponsor.ok) return sponsor;
+  const finding = sponsor.finding;
+  // The payload's {task_id, step} must equal the finding's target — the
+  // reset cannot drift off the task/step the finding authorized. The
+  // canonical step is the finding action's own (fix-impl → "implement",
+  // fix-test → "red") — SC3 keys it off finding.action, not a hardcode.
+  const expectedStep = FIX_ACTION_STEP[finding.action]!;
+  if (payload.step !== expectedStep) {
+    return {
+      ok: false,
+      code: "MUTATION_OUT_OF_RIGHTS",
+      detail: {
+        finding_id: payload.finding_id,
+        sub_state,
+        task_id: payload.task_id,
+        step: payload.step,
+        expected_step: expectedStep,
+        reason: "task_step_reset_step_mismatch",
+      },
+    };
+  }
+  const expectedTarget = finding.target;
+  if (
+    expectedTarget === undefined ||
+    expectedTarget.task_id !== payload.task_id ||
+    expectedTarget.step !== payload.step
+  ) {
+    return {
+      ok: false,
+      code: "MUTATION_OUT_OF_RIGHTS",
+      detail: {
+        finding_id: payload.finding_id,
+        sub_state,
+        task_id: payload.task_id,
+        expected_target: expectedTarget ?? null,
+        actual_target: { task_id: payload.task_id, step: payload.step },
+        reason: "task_step_reset_target_mismatch",
+      },
+    };
+  }
+  // The target task + step must exist in the projection — a step the task
+  // does not carry cannot be reset (treated as a target mismatch: the
+  // finding's target points at a step absent from the task graph).
+  const task = snapshot.tasks.find((t) => t.id === payload.task_id);
+  if (!task || !(payload.step in task.steps)) {
+    return {
+      ok: false,
+      code: "MUTATION_OUT_OF_RIGHTS",
+      detail: {
+        finding_id: payload.finding_id,
+        sub_state,
+        task_id: payload.task_id,
+        step: payload.step,
+        reason: "task_step_reset_target_mismatch",
+      },
+    };
+  }
+  // codex r140 P1 — a fix-impl/fix-test step reset may reopen a `done`
+  // task (r139 Q5: a done task's step cannot otherwise be re-run), but
+  // `abandoned` is a TERMINAL status and must NOT be reactivated
+  // (protocol.md — abandoned is a final task status; task-schema.ts —
+  // abandoned tasks cannot be reactivated). The reducer rewrites the target
+  // task to `in_progress`; without this guard a fix finding targeting an
+  // abandoned task would resurrect it. The guard is action-agnostic — it
+  // serves both fix-impl and fix-test.
+  if (task.status === "abandoned") {
+    return {
+      ok: false,
+      code: "MUTATION_OUT_OF_RIGHTS",
+      detail: {
+        finding_id: payload.finding_id,
+        sub_state,
+        task_id: payload.task_id,
+        status: task.status,
+        reason: "task_step_reset_task_abandoned",
+      },
+    };
+  }
+  return null;
 }

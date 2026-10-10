@@ -1,3 +1,4 @@
+import { findingForClosure } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -284,21 +285,12 @@ export function registerFinding(
       }
       // CLI-side pre-check surfaces FINDING_NOT_FOUND directly (instead of
       // letting mutate() wrap the reducer error as REDUCER_ERROR). Reducer
-      // keeps the same checks as defense-in-depth for raw mutate paths.
+      // retains the same application-stage checks after admission.
       // Detail.reason distinguishes unknown vs already_closed for callers
       // that want to react programmatically (codex r68 #4).
-      const existing = session.snapshot.findings.find((f) => f.id === fndId);
-      if (!existing) {
-        ctx.failure(
-          diagnostic("FINDING_NOT_FOUND", {
-            id: fndId,
-            reason: "unknown",
-          }),
-        );
-        return;
-      }
-      if (existing.status === "closed") {
-        ctx.failure(diagnostic("FINDING_NOT_FOUND", { id: fndId, reason: "already_closed" }));
+      const closure = findingForClosure(session.snapshot.findings, fndId);
+      if (!closure.ok) {
+        ctx.failure(closure);
         return;
       }
       const result = await mutator.run(featureDir, session, {

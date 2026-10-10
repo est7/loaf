@@ -1,4 +1,4 @@
-import { resolvePending } from "./intervention-policy.js";
+import { resolvePending, findingForClosure } from "./intervention-policy.js";
 // Reducer apply path — minimum viable Stage 2.
 //
 // Entry admission validates authority + transition; applyValidated (step 7)
@@ -486,22 +486,9 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
       // so the projection stays a single-source contract (one close per
       // finding, no silent retry that would re-emit an audit-trail entry).
       const payload = entry.payload;
-      const idx = prev.findings.findIndex((f) => f.id === payload.id);
-      if (idx === -1) {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: { id: payload.id, reason: "unknown" },
-        };
-      }
-      const existing = prev.findings[idx]!;
-      if (existing.status === "closed") {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: { id: payload.id, reason: "already_closed" },
-        };
-      }
+      const closure = findingForClosure(prev.findings, payload.id);
+      if (!closure.ok) return closure;
+      const idx = closure.index;
       const findings = prev.findings.map((f, i) =>
         i === idx ? { ...f, status: "closed" as const } : f,
       );

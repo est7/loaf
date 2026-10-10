@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Finding sponsor lookup, raise/refinement and reset authorization now share
+  the intervention policy owner. Closure uses the same open-finding lookup
+  while retaining its historical missing-id reason and reducer-stage check.
+  Diagnostic detail/order, task amendment rights and transition rules remain
+  unchanged.
+
 - Pending head/live-queue, FIFO resolution, advance blockers, gate soft binding,
   escalation checks and next-action intent routing now share the intervention
   policy owner. CLI assembly and admission/reducer checks retain their original

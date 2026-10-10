@@ -1,9 +1,6 @@
-import { diagnostic } from "../../error-catalog.js";
 import {
-  FINDING_ACTION_TARGET_MODE,
-  FINDING_UNUSUAL_REASON_MIN_LENGTH,
-  FIX_ACTION_STEP,
-  cellRisk,
+  requireFindingSponsor,
+  checkFindingRaise,
   planGatePending,
   checkPendingAdvance,
   checkPendingEscalation,
@@ -80,34 +77,12 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
     // snapshot which transition doesn't carry.
     const backEdge = payload.back_edge;
     if (backEdge !== undefined) {
-      const findingId = backEdge.finding_id;
-      const finding = ctx.snapshot.findings.find((f) => f.id === findingId);
-      if (!finding) {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: { id: findingId, reason: "not_found" },
-        };
-      }
-      if (finding.status === "closed") {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: { id: findingId, reason: "already_closed" },
-        };
-      }
-      if (finding.action !== backEdge.action) {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: {
-            id: findingId,
-            reason: "action_mismatch",
-            expected_action: backEdge.action,
-            actual_action: finding.action,
-          },
-        };
-      }
+      const sponsor = requireFindingSponsor(
+        ctx.snapshot.findings,
+        backEdge.finding_id,
+        backEdge.action,
+      );
+      if (!sponsor.ok) return sponsor;
     }
 
     // (5b.2) Session 7 / F-016 — EXECUTE.done = all tasks final.
@@ -338,118 +313,7 @@ export function checkSessionTerminalReason(c: PreflightCheckCtx): PreflightFailu
 export function checkFindingRaised(c: PreflightCheckCtx): PreflightFailure | null {
   const { entry, sub_state, ctx } = c;
   if (entry.kind === "finding:raised") {
-    const payload = entry.payload;
-    const risk = cellRisk(payload.category, payload.action);
-    if (risk === "incoherent") {
-      return {
-        ok: false,
-        code: "FINDING_ACTION_INCOHERENT",
-        detail: { category: payload.category, action: payload.action },
-      };
-    }
-    if (risk === "unusual") {
-      const reasonLength = payload.reason?.length ?? 0;
-      if (reasonLength < FINDING_UNUSUAL_REASON_MIN_LENGTH) {
-        return {
-          ok: false,
-          ...diagnostic("FINDING_ACTION_UNUSUAL_REASON_REQUIRED", {
-            category: payload.category,
-            action: payload.action,
-            current_reason_length: reasonLength,
-            min_reason_length: FINDING_UNUSUAL_REASON_MIN_LENGTH,
-          }),
-        };
-      }
-    }
-    const mode = FINDING_ACTION_TARGET_MODE[payload.action];
-    if (mode === "task_id_step") {
-      if (!payload.target) {
-        return {
-          ok: false,
-          code: "FINDING_TARGET_REQUIRED",
-          detail: { action: payload.action, reason: "missing" },
-        };
-      }
-      const expectedStep = FIX_ACTION_STEP[payload.action];
-      if (expectedStep && payload.target.step !== expectedStep) {
-        return {
-          ok: false,
-          code: "FINDING_TARGET_REQUIRED",
-          detail: {
-            action: payload.action,
-            task_id: payload.target.task_id,
-            step: payload.target.step,
-            expected_step: expectedStep,
-            reason: "step_mismatch",
-          },
-        };
-      }
-    }
-    if (mode === "none" && payload.target) {
-      // codex r69 BLOCK 1: amend-spec / defer / backlog must not carry a
-      // target — `requires_target_payload="none"` is the action-effect
-      // contract from FINDING_ACTION_EFFECTS, not advisory prose. Accepting
-      // a bogus target would project misleading state into snapshot.findings
-      // and break strict-over-Postel for the journal payload.
-      return {
-        ok: false,
-        code: "FINDING_TARGET_REQUIRED",
-        detail: {
-          action: payload.action,
-          task_id: payload.target.task_id,
-          step: payload.target.step,
-          reason: "target_not_allowed",
-        },
-      };
-    }
-    if (mode === "task_id_step" || mode === "task_id_optional") {
-      if (payload.target) {
-        const task = ctx.snapshot.tasks.find((t) => t.id === payload.target!.task_id);
-        if (!task) {
-          return {
-            ok: false,
-            code: "FINDING_TARGET_REQUIRED",
-            detail: {
-              action: payload.action,
-              task_id: payload.target.task_id,
-              reason: "task_not_found",
-            },
-          };
-        }
-        if (!(payload.target.step in task.steps)) {
-          return {
-            ok: false,
-            code: "FINDING_TARGET_REQUIRED",
-            detail: {
-              action: payload.action,
-              task_id: payload.target.task_id,
-              step: payload.target.step,
-              available_steps: Object.keys(task.steps),
-              reason: "step_not_found",
-            },
-          };
-        }
-      }
-    }
-
-    // Slice B — amend-spec specifically requires state.spec_locked=true
-    // (codex r94 Finding 3 placement: AFTER generic sub_state authority
-    // L164+ so SUB_STATE_AUTHORITY_VIOLATION wins at SPEC.* / SETTLE.* /
-    // TRIAGE.*; this refine only fires at the legal raise lanes
-    // EXECUTE.* + VERIFY.* where finding:raised is authorized).
-    // Pre-lock callers should edit via `loaf spec submit / add-*`
-    // directly — SPEC_LOCKED_NO_DIRECT_EDIT is the inverse gate.
-    if (payload.action === "amend-spec" && !ctx.snapshot.state?.spec_locked) {
-      return {
-        ok: false,
-        code: "FINDING_AMEND_SPEC_NOT_LOCKED",
-        detail: {
-          current_spec_locked: false,
-          current_sub_state: sub_state,
-          hint: "use loaf spec submit / add-* directly to edit spec when not locked",
-        },
-      };
-    }
+    return checkFindingRaise(entry.payload, ctx.snapshot, sub_state);
   }
   return null;
 }

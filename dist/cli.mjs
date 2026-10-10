@@ -5750,6 +5750,214 @@ function pendingResolutionOwner(kind, gateAtCursor) {
 	if (kind === "profile_escalation") return { owner: "profile escalate" };
 	return { owner: "pending resolve" };
 }
+function openFinding(rows, id) {
+	const index = rows.findIndex((finding) => finding.id === id);
+	if (index === -1) return {
+		ok: false,
+		code: "FINDING_NOT_FOUND",
+		detail: {
+			id,
+			reason: "not_found"
+		}
+	};
+	const finding = rows[index];
+	if (finding.status === "closed") return {
+		ok: false,
+		code: "FINDING_NOT_FOUND",
+		detail: {
+			id,
+			reason: "already_closed"
+		}
+	};
+	return {
+		ok: true,
+		finding,
+		index
+	};
+}
+/** Preserve each operation's single-action/string versus fix-action/array detail. */
+function requireFindingSponsor(rows, id, expectedAction) {
+	const found = openFinding(rows, id);
+	if (!found.ok) return found;
+	if (!(typeof expectedAction === "string" ? found.finding.action === expectedAction : expectedAction.includes(found.finding.action))) return {
+		ok: false,
+		code: "FINDING_NOT_FOUND",
+		detail: {
+			id,
+			reason: "action_mismatch",
+			expected_action: expectedAction,
+			actual_action: found.finding.action
+		}
+	};
+	return {
+		...found,
+		finding: found.finding
+	};
+}
+/** Closure retains its historical missing-id reason and reducer-stage check. */
+function findingForClosure(rows, id) {
+	const found = openFinding(rows, id);
+	return !found.ok && found.detail.reason === "not_found" ? {
+		ok: false,
+		code: "FINDING_NOT_FOUND",
+		detail: {
+			id,
+			reason: "unknown"
+		}
+	} : found;
+}
+/** Runs after general kind/actor/sub-state admission; preserves the existing
+* risk -> reason -> target -> spec-lock order. */
+function checkFindingRaise(payload, snapshot, sub_state) {
+	const risk = cellRisk(payload.category, payload.action);
+	if (risk === "incoherent") return {
+		ok: false,
+		code: "FINDING_ACTION_INCOHERENT",
+		detail: {
+			category: payload.category,
+			action: payload.action
+		}
+	};
+	if (risk === "unusual") {
+		const reasonLength = payload.reason?.length ?? 0;
+		if (reasonLength < 20) return {
+			ok: false,
+			...diagnostic$2("FINDING_ACTION_UNUSUAL_REASON_REQUIRED", {
+				category: payload.category,
+				action: payload.action,
+				current_reason_length: reasonLength,
+				min_reason_length: 20
+			})
+		};
+	}
+	const mode = FINDING_ACTION_TARGET_MODE[payload.action];
+	if (mode === "task_id_step") {
+		if (!payload.target) return {
+			ok: false,
+			code: "FINDING_TARGET_REQUIRED",
+			detail: {
+				action: payload.action,
+				reason: "missing"
+			}
+		};
+		const expectedStep = FIX_ACTION_STEP[payload.action];
+		if (expectedStep && payload.target.step !== expectedStep) return {
+			ok: false,
+			code: "FINDING_TARGET_REQUIRED",
+			detail: {
+				action: payload.action,
+				task_id: payload.target.task_id,
+				step: payload.target.step,
+				expected_step: expectedStep,
+				reason: "step_mismatch"
+			}
+		};
+	}
+	if (mode === "none" && payload.target) return {
+		ok: false,
+		code: "FINDING_TARGET_REQUIRED",
+		detail: {
+			action: payload.action,
+			task_id: payload.target.task_id,
+			step: payload.target.step,
+			reason: "target_not_allowed"
+		}
+	};
+	if (mode === "task_id_step" || mode === "task_id_optional") {
+		if (payload.target) {
+			const task = snapshot.tasks.find((t) => t.id === payload.target.task_id);
+			if (!task) return {
+				ok: false,
+				code: "FINDING_TARGET_REQUIRED",
+				detail: {
+					action: payload.action,
+					task_id: payload.target.task_id,
+					reason: "task_not_found"
+				}
+			};
+			if (!(payload.target.step in task.steps)) return {
+				ok: false,
+				code: "FINDING_TARGET_REQUIRED",
+				detail: {
+					action: payload.action,
+					task_id: payload.target.task_id,
+					step: payload.target.step,
+					available_steps: Object.keys(task.steps),
+					reason: "step_not_found"
+				}
+			};
+		}
+	}
+	if (payload.action === "amend-spec" && !snapshot.state?.spec_locked) return {
+		ok: false,
+		code: "FINDING_AMEND_SPEC_NOT_LOCKED",
+		detail: {
+			current_spec_locked: false,
+			current_sub_state: sub_state,
+			hint: "use loaf spec submit / add-* directly to edit spec when not locked"
+		}
+	};
+	return null;
+}
+/** Sponsor -> canonical step -> exact target -> task/step -> abandoned order. */
+function checkFindingReset(payload, snapshot, sub_state) {
+	const sponsor = requireFindingSponsor(snapshot.findings, payload.finding_id, ["fix-impl", "fix-test"]);
+	if (!sponsor.ok) return sponsor;
+	const finding = sponsor.finding;
+	const expectedStep = FIX_ACTION_STEP[finding.action];
+	if (payload.step !== expectedStep) return {
+		ok: false,
+		code: "MUTATION_OUT_OF_RIGHTS",
+		detail: {
+			finding_id: payload.finding_id,
+			sub_state,
+			task_id: payload.task_id,
+			step: payload.step,
+			expected_step: expectedStep,
+			reason: "task_step_reset_step_mismatch"
+		}
+	};
+	const expectedTarget = finding.target;
+	if (expectedTarget === void 0 || expectedTarget.task_id !== payload.task_id || expectedTarget.step !== payload.step) return {
+		ok: false,
+		code: "MUTATION_OUT_OF_RIGHTS",
+		detail: {
+			finding_id: payload.finding_id,
+			sub_state,
+			task_id: payload.task_id,
+			expected_target: expectedTarget ?? null,
+			actual_target: {
+				task_id: payload.task_id,
+				step: payload.step
+			},
+			reason: "task_step_reset_target_mismatch"
+		}
+	};
+	const task = snapshot.tasks.find((t) => t.id === payload.task_id);
+	if (!task || !(payload.step in task.steps)) return {
+		ok: false,
+		code: "MUTATION_OUT_OF_RIGHTS",
+		detail: {
+			finding_id: payload.finding_id,
+			sub_state,
+			task_id: payload.task_id,
+			step: payload.step,
+			reason: "task_step_reset_target_mismatch"
+		}
+	};
+	if (task.status === "abandoned") return {
+		ok: false,
+		code: "MUTATION_OUT_OF_RIGHTS",
+		detail: {
+			finding_id: payload.finding_id,
+			sub_state,
+			task_id: payload.task_id,
+			status: task.status,
+			reason: "task_step_reset_task_abandoned"
+		}
+	};
+	return null;
+}
 //#endregion
 //#region src/core/reducer.ts
 function initialSnapshot() {
@@ -6134,23 +6342,9 @@ function applyValidated(prev, entry) {
 		}
 		case "finding:closed": {
 			const payload = entry.payload;
-			const idx = prev.findings.findIndex((f) => f.id === payload.id);
-			if (idx === -1) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: payload.id,
-					reason: "unknown"
-				}
-			};
-			if (prev.findings[idx].status === "closed") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: payload.id,
-					reason: "already_closed"
-				}
-			};
+			const closure = findingForClosure(prev.findings, payload.id);
+			if (!closure.ok) return closure;
+			const idx = closure.index;
 			const findings = prev.findings.map((f, i) => i === idx ? {
 				...f,
 				status: "closed"
@@ -6958,33 +7152,8 @@ function checkTasksAmended(c) {
 			}
 		};
 		if (sponsorId !== void 0) {
-			const finding = ctx.snapshot.findings.find((f) => f.id === sponsorId);
-			if (!finding) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: sponsorId,
-					reason: "not_found"
-				}
-			};
-			if (finding.status === "closed") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: sponsorId,
-					reason: "already_closed"
-				}
-			};
-			if (finding.action !== "amend-tasks") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: sponsorId,
-					reason: "action_mismatch",
-					expected_action: "amend-tasks",
-					actual_action: finding.action
-				}
-			};
+			const sponsor = requireFindingSponsor(ctx.snapshot.findings, sponsorId, "amend-tasks");
+			if (!sponsor.ok) return sponsor;
 			if (sub_state !== "EXECUTE.work") return {
 				ok: false,
 				code: "MUTATION_OUT_OF_RIGHTS",
@@ -7192,88 +7361,7 @@ function checkTaskAbandoned(c) {
 }
 function checkTaskStepReset(c) {
 	const { entry, ctx, sub_state } = c;
-	if (entry.kind === "event:task_step_reset") {
-		const payload = entry.payload;
-		const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
-		if (!finding) return {
-			ok: false,
-			code: "FINDING_NOT_FOUND",
-			detail: {
-				id: payload.finding_id,
-				reason: "not_found"
-			}
-		};
-		if (finding.status === "closed") return {
-			ok: false,
-			code: "FINDING_NOT_FOUND",
-			detail: {
-				id: payload.finding_id,
-				reason: "already_closed"
-			}
-		};
-		if (finding.action !== "fix-impl" && finding.action !== "fix-test") return {
-			ok: false,
-			code: "FINDING_NOT_FOUND",
-			detail: {
-				id: payload.finding_id,
-				reason: "action_mismatch",
-				expected_action: ["fix-impl", "fix-test"],
-				actual_action: finding.action
-			}
-		};
-		const expectedStep = FIX_ACTION_STEP[finding.action];
-		if (payload.step !== expectedStep) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			detail: {
-				finding_id: payload.finding_id,
-				sub_state,
-				task_id: payload.task_id,
-				step: payload.step,
-				expected_step: expectedStep,
-				reason: "task_step_reset_step_mismatch"
-			}
-		};
-		const expectedTarget = finding.target;
-		if (expectedTarget === void 0 || expectedTarget.task_id !== payload.task_id || expectedTarget.step !== payload.step) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			detail: {
-				finding_id: payload.finding_id,
-				sub_state,
-				task_id: payload.task_id,
-				expected_target: expectedTarget ?? null,
-				actual_target: {
-					task_id: payload.task_id,
-					step: payload.step
-				},
-				reason: "task_step_reset_target_mismatch"
-			}
-		};
-		const task = ctx.snapshot.tasks.find((t) => t.id === payload.task_id);
-		if (!task || !(payload.step in task.steps)) return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			detail: {
-				finding_id: payload.finding_id,
-				sub_state,
-				task_id: payload.task_id,
-				step: payload.step,
-				reason: "task_step_reset_target_mismatch"
-			}
-		};
-		if (task.status === "abandoned") return {
-			ok: false,
-			code: "MUTATION_OUT_OF_RIGHTS",
-			detail: {
-				finding_id: payload.finding_id,
-				sub_state,
-				task_id: payload.task_id,
-				status: task.status,
-				reason: "task_step_reset_task_abandoned"
-			}
-		};
-	}
+	if (entry.kind === "event:task_step_reset") return checkFindingReset(entry.payload, ctx.snapshot, sub_state);
 	return null;
 }
 //#endregion
@@ -7385,34 +7473,8 @@ function checkPhaseAdvanced(c) {
 		};
 		const backEdge = payload.back_edge;
 		if (backEdge !== void 0) {
-			const findingId = backEdge.finding_id;
-			const finding = ctx.snapshot.findings.find((f) => f.id === findingId);
-			if (!finding) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: findingId,
-					reason: "not_found"
-				}
-			};
-			if (finding.status === "closed") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: findingId,
-					reason: "already_closed"
-				}
-			};
-			if (finding.action !== backEdge.action) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: findingId,
-					reason: "action_mismatch",
-					expected_action: backEdge.action,
-					actual_action: finding.action
-				}
-			};
+			const sponsor = requireFindingSponsor(ctx.snapshot.findings, backEdge.finding_id, backEdge.action);
+			if (!sponsor.ok) return sponsor;
 		}
 		const phaseTo = payload.to;
 		if (backEdge === void 0 && sub_state === "EXECUTE.work" && phaseTo === "EXECUTE.done") {
@@ -7543,97 +7605,7 @@ function checkSessionTerminalReason(c) {
 }
 function checkFindingRaised(c) {
 	const { entry, sub_state, ctx } = c;
-	if (entry.kind === "finding:raised") {
-		const payload = entry.payload;
-		const risk = cellRisk(payload.category, payload.action);
-		if (risk === "incoherent") return {
-			ok: false,
-			code: "FINDING_ACTION_INCOHERENT",
-			detail: {
-				category: payload.category,
-				action: payload.action
-			}
-		};
-		if (risk === "unusual") {
-			const reasonLength = payload.reason?.length ?? 0;
-			if (reasonLength < 20) return {
-				ok: false,
-				...diagnostic$2("FINDING_ACTION_UNUSUAL_REASON_REQUIRED", {
-					category: payload.category,
-					action: payload.action,
-					current_reason_length: reasonLength,
-					min_reason_length: 20
-				})
-			};
-		}
-		const mode = FINDING_ACTION_TARGET_MODE[payload.action];
-		if (mode === "task_id_step") {
-			if (!payload.target) return {
-				ok: false,
-				code: "FINDING_TARGET_REQUIRED",
-				detail: {
-					action: payload.action,
-					reason: "missing"
-				}
-			};
-			const expectedStep = FIX_ACTION_STEP[payload.action];
-			if (expectedStep && payload.target.step !== expectedStep) return {
-				ok: false,
-				code: "FINDING_TARGET_REQUIRED",
-				detail: {
-					action: payload.action,
-					task_id: payload.target.task_id,
-					step: payload.target.step,
-					expected_step: expectedStep,
-					reason: "step_mismatch"
-				}
-			};
-		}
-		if (mode === "none" && payload.target) return {
-			ok: false,
-			code: "FINDING_TARGET_REQUIRED",
-			detail: {
-				action: payload.action,
-				task_id: payload.target.task_id,
-				step: payload.target.step,
-				reason: "target_not_allowed"
-			}
-		};
-		if (mode === "task_id_step" || mode === "task_id_optional") {
-			if (payload.target) {
-				const task = ctx.snapshot.tasks.find((t) => t.id === payload.target.task_id);
-				if (!task) return {
-					ok: false,
-					code: "FINDING_TARGET_REQUIRED",
-					detail: {
-						action: payload.action,
-						task_id: payload.target.task_id,
-						reason: "task_not_found"
-					}
-				};
-				if (!(payload.target.step in task.steps)) return {
-					ok: false,
-					code: "FINDING_TARGET_REQUIRED",
-					detail: {
-						action: payload.action,
-						task_id: payload.target.task_id,
-						step: payload.target.step,
-						available_steps: Object.keys(task.steps),
-						reason: "step_not_found"
-					}
-				};
-			}
-		}
-		if (payload.action === "amend-spec" && !ctx.snapshot.state?.spec_locked) return {
-			ok: false,
-			code: "FINDING_AMEND_SPEC_NOT_LOCKED",
-			detail: {
-				current_spec_locked: false,
-				current_sub_state: sub_state,
-				hint: "use loaf spec submit / add-* directly to edit spec when not locked"
-			}
-		};
-	}
+	if (entry.kind === "finding:raised") return checkFindingRaise(entry.payload, ctx.snapshot, sub_state);
 	return null;
 }
 function checkTransitionEdge(c) {
@@ -17358,19 +17330,9 @@ function registerFinding(program, ctx, mutator, actor) {
 			ctx.failure(diagnosticVariant("failure.no_session.finding", { feature: opts.feature }));
 			return;
 		}
-		const existing = session.snapshot.findings.find((f) => f.id === fndId);
-		if (!existing) {
-			ctx.failure(diagnostic$2("FINDING_NOT_FOUND", {
-				id: fndId,
-				reason: "unknown"
-			}));
-			return;
-		}
-		if (existing.status === "closed") {
-			ctx.failure(diagnostic$2("FINDING_NOT_FOUND", {
-				id: fndId,
-				reason: "already_closed"
-			}));
+		const closure = findingForClosure(session.snapshot.findings, fndId);
+		if (!closure.ok) {
+			ctx.failure(closure);
 			return;
 		}
 		if (!await mutator.run(featureDir, session, {

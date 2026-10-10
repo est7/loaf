@@ -1,4 +1,4 @@
-import { FIX_ACTION_STEP } from "../../intervention-policy.js";
+import { requireFindingSponsor, checkFindingReset } from "../../intervention-policy.js";
 import {
   firstAddFreshnessViolation,
   firstFrozenViolation,
@@ -106,33 +106,8 @@ export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null
       // (the finding is the thing being checked); only AFTER the finding is
       // known valid do authorization / surface violations use
       // MUTATION_OUT_OF_RIGHTS.
-      const finding = ctx.snapshot.findings.find((f) => f.id === sponsorId);
-      if (!finding) {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: { id: sponsorId, reason: "not_found" },
-        };
-      }
-      if (finding.status === "closed") {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: { id: sponsorId, reason: "already_closed" },
-        };
-      }
-      if (finding.action !== "amend-tasks") {
-        return {
-          ok: false,
-          code: "FINDING_NOT_FOUND",
-          detail: {
-            id: sponsorId,
-            reason: "action_mismatch",
-            expected_action: "amend-tasks",
-            actual_action: finding.action,
-          },
-        };
-      }
+      const sponsor = requireFindingSponsor(ctx.snapshot.findings, sponsorId, "amend-tasks");
+      if (!sponsor.ok) return sponsor;
 
       // (b) Q3 — sponsored tasks_amended is legal ONLY at EXECUTE.work (the
       // amend-tasks back-edge target). The per-kind sub_state table allows
@@ -452,113 +427,7 @@ export function checkTaskAbandoned(c: PreflightCheckCtx): PreflightFailure | nul
 export function checkTaskStepReset(c: PreflightCheckCtx): PreflightFailure | null {
   const { entry, ctx, sub_state } = c;
   if (entry.kind === "event:task_step_reset") {
-    const payload = entry.payload;
-    const finding = ctx.snapshot.findings.find((f) => f.id === payload.finding_id);
-    if (!finding) {
-      return {
-        ok: false,
-        code: "FINDING_NOT_FOUND",
-        detail: { id: payload.finding_id, reason: "not_found" },
-      };
-    }
-    if (finding.status === "closed") {
-      return {
-        ok: false,
-        code: "FINDING_NOT_FOUND",
-        detail: { id: payload.finding_id, reason: "already_closed" },
-      };
-    }
-    // SC3 (codex r142): the kind serves both fix-impl and fix-test — a step
-    // reset may be sponsored by either action. Any other action (amend-* /
-    // defer / backlog) carries no canonical step and cannot author a reset.
-    if (finding.action !== "fix-impl" && finding.action !== "fix-test") {
-      return {
-        ok: false,
-        code: "FINDING_NOT_FOUND",
-        detail: {
-          id: payload.finding_id,
-          reason: "action_mismatch",
-          expected_action: ["fix-impl", "fix-test"],
-          actual_action: finding.action,
-        },
-      };
-    }
-    // The payload's {task_id, step} must equal the finding's target — the
-    // reset cannot drift off the task/step the finding authorized. The
-    // canonical step is the finding action's own (fix-impl → "implement",
-    // fix-test → "red") — SC3 keys it off finding.action, not a hardcode.
-    const expectedStep = FIX_ACTION_STEP[finding.action]!;
-    if (payload.step !== expectedStep) {
-      return {
-        ok: false,
-        code: "MUTATION_OUT_OF_RIGHTS",
-        detail: {
-          finding_id: payload.finding_id,
-          sub_state,
-          task_id: payload.task_id,
-          step: payload.step,
-          expected_step: expectedStep,
-          reason: "task_step_reset_step_mismatch",
-        },
-      };
-    }
-    const expectedTarget = finding.target;
-    if (
-      expectedTarget === undefined ||
-      expectedTarget.task_id !== payload.task_id ||
-      expectedTarget.step !== payload.step
-    ) {
-      return {
-        ok: false,
-        code: "MUTATION_OUT_OF_RIGHTS",
-        detail: {
-          finding_id: payload.finding_id,
-          sub_state,
-          task_id: payload.task_id,
-          expected_target: expectedTarget ?? null,
-          actual_target: { task_id: payload.task_id, step: payload.step },
-          reason: "task_step_reset_target_mismatch",
-        },
-      };
-    }
-    // The target task + step must exist in the projection — a step the task
-    // does not carry cannot be reset (treated as a target mismatch: the
-    // finding's target points at a step absent from the task graph).
-    const task = ctx.snapshot.tasks.find((t) => t.id === payload.task_id);
-    if (!task || !(payload.step in task.steps)) {
-      return {
-        ok: false,
-        code: "MUTATION_OUT_OF_RIGHTS",
-        detail: {
-          finding_id: payload.finding_id,
-          sub_state,
-          task_id: payload.task_id,
-          step: payload.step,
-          reason: "task_step_reset_target_mismatch",
-        },
-      };
-    }
-    // codex r140 P1 — a fix-impl/fix-test step reset may reopen a `done`
-    // task (r139 Q5: a done task's step cannot otherwise be re-run), but
-    // `abandoned` is a TERMINAL status and must NOT be reactivated
-    // (protocol.md — abandoned is a final task status; task-schema.ts —
-    // abandoned tasks cannot be reactivated). The reducer rewrites the target
-    // task to `in_progress`; without this guard a fix finding targeting an
-    // abandoned task would resurrect it. The guard is action-agnostic — it
-    // serves both fix-impl and fix-test.
-    if (task.status === "abandoned") {
-      return {
-        ok: false,
-        code: "MUTATION_OUT_OF_RIGHTS",
-        detail: {
-          finding_id: payload.finding_id,
-          sub_state,
-          task_id: payload.task_id,
-          status: task.status,
-          reason: "task_step_reset_task_abandoned",
-        },
-      };
-    }
+    return checkFindingReset(entry.payload, ctx.snapshot, sub_state);
   }
   return null;
 }

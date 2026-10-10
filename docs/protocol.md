@@ -223,6 +223,7 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
 2. **Pending FIFO 队列**(rev 4.1):任何 phase 都可能 raise pending(`gate_decision` 在 SPEC.lock / VERIFY.accept;`finding_decision` 在 EXECUTE.work post-lock;`profile_escalation` 在 EXECUTE.* / SPEC.*;`ask_user_question` 任何 phase)。Pending 是 **side-effect queue**;**protocol 层 enforcement 极简**(rev 4.1 Q3):**`loaf advance` 仅在 head kind ∈ {`gate_decision`, `profile_escalation`} 时拒**,其它命令一律放行,更广的工作流调度由 skill 自己看 `loaf pending list` 决定。Worker 不被自己/他人的 pending 阻塞,各自跑到自己撞 pending 为止。详见 §10.7 + §14.3。
 
 Pending 的 head/live/FIFO、advance blocker、gate soft binding、escalation 和 next intent 决策由 `src/core/intervention-policy.ts` 统一拥有。CLI 只组装已有 co-resolution batch；preflight 保留原检查顺序，FIFO id 匹配仍在 reducer application 阶段。rich pending 的 history/字段序列化保留在 projection writer，TUI/Board 各自保留 presentation model。
+Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset target/abandoned 校验同属该 owner；preflight 只保留有序 orchestration，finding close 仍在 reducer application 检查。Back-edge source/target 规则继续由 `reducer/transition.ts` 独占，task body/progress mutation rights 继续由 `task-amend-policy.ts` 拥有。
 
 **iteration 字段**:
 - 进入 SPEC.proposal 第一次时 iteration = 1
