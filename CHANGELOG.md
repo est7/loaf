@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Verify-accept approval and verify status now derive their spec input from
+  the same canonical snapshot constructor as spec-lock. Derived spec.md cannot
+  add or remove verification obligations. Missing or malformed snapshot spec
+  fails closed; diagnostic errors retain exit 2 without synthetic check rows,
+  and valid diagnostics retain all five rows and four lane results.
+
 - Spec-lock approval now shares the snapshot evaluator used by spec status.
   Spec-lock decisions ignore derived spec.md; missing or malformed canonical spec
   still fails closed with snapshot-sourced check-1 detail, without a file path

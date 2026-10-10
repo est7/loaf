@@ -498,7 +498,7 @@ async function mutateBatchUnderLease(
       // spec-lock for downstream renderers / ERROR_CATALOG (codex r42
       // non-blocking note: catalog wording must not describe
       // SPEC_FRONTMATTER_INVALID only as spec-lock check 1).
-      const gateResult = await evaluateVerifyAccept(ctx.snapshot, ctx.feature_dir);
+      const gateResult = evaluateVerifyAccept(ctx.snapshot);
       if (!gateResult.ok) {
         return {
           ok: false,

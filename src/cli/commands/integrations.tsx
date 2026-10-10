@@ -547,9 +547,9 @@ export function registerIntegrations(
       const featureDir = await ctx.dispatchOrFail(opts);
       if (featureDir === null) return;
       const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-      const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
+      const diag = evaluateVerifyAcceptDiagnostic(session.snapshot);
       if (!diag.ok) {
-        // IO-boundary divergence: frontmatter unreadable → exit 2,
+        // Canonical-spec failure: no checks can run → exit 2,
         // structured envelope on stderr. Does NOT synthesize a check-1
         // row (codex r302 lock).
         ctx.failure(diag);

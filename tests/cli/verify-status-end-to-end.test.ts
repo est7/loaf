@@ -3,7 +3,7 @@
 // Covers:
 //   - JSON envelope shape (ok / all_pass / 5 rows / failures plural)
 //   - Text rendering
-//   - SPEC_FRONTMATTER_INVALID at IO boundary (exit 2 — codex r302 lock,
+//   - SPEC_FRONTMATTER_INVALID at snapshot boundary (exit 2 — codex r302 lock,
 //     NO synthetic check-1 row)
 //   - NO_SESSION (no journal — exit 2)
 //   - DRY_RUN_NOT_APPLICABLE
@@ -64,7 +64,7 @@ async function runCli(
   }
 }
 
-/** Seed a feature session with valid spec.md frontmatter. */
+/** Seed canonical spec content through the public CLI. */
 async function seedSessionWithSpec(
   opts: { allNa?: boolean } = {},
 ): Promise<{ featureDir: string; tmp: string }> {
@@ -90,42 +90,47 @@ async function seedSessionWithSpec(
     throw new Error(`seed start failed exit=${startResult.exit}: ${startResult.stderr}`);
   }
 
-  // Write spec.md frontmatter so evaluateVerifyAcceptDiagnostic can read it
-  const reqLine = opts.allNa
-    ? `  - id: REQ-AUTH-099
-    type: ubiquitous
-    response: the system shall do something here measurably
-    acceptance_na: true
-    acceptance_na_reason: subjective UX validated by manual scope`
-    : `  - id: REQ-AUTH-001
-    type: ubiquitous
-    response: the system shall do something here measurably`;
-  await fs.writeFile(
-    path.join(featureDir, "spec.md"),
-    `---
-schema_version: 2
-spec_version: 1
-feature:
-  id: F-001
-  name: OAuth token refresh
-intent: users should not perceive auth recovery flows in flight
-adr_refs: []
-requirements:
-${reqLine}
-scenarios: []
-needs_clarification: []
----
-
-## Why
-prose body
-`,
-  );
+  const selector = ["--feature", "auth-refresh", "--feature-dir", featureDir, "--format", "json"];
+  for (const target of ["TRIAGE.confirm", "SPEC.proposal"]) {
+    const advanced = await runCli(["advance", target, ...selector]);
+    expect(advanced.exit, advanced.stderr).toBe(0);
+  }
+  const req = opts.allNa
+    ? {
+        id: "REQ-AUTH-099",
+        type: "ubiquitous",
+        response: "the system shall do something here measurably",
+        acceptance_na: true,
+        acceptance_na_reason: "subjective UX validated by manual scope",
+      }
+    : {
+        id: "REQ-AUTH-001",
+        type: "ubiquitous",
+        response: "the system shall do something here measurably",
+        measurable: { metric: "requests", threshold: "all", unit: "requests" },
+      };
+  const submitted = await runCli([
+    "spec",
+    "submit",
+    "--input",
+    JSON.stringify({
+      feature: { id: "F-001", name: "OAuth token refresh" },
+      intent: "users should not perceive auth recovery flows in flight",
+      adr_refs: [],
+      requirements: [req],
+      scenarios: [],
+      visual_contracts: [],
+      needs_clarification: [],
+    }),
+    ...selector,
+  ]);
+  expect(submitted.exit, submitted.stderr).toBe(0);
 
   return { featureDir, tmp };
 }
 
 describe("SC-9a-1 — verify status JSON envelope", () => {
-  test("happy: seeded session + valid spec.md → exit 0, 5 rows, ok:true, all_pass boolean", async () => {
+  test("happy: seeded session + valid canonical spec → exit 0, 5 rows, ok:true, all_pass boolean", async () => {
     const { featureDir } = await seedSessionWithSpec({ allNa: true });
     const result = await runCli(
       [
@@ -226,8 +231,8 @@ describe("SC-9a-1 — verify status text rendering", () => {
   });
 });
 
-describe("SC-9a-1 — verify status IO boundary errors", () => {
-  test("SPEC_FRONTMATTER_INVALID: session started but no spec.md → exit 2, code on stderr, NO synthetic check-1 row in stdout", async () => {
+describe("SC-9a-1 — verify status snapshot boundary errors", () => {
+  test("SPEC_FRONTMATTER_INVALID: session started but no canonical spec → exit 2, code on stderr, NO synthetic check-1 row in stdout", async () => {
     const tmp = await tmpDir();
     const featureDir = path.join(tmp, ".loaf", "auth-refresh");
     await fs.mkdir(featureDir, { recursive: true });
@@ -245,7 +250,7 @@ describe("SC-9a-1 — verify status IO boundary errors", () => {
       {},
     );
     expect(start.exit).toBe(0);
-    // Intentionally do NOT write spec.md
+    // Intentionally do NOT submit a canonical spec
     const result = await runCli(
       [
         "verify",
@@ -264,7 +269,11 @@ describe("SC-9a-1 — verify status IO boundary errors", () => {
     const err = JSON.parse(result.stderr);
     expect(err.ok).toBe(false);
     expect(err.code).toBe("SPEC_FRONTMATTER_INVALID");
-    expect(err.detail.subcode).toBeDefined();
+    expect(err.detail).toEqual({
+      source: "snapshot",
+      subcode: "SPEC_NOT_FOUND",
+      reason: "spec_header_missing",
+    });
     // Crucially: stdout MUST NOT carry a check-1 row — codex r302 lock
     // (no synthetic injection)
     expect(result.stdout).toBe("");

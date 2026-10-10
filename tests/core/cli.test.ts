@@ -1273,10 +1273,10 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
     expect(result.stderr).toMatch(/next: loaf (deliver|settle)/);
   });
 
-  test("approve fails when spec.md missing — JSON failure to stderr, stdout empty", async () => {
+  test("approve succeeds when derived spec.md is missing — canonical spec remains authoritative", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtVerifyAccept(dir);
-    // Remove spec.md to trigger Pass 1.5 evaluateVerifyAccept failure.
+    // Remove only the derived file, preserving the canonical admitted spec.
     await fsP.unlink(path.join(dir, "spec.md"));
 
     const result = await runCli(
@@ -1297,21 +1297,11 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
 
-    expect(result.exit).toBe(2);
-    expect(result.stdout).toBe("");
-    const errJson = JSON.parse(result.stderr.trim());
-    expect(errJson.code).toBe("GATE_PRECONDITION_VIOLATION");
-    expect(errJson.detail.gate).toBe("verify-accept");
-    expect(errJson.detail.failure_count).toBe(1);
-    const check1 = (
-      errJson.detail.checks as Array<{ check: number; code: string; detail?: { subcode?: string } }>
-    )[0];
-    expect(check1?.check).toBe(1);
-    expect(check1?.code).toBe("SPEC_FRONTMATTER_INVALID");
-    expect(check1?.detail?.subcode).toBe("SPEC_NOT_FOUND");
+    expect(result.exit, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, gate: "verify-accept", decision: "approved", verify_accepted: true });
   });
 
-  test("text-mode failure renders per-check lines on stderr (verify-accept)", async () => {
+  test("text-mode approval ignores a missing derived spec.md (verify-accept)", async () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtVerifyAccept(dir);
     await fsP.unlink(path.join(dir, "spec.md"));
@@ -1332,10 +1322,9 @@ describe("loaf gate decide verify-accept — Slice 1.C sub-cycle 6 (MVP)", () =>
       { env: { LOAF_USER: "tester@example.invalid" } },
     );
 
-    expect(result.exit).toBe(2);
+    expect(result.exit, result.stderr).toBe(0);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toMatch(/GATE_PRECONDITION_VIOLATION/);
-    expect(result.stderr).toMatch(/\[check 1\] SPEC_FRONTMATTER_INVALID/);
+    expect(result.stderr).toContain("verify-accept approved");
   });
 
   test("--approve + --reject (verify-accept mutex fail) → USAGE error, stdout empty", async () => {

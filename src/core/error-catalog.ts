@@ -1057,7 +1057,7 @@ export const ERROR_CATALOG = {
     // avoids those vars to stay correctly substituted.
     message_template: "spec frontmatter failed gate check 1 (subcode={subcode})",
     fix_template:
-      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy spec-lock.",
+      "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy either gate.",
     template_keys: ["subcode"],
     doc_anchor: "protocol.md#§5.1",
     detail_keys: ["subcode"],

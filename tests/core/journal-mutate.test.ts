@@ -1656,7 +1656,11 @@ describe("mutateBatch Pass 1.5 — spec-lock gate wire (Slice 1.B sub-cycle 3c)"
       expect(detail?.failure_count).toBe(1);
       expect(detail?.checks?.[0]?.check).toBe(1);
       expect(detail?.checks?.[0]?.code).toBe("SPEC_FRONTMATTER_INVALID");
-      expect(detail?.checks?.[0]?.detail).toEqual({ source: "snapshot", subcode: "SPEC_NOT_FOUND", reason: "spec_header_missing" });
+      expect(detail?.checks?.[0]?.detail).toEqual({
+        source: "snapshot",
+        subcode: "SPEC_NOT_FOUND",
+        reason: "spec_header_missing",
+      });
     }
     // Journal must be untouched — gate fails before Pass 2 (sidecar/append).
     const journalAfter = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
@@ -1957,32 +1961,6 @@ describe("mutate evidence:added — strict refines (Slice 1.C sub-cycle 1)", () 
 // ────────────────────────────────────────────────────────────────────────
 
 describe("mutateBatch Pass 1.5 — verify-accept gate wire (Slice 1.C sub-cycle 5)", () => {
-  // Minimal valid spec.md for verify-accept evaluation: single ubiquitous
-  // REQ with acceptance_na=true so SCEN/VIS coverage is skipped; no done
-  // tasks in the seeded snapshot so RUN/REVIEW lane obligations are empty.
-  const SPEC_MD_VERIFY_HAPPY = `---
-schema_version: 2
-spec_version: 1
-feature:
-  id: F-001
-  name: OAuth refresh
-intent: keep auth invisible during refresh roundtrips
-adr_refs: []
-needs_clarification: []
-requirements:
-  - id: REQ-AUTH-001
-    type: ubiquitous
-    response: the system shall preserve the original request after refresh
-    acceptance_na: true
-    acceptance_na_reason: covered by manual UX walk-through scope
-scenarios: []
----
-
-# OAuth refresh
-
-(spec body...)
-`;
-
   /**
    * Bootstrap session + walk to VERIFY.accept. PER_KIND_SUB_STATE for
    * gate:decided allows ["SPEC.design", "VERIFY.accept"], so we can land
@@ -1994,7 +1972,7 @@ scenarios: []
    * eval only reads spec.md + snapshot.tasks/evidence/findings/state,
    * and the snapshot already has them as defaults from the reducer.
    */
-  async function seedAtVerifyAccept(): Promise<{
+  async function seedAtVerifyAccept(withCanonicalSpec = true): Promise<{
     dir: string;
     snapshot: Snapshot;
     tailSeq: number;
@@ -2066,6 +2044,21 @@ scenarios: []
     ] as Array<[string, string]>) {
       await advance(from, to);
     }
+    if (withCanonicalSpec) {
+      await emit({
+        at: new Date(2026, 4, 15, 10, 0, tailSeq + 1).toISOString(),
+        actor: "human:est9",
+        entry_schema_version: 1,
+        kind: "event:spec_submitted",
+        payload: {
+          spec_version: 1,
+          feature: { id: "F-001", name: "OAuth refresh" },
+          intent: "keep auth invisible during refresh roundtrips",
+          adr_refs: [],
+          needs_clarification: [],
+        },
+      });
+    }
     // Approve spec-lock before SPEC.design → EXECUTE.plan (guard added in
     // fix/enforcement-integrity-closure). Inject via appendEntry (bypasses
     // Pass 1.5) and apply in-memory so emit()/advance() sees spec_locked=true.
@@ -2120,7 +2113,6 @@ scenarios: []
 
   test("approve verify-accept happy → ok=true, flag flipped, journal grows", async () => {
     const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept();
-    await fs.writeFile(path.join(dir, "spec.md"), SPEC_MD_VERIFY_HAPPY);
     // tasks_based_on is now journal-derived (seedAtVerifyAccept emits a real
     // event:tasks_planned), so the snapshot already satisfies verify-accept
     // check 4 — no synthetic injection needed (Phase 15 SC2: step 8
@@ -2151,10 +2143,10 @@ scenarios: []
     expect(journalAfter.length).toBeGreaterThan(journalBefore.length);
   });
 
-  test("missing spec.md → GATE_PRECONDITION_VIOLATION + gate=verify-accept + subcode=SPEC_NOT_FOUND", async () => {
-    const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept();
+  test("missing snapshot spec → GATE_PRECONDITION_VIOLATION + gate=verify-accept + subcode=SPEC_NOT_FOUND", async () => {
+    const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept(false);
     const journalBefore = await fs.readFile(path.join(dir, "journal.jsonl"), "utf8");
-    // Deliberately do NOT write spec.md — proves eval ran + spec read failed.
+    // Deliberately omit canonical spec admission — check 1 must fail closed.
 
     const result = await mutate(
       {
@@ -2186,9 +2178,9 @@ scenarios: []
     expect(journalAfter).toBe(journalBefore);
   });
 
-  test("verify-accept rejected pass-through — evaluateVerifyAccept NOT called (no spec.md needed)", async () => {
-    const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept();
-    // Deliberately do NOT write spec.md — proves eval was skipped for rejection.
+  test("verify-accept rejected pass-through — snapshot evaluator skipped", async () => {
+    const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept(false);
+    // No spec is needed for a rejected decision.
 
     const result = await mutate(
       {
@@ -2242,7 +2234,6 @@ scenarios: []
 
   test("verify-accept fail with open finding → GATE_PRECONDITION_VIOLATION + OPEN_FINDINGS_PRESENT", async () => {
     const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept();
-    await fs.writeFile(path.join(dir, "spec.md"), SPEC_MD_VERIFY_HAPPY);
     // Inject tasks_based_on + an open finding directly into snapshot
     // (bypassing the tasks_planned + finding:raised journal paths because
     // Pass 1.5 reads ctx.snapshot pre-batch). Without tasks_based_on,
@@ -2293,7 +2284,6 @@ scenarios: []
 
   test("verify-accept admits an open backlog finding as an explicit disposition", async () => {
     const { dir, snapshot, tailSeq, entries, meta } = await seedAtVerifyAccept();
-    await fs.writeFile(path.join(dir, "spec.md"), SPEC_MD_VERIFY_HAPPY);
     const snapWithBacklog: Snapshot = {
       ...snapshot,
       tasks_based_on: { spec: 1 },

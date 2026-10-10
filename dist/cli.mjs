@@ -786,7 +786,7 @@ const ERROR_CATALOG = {
 	SPEC_FRONTMATTER_INVALID: {
 		exit_code: 2,
 		message_template: "spec frontmatter failed gate check 1 (subcode={subcode})",
-		fix_template: "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy spec-lock.",
+		fix_template: "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy either gate.",
 		template_keys: ["subcode"],
 		doc_anchor: "protocol.md#§5.1",
 		detail_keys: ["subcode"]
@@ -2088,7 +2088,7 @@ var en_default = {
 		"DUPLICATE_REQ_ID": "allocate a fresh REQ id under the same id_namespace (the CLI scans for max serial + 1 inside the per-session lock) or `loaf finding raise --category spec-gap --action amend-spec` if you need to retire the existing REQ",
 		"DUPLICATE_SCEN_ID": "allocate a fresh SCEN id under the same id_namespace, or amend via finding mechanism if retiring an existing scenario",
 		"DUPLICATE_VIS_ID": "allocate a fresh VIS id under the same id_namespace, or amend via finding mechanism if retiring an existing visual contract",
-		"SPEC_FRONTMATTER_INVALID": "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy spec-lock.",
+		"SPEC_FRONTMATTER_INVALID": "subcode=SPEC_NOT_FOUND: run `loaf spec init` then `loaf spec submit` to seed spec.md; subcode=SPEC_YAML_INVALID: check the `---`-fenced YAML block at the top of spec.md for syntax errors; subcode=SPEC_FRONTMATTER_INVALID: run `loaf spec schema --format=json` to dump the SpecFrontmatter JSON Schema (Phase 16 SC-10) and fix the offending field. Snapshot-sourced failures require a valid canonical spec submission; initializing or editing a derived file cannot satisfy either gate.",
 		"SPEC_HAS_UNCLARIFIED": "edit spec.md to remove resolved needs_clarification entries, or run `loaf finding raise --category spec-gap --action clarify` to formalize the resolution flow; spec-lock check 2 requires needs_clarification === []",
 		"TASK_NOT_FOUND": "run `loaf tasks list` to see live ids; if you meant to add a new task, use `loaf tasks add` instead of amend/step; if you expected the id to exist, the projection may be stale — run `loaf doctor --rebuild` to rebuild from journal",
 		"TASK_STEP_NOT_FOUND": "use only the per-kind step names — behavioral: red/implement/refactor; structural: implement/refactor; visual-ui: mockup/implement/screenshot-compare; docs: draft/review; spike: explore/prototype/record; chore: execute. Running an unseeded step name was a silent add bug in v0.0.x — sub-cycle 3a fails fast instead",
@@ -10296,23 +10296,16 @@ function releaseFeatureWriteLeasesForSignalSync() {
 	}
 }
 //#endregion
-//#region src/core/gates/spec-lock-input.ts
-/**
-* Reconstruct the full spec-lock input from replayed snapshot state.
-* Pure and total: projection absence/drift becomes the check-1 failure shape
-* rather than file IO or an exception.
-*/
-function buildSpecLockCheckInput(snapshot) {
+//#region src/core/spec-snapshot.ts
+/** Reconstruct and validate spec content without consulting derived files. */
+function buildSpecFrontmatterFromSnapshot(snapshot) {
 	if (snapshot.state === null || snapshot.spec_header === null) return {
 		ok: false,
-		failure: {
-			check: 1,
-			code: "SPEC_FRONTMATTER_INVALID",
-			detail: {
-				source: "snapshot",
-				subcode: "SPEC_NOT_FOUND",
-				reason: snapshot.state === null ? "session_state_missing" : "spec_header_missing"
-			}
+		code: "SPEC_FRONTMATTER_INVALID",
+		detail: {
+			source: "snapshot",
+			subcode: "SPEC_NOT_FOUND",
+			reason: snapshot.state === null ? "session_state_missing" : "spec_header_missing"
 		}
 	};
 	const parsed = SpecFrontmatter.safeParse({
@@ -10328,22 +10321,16 @@ function buildSpecLockCheckInput(snapshot) {
 	});
 	if (!parsed.success) return {
 		ok: false,
-		failure: {
-			check: 1,
-			code: "SPEC_FRONTMATTER_INVALID",
-			detail: {
-				source: "snapshot",
-				subcode: "SPEC_FRONTMATTER_INVALID",
-				issues: parsed.error.issues
-			}
+		code: "SPEC_FRONTMATTER_INVALID",
+		detail: {
+			source: "snapshot",
+			subcode: "SPEC_FRONTMATTER_INVALID",
+			issues: parsed.error.issues
 		}
 	};
 	return {
 		ok: true,
-		input: {
-			snapshot,
-			frontmatter: parsed.data
-		}
+		frontmatter: parsed.data
 	};
 }
 //#endregion
@@ -10441,85 +10428,16 @@ function specLockCheck(snapshot, frontmatter) {
 //#region src/core/gates/spec-lock-eval.ts
 /** Evaluate all spec-lock semantics from journal-replayed snapshot state. */
 function evaluateSpecLockFromSnapshot(snapshot) {
-	const built = buildSpecLockCheckInput(snapshot);
+	const built = buildSpecFrontmatterFromSnapshot(snapshot);
 	if (!built.ok) return {
 		ok: false,
-		checks: [built.failure]
+		checks: [{
+			check: 1,
+			code: built.code,
+			detail: built.detail
+		}]
 	};
-	return specLockCheck(built.input.snapshot, built.input.frontmatter);
-}
-//#endregion
-//#region src/core/spec-frontmatter.ts
-const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
-/**
-* Splits a spec.md raw string into (frontmatter_yaml, body) using the
-* shared FRONTMATTER_RE grammar. `body` is everything AFTER the closing
-* `---\n` (preserves trailing content verbatim). If no frontmatter block
-* is present, frontmatter is null and body is the whole input.
-*
-* Symmetric companion to readSpecFrontmatter() that returns ONLY the
-* structural split — caller validates YAML / SpecFrontmatter separately.
-*/
-function splitFrontmatter(raw) {
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		frontmatter: null,
-		body: raw
-	};
-	const body = raw.slice(match[0].length);
-	return {
-		frontmatter: match[1],
-		body
-	};
-}
-async function readSpecFrontmatter(featureDir) {
-	const specPath = path$1.join(featureDir, "spec.md");
-	let raw;
-	try {
-		raw = await fsp.readFile(specPath, "utf8");
-	} catch (err) {
-		if (err.code === "ENOENT") return {
-			ok: false,
-			code: "SPEC_NOT_FOUND",
-			detail: { path: specPath }
-		};
-		throw err;
-	}
-	const match = FRONTMATTER_RE.exec(raw);
-	if (!match) return {
-		ok: false,
-		code: "SPEC_YAML_INVALID",
-		detail: {
-			path: specPath,
-			reason: "frontmatter_fence_missing"
-		}
-	};
-	let parsed;
-	try {
-		parsed = parse(match[1]);
-	} catch (err) {
-		return {
-			ok: false,
-			code: "SPEC_YAML_INVALID",
-			detail: {
-				path: specPath,
-				error: err.message
-			}
-		};
-	}
-	const validated = SpecFrontmatter.safeParse(parsed);
-	if (!validated.success) return {
-		ok: false,
-		code: "SPEC_FRONTMATTER_INVALID",
-		detail: {
-			path: specPath,
-			issues: validated.error.issues
-		}
-	};
-	return {
-		ok: true,
-		frontmatter: validated.data
-	};
+	return specLockCheck(snapshot, built.frontmatter);
 }
 //#endregion
 //#region src/core/evidence-compat.ts
@@ -10922,54 +10840,26 @@ function verifyAcceptCheck(snapshot, frontmatter) {
 	};
 }
 //#endregion
-//#region src/core/gates/gate-eval.ts
-function specReadFailure(read) {
-	return {
+//#region src/core/gates/verify-accept-eval.ts
+function evaluateVerifyAccept(snapshot) {
+	const built = buildSpecFrontmatterFromSnapshot(snapshot);
+	if (!built.ok) return {
 		ok: false,
 		checks: [{
 			check: 1,
-			code: "SPEC_FRONTMATTER_INVALID",
-			detail: {
-				subcode: read.code,
-				...read.detail
-			}
+			code: built.code,
+			detail: built.detail
 		}]
 	};
+	return verifyAcceptCheck(snapshot, built.frontmatter);
 }
-/**
-* Build a gate-mode evaluator from a pure check. The returned evaluator reads
-* frontmatter at the IO boundary, maps a read failure to a check-1 row, and
-* otherwise delegates to `check`. Return type is `R | SpecReadFailure`; callers
-* annotate the clean alias (FullSpecLockResult / FullVerifyAcceptResult) to
-* coerce — SpecReadFailure is a subtype of both gate results' failure arm.
-*/
-function gateEvalFromCheck(check) {
-	return async (snapshot, featureDir) => {
-		const read = await readSpecFrontmatter(featureDir);
-		if (!read.ok) return specReadFailure(read);
-		return check(snapshot, read.frontmatter);
-	};
-}
-//#endregion
-//#region src/core/gates/verify-accept-eval.ts
-const evaluateVerifyAcceptGate = gateEvalFromCheck(verifyAcceptCheck);
-async function evaluateVerifyAccept(snapshot, featureDir) {
-	return evaluateVerifyAcceptGate(snapshot, featureDir);
-}
-async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
-	const read = await readSpecFrontmatter(featureDir);
-	if (!read.ok) return {
-		ok: false,
-		code: "SPEC_FRONTMATTER_INVALID",
-		detail: {
-			subcode: read.code,
-			...read.detail
-		}
-	};
+function evaluateVerifyAcceptDiagnostic(snapshot) {
+	const built = buildSpecFrontmatterFromSnapshot(snapshot);
+	if (!built.ok) return built;
 	return {
 		ok: true,
-		checks: evaluateAllChecks(snapshot, read.frontmatter),
-		lanes: deriveVerifyLaneApplicability(snapshot, read.frontmatter)
+		checks: evaluateAllChecks(snapshot, built.frontmatter),
+		lanes: deriveVerifyLaneApplicability(snapshot, built.frontmatter)
 	};
 }
 //#endregion
@@ -11010,6 +10900,79 @@ async function promoteSidecars(entry, attachmentRoot, opts = {}) {
 	return {
 		...entry,
 		payload: promotedPayload
+	};
+}
+//#endregion
+//#region src/core/spec-frontmatter.ts
+const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
+/**
+* Splits a spec.md raw string into (frontmatter_yaml, body) using the
+* shared FRONTMATTER_RE grammar. `body` is everything AFTER the closing
+* `---\n` (preserves trailing content verbatim). If no frontmatter block
+* is present, frontmatter is null and body is the whole input.
+*
+* Symmetric companion to readSpecFrontmatter() that returns ONLY the
+* structural split — caller validates YAML / SpecFrontmatter separately.
+*/
+function splitFrontmatter(raw) {
+	const match = FRONTMATTER_RE.exec(raw);
+	if (!match) return {
+		frontmatter: null,
+		body: raw
+	};
+	const body = raw.slice(match[0].length);
+	return {
+		frontmatter: match[1],
+		body
+	};
+}
+async function readSpecFrontmatter(featureDir) {
+	const specPath = path$1.join(featureDir, "spec.md");
+	let raw;
+	try {
+		raw = await fsp.readFile(specPath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			ok: false,
+			code: "SPEC_NOT_FOUND",
+			detail: { path: specPath }
+		};
+		throw err;
+	}
+	const match = FRONTMATTER_RE.exec(raw);
+	if (!match) return {
+		ok: false,
+		code: "SPEC_YAML_INVALID",
+		detail: {
+			path: specPath,
+			reason: "frontmatter_fence_missing"
+		}
+	};
+	let parsed;
+	try {
+		parsed = parse(match[1]);
+	} catch (err) {
+		return {
+			ok: false,
+			code: "SPEC_YAML_INVALID",
+			detail: {
+				path: specPath,
+				error: err.message
+			}
+		};
+	}
+	const validated = SpecFrontmatter.safeParse(parsed);
+	if (!validated.success) return {
+		ok: false,
+		code: "SPEC_FRONTMATTER_INVALID",
+		detail: {
+			path: specPath,
+			issues: validated.error.issues
+		}
+	};
+	return {
+		ok: true,
+		frontmatter: validated.data
 	};
 }
 //#endregion
@@ -11348,7 +11311,7 @@ async function mutateBatchUnderLease(partials, ctx) {
 				}
 			};
 		} else if (gateKind === "verify-accept") {
-			const gateResult = await evaluateVerifyAccept(ctx.snapshot, ctx.feature_dir);
+			const gateResult = evaluateVerifyAccept(ctx.snapshot);
 			if (!gateResult.ok) return {
 				ok: false,
 				code: "GATE_PRECONDITION_VIOLATION",
@@ -17161,7 +17124,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		const featureDir = await ctx.dispatchOrFail(opts);
 		if (featureDir === null) return;
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
-		const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
+		const diag = evaluateVerifyAcceptDiagnostic(session.snapshot);
 		if (!diag.ok) {
 			ctx.failure(diag);
 			return;

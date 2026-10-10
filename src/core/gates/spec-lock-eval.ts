@@ -1,7 +1,7 @@
 // Spec-lock approval and diagnostics share journal-derived snapshot truth.
 
 import type { Snapshot } from "../projection-types.js";
-import { buildSpecLockCheckInput } from "./spec-lock-input.js";
+import { buildSpecFrontmatterFromSnapshot } from "../spec-snapshot.js";
 import { specLockCheck } from "./spec-lock-check.js";
 import type { SpecLockResult } from "./spec-lock-check.js";
 
@@ -10,7 +10,8 @@ export type FullSpecLockResult = SpecLockResult;
 
 /** Evaluate all spec-lock semantics from journal-replayed snapshot state. */
 export function evaluateSpecLockFromSnapshot(snapshot: Snapshot): FullSpecLockResult {
-  const built = buildSpecLockCheckInput(snapshot);
-  if (!built.ok) return { ok: false, checks: [built.failure] };
-  return specLockCheck(built.input.snapshot, built.input.frontmatter);
+  const built = buildSpecFrontmatterFromSnapshot(snapshot);
+  if (!built.ok)
+    return { ok: false, checks: [{ check: 1, code: built.code, detail: built.detail }] };
+  return specLockCheck(snapshot, built.frontmatter);
 }

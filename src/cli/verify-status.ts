@@ -5,8 +5,8 @@ import { diagnosticMessage } from "./diagnostic-failure.js";
 // Renders the verify-accept gate's diagnostic view as a fixed four-lane
 // applicability enumeration plus 5-row PerCheckResult summary without
 // short-circuiting on first failure. Reuses
-// evaluateVerifyAcceptDiagnostic (verify-accept-eval.ts) so the IO boundary
-// (spec.md frontmatter read) maps to a structured exit-2 diagnostic; pure
+// evaluateVerifyAcceptDiagnostic (verify-accept-eval.ts) so invalid canonical
+// snapshot spec maps to a structured exit-2 diagnostic; pure
 // per-check evaluation rides evaluateAllChecks.
 //
 // Public envelope (codex r304 lock):
@@ -20,7 +20,7 @@ import { diagnosticMessage } from "./diagnostic-failure.js";
 //   fail — applicable + walker returned ≥1 failure
 //   na   — not applicable per deriveCheckApplicability
 //
-// Frontmatter unreadable → caller (cli.tsx action) emits exit-2 envelope
+// Canonical spec invalid → caller (cli.tsx action) emits exit-2 envelope
 // `{ ok:false, code:"SPEC_FRONTMATTER_INVALID", message, detail }`.
 
 import type {

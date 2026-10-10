@@ -38,8 +38,8 @@ import type { Diagnostic } from "../error-catalog.js";
 // checks' execution.
 //
 // Pure, zero-IO. Tests inject parsed SpecFrontmatter + Snapshot fixtures.
-// IO boundary (read spec.md frontmatter) lands in sub-cycle 4
-// (verify-accept-eval.ts).
+// Snapshot spec construction and check-1 failure mapping live in
+// verify-accept-eval.ts.
 
 import type { EvidenceState, Snapshot } from "../projection-types.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
@@ -58,7 +58,7 @@ export const VERIFY_ACCEPT_CHECKS = [
 ] as const;
 
 export type FailedCheck = { check: 1 | 2 | 3 | 4 | 5 } & Diagnostic<
-  // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures
+  // Canonical spec validation is the caller's responsibility (snapshot failures
   // map to check 1 via verify-accept-eval.ts), parallel to spec-lock-check
   // structure. Pure verifyAcceptCheck() never returns this code itself.
   | "SPEC_FRONTMATTER_INVALID"

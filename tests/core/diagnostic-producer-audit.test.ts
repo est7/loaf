@@ -51,8 +51,7 @@ describe("diagnostic producer audit", () => {
       "session-dispatch.ts",
       "gates/spec-lock-check.ts",
       "gates/verify-accept-check.ts",
-      "gates/gate-eval.ts",
-      "gates/spec-lock-input.ts",
+      "spec-snapshot.ts",
       "gates/verify-accept-eval.ts",
       ...["common", "spec", "task", "workflow"].map(
         (name) => `reducer/preflight/checks-${name}.ts`,
