@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-10-10
+
 ### Fixed
 
 - Invalid `prune --older-than` values now return `USAGE` with exit 2 and the
@@ -631,6 +633,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.11.0]: https://github.com/est7/loaf/releases/tag/v0.11.0
 [0.10.0]: https://github.com/est7/loaf/releases/tag/v0.10.0
 [0.9.0]: https://github.com/est7/loaf/releases/tag/v0.9.0
 [0.8.0]: https://github.com/est7/loaf/releases/tag/v0.8.0

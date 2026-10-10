@@ -1,15 +1,23 @@
 {
   "schema": 1,
-  "baseline_tag": "v0.9.0",
-  "target_version": "0.10.0",
+  "baseline_tag": "v0.10.0",
+  "target_version": "0.11.0",
   "breaking_changes": [
     {
-      "task": "typed payload slice 2",
-      "contract": "tasks_amended rejects non-behavioral tasks carrying red_test_registered: true with BUG_TASK_FLAG_MISUSE"
+      "task": "#4/C3",
+      "contract": "recoverable failures render through one catalog outlet: JSON is one stderr line with canonical English message and full detail; message text, fix/see, detail.context and Commander parse errors changed"
     },
     {
-      "task": "typed payload slice 1",
-      "contract": "projections use schema output: default measurable.direction, stripped undeclared requirement/scenario keys, schema key order"
+      "task": "#6",
+      "contract": "spec-lock and verify-accept gates, verify status and VERIFY next derive spec input from the journal snapshot; derived spec.md no longer affects decisions and check1 detail is snapshot-sourced"
+    },
+    {
+      "task": "S03",
+      "contract": "spec init rejects --dry-run with DRY_RUN_NOT_APPLICABLE"
+    },
+    {
+      "task": "S04",
+      "contract": "tokens after -- are positional data in loaf's own pre-parse, presentation and selector scans"
     }
   ]
 }

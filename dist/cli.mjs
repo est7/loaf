@@ -3142,7 +3142,7 @@ function installCommandActionPolicy(program, ctx) {
 }
 //#endregion
 //#region package.json
-var version = "0.10.0";
+var version = "0.11.0";
 //#endregion
 //#region src/core/machine.ts
 /** Preserve literal inference while rejecting missing and extra state keys. */
