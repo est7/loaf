@@ -4,6 +4,9 @@ import {
   FINDING_UNUSUAL_REASON_MIN_LENGTH,
   FIX_ACTION_STEP,
   cellRisk,
+  planGatePending,
+  checkPendingAdvance,
+  checkPendingEscalation,
 } from "../../intervention-policy.js";
 import { evaluateTaskProof, verifyMinPolicy } from "../../gates/task-proof.js";
 import type { Ceremony } from "../../journal-entry.js";
@@ -36,20 +39,8 @@ export function checkGateDecided(c: PreflightCheckCtx): PreflightFailure | null 
     // in the same batch); absent head also passes (no co-emission).
     // Rejected decisions bypass this guard — rejecting a gate is itself
     // an answer that does not require resolving a parallel pending.
-    const decision = entry.payload.decision;
-    if (decision === "approved") {
-      const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
-      if (pendingHead && pendingHead.kind !== "gate_decision") {
-        return {
-          ok: false,
-          ...diagnostic("GATE_NOT_PENDING", {
-            gate_kind: gateKind,
-            head_id: pendingHead.id,
-            head_kind: pendingHead.kind,
-          }),
-        };
-      }
-    }
+    const pendingPlan = planGatePending(ctx.snapshot.pending, gateKind, entry.payload.decision);
+    if (!pendingPlan.ok) return pendingPlan;
   }
   return null;
 }
@@ -78,14 +69,8 @@ export function checkPhaseAdvanced(c: PreflightCheckCtx): PreflightFailure | nul
     // FROM_CURSOR_MISMATCH and validateTransition so malformed cursors still
     // report FROM_CURSOR_MISMATCH first, but a blocking pending head stops
     // any advance before edge legality is evaluated.
-    const head = ctx.snapshot.pending.find((p) => !p.resolved);
-    if (head && (head.kind === "gate_decision" || head.kind === "profile_escalation")) {
-      return {
-        ok: false,
-        code: "PENDING_BLOCKS_ADVANCE",
-        detail: { pending_id: head.id, kind: head.kind },
-      };
-    }
+    const pendingFailure = checkPendingAdvance(ctx.snapshot.pending);
+    if (pendingFailure) return { ok: false, ...pendingFailure };
 
     // Slice B — back_edge sponsorship verifies against snapshot.findings
     // (codex r96 §3: open-only requirement, closed → FINDING_NOT_FOUND
@@ -310,18 +295,8 @@ export function checkSpikeConverted(c: PreflightCheckCtx): PreflightFailure | nu
 export function checkCeremonySet(c: PreflightCheckCtx): PreflightFailure | null {
   const { entry, sub_state, ctx } = c;
   if (entry.kind === "event:ceremony_set") {
-    const isTriage = sub_state === "TRIAGE.score" || sub_state === "TRIAGE.confirm";
-    if (!isTriage) {
-      const head = ctx.snapshot.pending.find((p) => !p.resolved);
-      if (!head || head.kind !== "profile_escalation") {
-        const actualHead = head ? head.kind : "(none)";
-        return {
-          ok: false,
-          code: "ESCALATION_NOT_PENDING",
-          detail: { actual_head: actualHead },
-        };
-      }
-    }
+    const pendingFailure = checkPendingEscalation(ctx.snapshot.pending, sub_state);
+    if (pendingFailure) return { ok: false, ...pendingFailure };
   }
   return null;
 }

@@ -1,3 +1,4 @@
+import { livePending } from "./intervention-policy.js";
 // Phase 16 SC-7 — registry per-session file writer foundation.
 //
 // Per protocol §4.12 + §11.2 step 9: each mutator pipeline run (after step
@@ -105,9 +106,9 @@ export function buildRegistryFile(input: BuildRegistryFileInput): RegistryFile |
   //   - snapshot.pending.length counts RESOLVED entries too (reducer
   //     marks resolved rather than popping), so the depth must come
   //     from filter-by-unresolved.
-  const unresolved: PendingQueueEntry[] = composePendingJson(entries)
-    .pending.filter((p) => !p.resolved)
-    .map(({ resolved: _resolved, ...rest }) => rest);
+  const unresolved: PendingQueueEntry[] = livePending(composePendingJson(entries).pending).map(
+    ({ resolved: _resolved, ...rest }) => rest,
+  );
   const pendingHead: PendingQueueEntry | null = unresolved[0] ?? null;
   const pendingQueueDepth = unresolved.length;
 

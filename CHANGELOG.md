@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Pending head/live-queue, FIFO resolution, advance blockers, gate soft binding,
+  escalation checks and next-action intent routing now share the intervention
+  policy owner. CLI assembly and admission/reducer checks retain their original
+  stages and diagnostic precedence; rich pending serialization is unchanged.
+
 - Finding action metadata (risk grid, reason threshold, target modes, reset
   steps and deferral disposition) now has one core intervention policy owner.
   CLI finding batches derive effects from that owner; back-edge source/target

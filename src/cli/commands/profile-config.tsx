@@ -1,3 +1,4 @@
+import { pendingHead } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -203,7 +204,7 @@ export function registerProfileConfig(
         //     owns the authority check (head must be profile_escalation);
         //     this only handles the structural "no head at all" case, where
         //     no PEND-id exists to build the pending:resolved entry.
-        const head = session.snapshot.pending.find((p) => !p.resolved);
+        const head = pendingHead(session.snapshot.pending);
         if (!head) {
           ctx.failure(diagnostic("ESCALATION_NOT_PENDING", { actual_head: "(none)" }));
           return;

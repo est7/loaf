@@ -1,3 +1,4 @@
+import { pendingHead, pendingHeadIndex } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -139,7 +140,7 @@ export function registerPending(
       );
       if (loaded === null) return;
       const entries = loaded.pending.pending;
-      const headIdx = entries.findIndex((p) => !p.resolved);
+      const headIdx = pendingHeadIndex(entries);
       const rows = entries.map((p, i) => ({
         id: p.pending_id,
         kind: p.kind,
@@ -187,7 +188,7 @@ export function registerPending(
         );
         return;
       }
-      const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
+      const headIdx = pendingHeadIndex(session.snapshot.pending);
       let target: { id: string; kind: string; resolved: boolean; head: boolean } | null;
       if (opts.id !== undefined) {
         const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
@@ -247,7 +248,7 @@ export function registerPending(
         );
         return;
       }
-      const head = session.snapshot.pending.find((p) => !p.resolved);
+      const head = pendingHead(session.snapshot.pending);
       if (!head) {
         ctx.failure(diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }));
         return;

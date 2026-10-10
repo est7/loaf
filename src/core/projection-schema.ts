@@ -273,7 +273,7 @@ export type StateProjection = z.infer<typeof StateProjection>;
 //     NOT path.basename(featureDir) — tmp featureDir paths in tests
 //     don't carry the canonical name)
 //   - active_tasks = snapshot.tasks.filter(t => t.status === "in_progress")
-//   - pending = composePendingJson(entries).pending.filter(!resolved)
+//   - pending = livePending(composePendingJson(entries).pending)
 //     [0] with `resolved` stripped (head), null when empty
 //   - pending_queue_depth = unresolved.length (NOT snapshot.pending.length
 //     which includes resolved historical entries; codex r280 P3)

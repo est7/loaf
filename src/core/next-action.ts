@@ -1,3 +1,4 @@
+import { pendingResolutionOwner } from "./intervention-policy.js";
 import { z } from "zod";
 
 import { Ceremony, PendingPromptKind, Phase, SubState } from "./journal-entry.js";
@@ -90,11 +91,6 @@ function profileEscalateAction(): NextAction {
   };
 }
 
-function gateFromCursor(subState: SubState): NextAction | null {
-  const gate = gateNameForCursor(subState);
-  return gate === null ? null : buildGateDecideAction(gate);
-}
-
 function verifyNextTarget(
   subState: SubState,
   applicable: ReadonlySet<VerifyCheckKind> | undefined,
@@ -114,13 +110,15 @@ function verifyNextTarget(
 function chooseNextAction(input: BuildNextOutputInput): NextAction | null {
   const head = input.pending[0];
   if (head !== undefined) {
-    if (head.kind === "gate_decision") {
-      const gate = gateFromCursor(input.sub_state);
-      if (gate !== null) return gate;
-      return pendingResolveAction(head);
+    const intervention = pendingResolutionOwner(head.kind, gateNameForCursor(input.sub_state));
+    switch (intervention.owner) {
+      case "gate decide":
+        return buildGateDecideAction(intervention.gate);
+      case "profile escalate":
+        return profileEscalateAction();
+      case "pending resolve":
+        return pendingResolveAction(head);
     }
-    if (head.kind === "profile_escalation") return profileEscalateAction();
-    return pendingResolveAction(head);
   }
 
   return transitionOwnerFor({

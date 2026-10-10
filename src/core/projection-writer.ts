@@ -1,3 +1,4 @@
+import { livePending } from "./intervention-policy.js";
 // Projection writer shared by journal mutation and `loaf doctor --rebuild`.
 //
 // `loaf doctor --rebuild` does a full journal replay (replayJournal seq=0,
@@ -118,9 +119,9 @@ export function composeStateProjection(
     iteration: state.iteration,
     spec_locked: state.spec_locked,
     verify_accepted: state.verify_accepted,
-    pending: composePendingJson(entries)
-      .pending.filter((p) => !p.resolved)
-      .map(({ resolved: _resolved, ...queue }): PendingQueueEntry => queue),
+    pending: livePending(composePendingJson(entries).pending).map(
+      ({ resolved: _resolved, ...queue }): PendingQueueEntry => queue,
+    ),
     ceremony: state.ceremony,
     ceremony_label: ceremonyLabel,
     complexity_score: null,

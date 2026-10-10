@@ -1,3 +1,4 @@
+import { planGatePending } from "../../core/intervention-policy.js";
 import { diagnostic, diagnosticVariant } from "../../core/error-catalog.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
@@ -84,16 +85,20 @@ export function registerGate(
         // gate_decision prompt, the approve batch appends pending:resolved
         // so the head clears atomically. Non-gate heads are rejected by
         // preflight GATE_NOT_PENDING (see reducer/preflight.ts (5a)).
-        const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
-        const coEmitPendingResolved =
-          approve && pendingHead && pendingHead.kind === "gate_decision";
+        const pendingPlan = planGatePending(
+          session.snapshot.pending,
+          gateName,
+          approve ? "approved" : "rejected",
+        );
+        // Admission owns failures; CLI only uses the eligible co-resolution head.
+        const pendingHead = pendingPlan.ok ? pendingPlan.resolutionHead : undefined;
         if (approve) {
           if (gateName === "spec-lock") {
             // dual-entry batch: human gate:decided + machine event:phase_advanced.
             // mutateBatch Pass 1.5 evaluates spec-lock via evaluateSpecLock; any
             // failure surfaces as GATE_PRECONDITION_VIOLATION with checks[] in
             // detail. spec-lock specifically moves SPEC.design → EXECUTE.plan.
-            // SC4: when coEmitPendingResolved, insert pending:resolved between
+            // SC4: when pendingHead exists, insert pending:resolved between
             // the gate decision and the cursor advance — order matters for
             // reducer dry-run (pending head must still be unresolved when
             // pending:resolved applies; phase_advanced runs after).
@@ -106,7 +111,7 @@ export function registerGate(
                 humanActor,
                 cliActor: actor,
                 from,
-                ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
+                ...(pendingHead ? { pendingHeadId: pendingHead.id } : {}),
               }),
             );
             if (!result) return;
@@ -156,7 +161,7 @@ export function registerGate(
               reason: opts.reason,
               humanActor,
               cliActor: actor,
-              ...(coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}),
+              ...(pendingHead ? { pendingHeadId: pendingHead.id } : {}),
             }),
           );
           if (!result) return;

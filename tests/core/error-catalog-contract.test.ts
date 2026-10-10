@@ -5,7 +5,7 @@
 //   substituter's identifier grammar, then checked against detail_keys and the
 //   catalog adapter (not against a second handwritten placeholder list);
 // - emitter coverage parses direct diagnostic("CODE", { ... }) calls in the
-//   three first-adopter core files. Dynamic code values, non-literal detail
+//   scoped first-adopter and intervention-owner core files. Dynamic code values, non-literal detail
 //   objects, spreads, legacy emitters, and CLI-only transformation semantics
 //   are outside this static gate and remain covered by typecheck/runtime tests.
 
@@ -53,7 +53,10 @@ if (false) {
     }
     return record.detail;
   };
-  requireTransitionDetail({ code: "TRANSITION_ILLEGAL", detail: { from: "TRIAGE.score", to: "EXECUTE.done" } });
+  requireTransitionDetail({
+    code: "TRANSITION_ILLEGAL",
+    detail: { from: "TRIAGE.score", to: "EXECUTE.done" },
+  });
   // @ts-expect-error union diagnostics retain the selected code's required detail fields.
   const missingTransition: Diagnostic<"TRANSITION_ILLEGAL" | "TASK_DEP_SELF"> = {
     code: "TRANSITION_ILLEGAL",
@@ -236,6 +239,7 @@ describe("ERROR_CATALOG template/detail contracts", () => {
       "src/core/reducer/preflight/checks-workflow.ts",
       "src/core/gates/spec-lock-check.ts",
       "src/core/reducer.ts",
+      "src/core/intervention-policy.ts",
     ];
     const calls = (await Promise.all(files.map(staticDiagnosticCalls))).flat();
     const expectedCodes = new Set([
@@ -244,6 +248,8 @@ describe("ERROR_CATALOG template/detail contracts", () => {
       "SPEC_HAS_UNCLARIFIED",
       "ALREADY_STARTED",
       "PENDING_NOT_FOUND",
+      "PENDING_BLOCKS_ADVANCE",
+      "ESCALATION_NOT_PENDING",
     ]);
 
     const actualCodes = new Set(calls.map((call) => call.code));

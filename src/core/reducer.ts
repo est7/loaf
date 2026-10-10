@@ -1,3 +1,4 @@
+import { resolvePending } from "./intervention-policy.js";
 // Reducer apply path — minimum viable Stage 2.
 //
 // Entry admission validates authority + transition; applyValidated (step 7)
@@ -520,24 +521,9 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     case "pending:resolved": {
       // FIFO: only the head (first unresolved) may be marked resolved per §10.7.
       const payload = entry.payload;
-      const headIdx = prev.pending.findIndex((p) => !p.resolved);
-      if (headIdx === -1) {
-        return {
-          ok: false,
-          ...diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }),
-        };
-      }
-      const head = prev.pending[headIdx]!;
-      if (head.id !== payload.id) {
-        return {
-          ok: false,
-          ...diagnostic("PENDING_NOT_FOUND", {
-            reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)`,
-          }),
-        };
-      }
-      const pending = prev.pending.map((p, i) => (i === headIdx ? { ...p, resolved: true } : p));
-      return { ok: true, snapshot: { ...prev, pending } };
+      const resolved = resolvePending(prev.pending, payload.id);
+      if (!resolved.ok) return resolved;
+      return { ok: true, snapshot: { ...prev, pending: resolved.pending } };
     }
 
     case "session:delivered": {

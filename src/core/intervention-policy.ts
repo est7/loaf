@@ -2,7 +2,10 @@
 // reducer/transition.ts exclusively owns back-edge source and target rules.
 
 import type { FindingAction, FindingCategory, FindingActionRisk } from "./finding-schema.js";
-import type { SubState } from "./journal-entry.js";
+import type { Diagnostic } from "./error-catalog.js";
+import { diagnostic } from "./error-catalog.js";
+import type { PendingState } from "./projection-types.js";
+import type { GateName, SubState } from "./journal-entry.js";
 import { backEdgeTarget } from "./reducer/transition.js";
 
 /** Actions whose selection is itself a non-blocking disposition. */
@@ -141,4 +144,98 @@ export function findingActionEffect(
     return { kind: "back-edge", target: backEdgeTarget(action) };
   }
   return { kind: "none" };
+}
+
+/** Historical pending rows keep resolved entries; the head is first unresolved. */
+export function pendingHeadIndex(rows: readonly { resolved: boolean }[]): number {
+  return rows.findIndex((row) => !row.resolved);
+}
+
+export function pendingHead<T extends { resolved: boolean }>(rows: readonly T[]): T | undefined {
+  const index = pendingHeadIndex(rows);
+  return index === -1 ? undefined : rows[index];
+}
+
+/** Preserve rich/slim fields and ordering; serialization remains with the writer. */
+export function livePending<T extends { resolved: boolean }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => !row.resolved);
+}
+
+export function checkPendingAdvance(
+  rows: readonly PendingState[],
+): Diagnostic<"PENDING_BLOCKS_ADVANCE"> | null {
+  const head = pendingHead(rows);
+  return head && (head.kind === "gate_decision" || head.kind === "profile_escalation")
+    ? diagnostic("PENDING_BLOCKS_ADVANCE", { pending_id: head.id, kind: head.kind })
+    : null;
+}
+
+/** Approved gates soft-bind to a gate head; rejected gates never co-resolve.
+ * CLI assembly consumes only an eligible head. A failure is still reported
+ * by admission at its existing stage, after other earlier checks. */
+export function planGatePending(
+  rows: readonly PendingState[],
+  gate: GateName,
+  decision: "approved" | "rejected",
+):
+  | { ok: true; resolutionHead: PendingState | undefined }
+  | ({ ok: false } & Diagnostic<"GATE_NOT_PENDING">) {
+  if (decision === "rejected") return { ok: true, resolutionHead: undefined };
+  const head = pendingHead(rows);
+  if (head && head.kind !== "gate_decision") {
+    return {
+      ok: false,
+      ...diagnostic("GATE_NOT_PENDING", {
+        gate_kind: gate,
+        head_id: head.id,
+        head_kind: head.kind,
+      }),
+    };
+  }
+  return { ok: true, resolutionHead: head };
+}
+
+export function checkPendingEscalation(
+  rows: readonly PendingState[],
+  subState: SubState,
+): Diagnostic<"ESCALATION_NOT_PENDING"> | null {
+  if (subState === "TRIAGE.score" || subState === "TRIAGE.confirm") return null;
+  const head = pendingHead(rows);
+  return head?.kind === "profile_escalation"
+    ? null
+    : diagnostic("ESCALATION_NOT_PENDING", { actual_head: head ? head.kind : "(none)" });
+}
+
+/** Called at reducer application, not promoted into admission. */
+export function resolvePending(
+  rows: readonly PendingState[],
+  id: string,
+): { ok: true; pending: PendingState[] } | ({ ok: false } & Diagnostic<"PENDING_NOT_FOUND">) {
+  const index = pendingHeadIndex(rows);
+  if (index === -1)
+    return { ok: false, ...diagnostic("PENDING_NOT_FOUND", { reason: "no pending head" }) };
+  const head = rows[index]!;
+  if (head.id !== id)
+    return {
+      ok: false,
+      ...diagnostic("PENDING_NOT_FOUND", {
+        reason: `id=${id} does not match head id=${head.id} (FIFO violation)`,
+      }),
+    };
+  return {
+    ok: true,
+    pending: rows.map((row, i) => (i === index ? { ...row, resolved: true } : row)),
+  };
+}
+
+/** Intent routing for an already-live queue; all pending kinds require a next
+ * action, whereas only gate/profile heads block phase advance. */
+export function pendingResolutionOwner(
+  kind: string,
+  gateAtCursor: GateName | null,
+): { owner: "gate decide"; gate: GateName } | { owner: "profile escalate" | "pending resolve" } {
+  if (kind === "gate_decision" && gateAtCursor !== null)
+    return { owner: "gate decide", gate: gateAtCursor };
+  if (kind === "profile_escalation") return { owner: "profile escalate" };
+  return { owner: "pending resolve" };
 }

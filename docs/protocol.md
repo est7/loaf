@@ -222,6 +222,8 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
 1. **Worker fan-out**(rev 4.0):`EXECUTE.work` sub_state 是 worker phase,允许 sub-agent fan-out 并发。Active set = `tasks.json.tasks.status="in_progress"` filter(多元集合);其它 sub_state(包括 TRIAGE / SPEC / VERIFY / SETTLE)是 control phase,主 skill serial 跑。Fan-out 是 EXECUTE.work 独占特权,**不影响 state machine 主轴**(state 仍单 cursor)。
 2. **Pending FIFO 队列**(rev 4.1):任何 phase 都可能 raise pending(`gate_decision` 在 SPEC.lock / VERIFY.accept;`finding_decision` 在 EXECUTE.work post-lock;`profile_escalation` 在 EXECUTE.* / SPEC.*;`ask_user_question` 任何 phase)。Pending 是 **side-effect queue**;**protocol 层 enforcement 极简**(rev 4.1 Q3):**`loaf advance` 仅在 head kind ∈ {`gate_decision`, `profile_escalation`} 时拒**,其它命令一律放行,更广的工作流调度由 skill 自己看 `loaf pending list` 决定。Worker 不被自己/他人的 pending 阻塞,各自跑到自己撞 pending 为止。详见 §10.7 + §14.3。
 
+Pending 的 head/live/FIFO、advance blocker、gate soft binding、escalation 和 next intent 决策由 `src/core/intervention-policy.ts` 统一拥有。CLI 只组装已有 co-resolution batch；preflight 保留原检查顺序，FIFO id 匹配仍在 reducer application 阶段。rich pending 的 history/字段序列化保留在 projection writer，TUI/Board 各自保留 presentation model。
+
 **iteration 字段**:
 - 进入 SPEC.proposal 第一次时 iteration = 1
 - 每次 finding 触发回退(amend-spec / amend-tasks / fix-impl / fix-test),iteration += 1

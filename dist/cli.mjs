@@ -4951,504 +4951,6 @@ async function _loadProjectionsImpl(input, hooks) {
 	return result;
 }
 //#endregion
-//#region src/core/reducer.ts
-function initialSnapshot() {
-	return {
-		state: null,
-		tasks: [],
-		evidence: [],
-		findings: [],
-		pending: [],
-		spec_header: null,
-		requirements: [],
-		scenarios: [],
-		visual_contracts: [],
-		tasks_based_on: null
-	};
-}
-function extractPhase(sub) {
-	const idx = sub.indexOf(".");
-	return sub.slice(0, idx);
-}
-/**
-* Applies an entry whose external validation has already succeeded.
-*
-* `prev` is consumed. Some cases mutate projection arrays in place and may
-* return the same snapshot object or array references.
-*
-* @internal Only entry-admission.ts may call this directly.
-*/
-function applyValidated(prev, entry) {
-	if (entry.kind === "session:started") {
-		if (prev.state !== null) return {
-			ok: false,
-			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind })
-		};
-		const payload = entry.payload;
-		return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					session_id: payload.session_id,
-					feature: payload.feature,
-					phase: "TRIAGE",
-					sub_state: "TRIAGE.score",
-					iteration: 1,
-					spec_locked: false,
-					verify_accepted: false,
-					spec_version: 0,
-					ceremony: payload.ceremony
-				}
-			}
-		};
-	}
-	const state = prev.state;
-	const { kind } = entry;
-	switch (kind) {
-		case "event:phase_advanced": {
-			const payload = entry.payload;
-			const next = {
-				...state,
-				sub_state: payload.to,
-				phase: extractPhase(payload.to),
-				spec_locked: payload.to === "SPEC.spec" ? false : state.spec_locked,
-				iteration: payload.back_edge !== void 0 ? state.iteration + 1 : state.iteration
-			};
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					state: next
-				}
-			};
-		}
-		case "event:ceremony_set": {
-			const payload = entry.payload;
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					state: {
-						...state,
-						ceremony: payload
-					}
-				}
-			};
-		}
-		case "gate:decided": {
-			const payload = entry.payload;
-			if (payload.decision !== "approved") return {
-				ok: true,
-				snapshot: prev
-			};
-			switch (payload.gate_kind) {
-				case "spec-lock": return {
-					ok: true,
-					snapshot: {
-						...prev,
-						state: {
-							...state,
-							spec_locked: true
-						}
-					}
-				};
-				case "verify-accept": return {
-					ok: true,
-					snapshot: {
-						...prev,
-						state: {
-							...state,
-							verify_accepted: true
-						}
-					}
-				};
-				default: return payload.gate_kind;
-			}
-		}
-		case "event:tasks_planned": {
-			const payload = entry.payload;
-			const taskList = payload.tasks.map(extractTaskSlim);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks: taskList,
-					tasks_based_on: { spec: payload.based_on.spec }
-				}
-			};
-		}
-		case "event:tasks_amended": {
-			const payload = entry.payload;
-			const mode = payload.mode;
-			const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
-			if (mode === "add") {
-				if (idx !== -1) return {
-					ok: false,
-					code: "DUPLICATE_TASK_ID",
-					detail: { task_id: payload.task.id }
-				};
-				const slim = extractTaskSlim(payload.task);
-				return {
-					ok: true,
-					snapshot: {
-						...prev,
-						tasks: [...prev.tasks, slim]
-					}
-				};
-			}
-			const slim = extractTaskSlim(payload.task);
-			const tasks = prev.tasks.map((t, i) => i === idx ? slim : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_claimed": {
-			const payload = entry.payload;
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				status: "in_progress"
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_step_started": {
-			const payload = entry.payload;
-			const seeded = prev.tasks.find((t) => t.id === payload.task_id).steps[payload.step];
-			if (!seeded) return {
-				ok: false,
-				code: "TASK_STEP_NOT_FOUND",
-				detail: {
-					task_id: payload.task_id,
-					step: payload.step
-				}
-			};
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				steps: {
-					...t.steps,
-					[payload.step]: {
-						applicability: seeded.applicability,
-						status: "running"
-					}
-				}
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_step_done": {
-			const payload = entry.payload;
-			const task = prev.tasks.find((t) => t.id === payload.task_id);
-			const seeded = task.steps[payload.step];
-			if (!seeded) return {
-				ok: false,
-				code: "TASK_STEP_NOT_FOUND",
-				detail: {
-					task_id: payload.task_id,
-					step: payload.step
-				}
-			};
-			const newStatus = payload.result ?? "passed";
-			const updatedSteps = {
-				...task.steps,
-				[payload.step]: {
-					applicability: seeded.applicability,
-					status: newStatus
-				}
-			};
-			const nextStatus = task.status === "done" ? "done" : shouldPromoteToDone(updatedSteps) ? "done" : task.status;
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				steps: updatedSteps,
-				status: nextStatus,
-				...payload.red_test_registered === true ? { red_test_registered: true } : {}
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_step_reset": {
-			const payload = entry.payload;
-			const seeded = prev.tasks.find((t) => t.id === payload.task_id).steps[payload.step];
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				status: "in_progress",
-				steps: {
-					...t.steps,
-					[payload.step]: {
-						applicability: seeded.applicability,
-						status: "pending"
-					}
-				}
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:task_abandoned": {
-			const payload = entry.payload;
-			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
-				...t,
-				status: "abandoned"
-			} : t);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					tasks
-				}
-			};
-		}
-		case "event:spec_submitted": {
-			const payload = entry.payload;
-			const specHeader = structuredClone({
-				feature: {
-					id: payload.feature.id,
-					name: payload.feature.name
-				},
-				intent: payload.intent,
-				adr_refs: payload.adr_refs,
-				needs_clarification: payload.needs_clarification
-			});
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					state: {
-						...state,
-						spec_version: payload.spec_version
-					},
-					spec_header: specHeader,
-					requirements: [],
-					scenarios: [],
-					visual_contracts: []
-				}
-			};
-		}
-		case "event:spec_req_added": {
-			const payload = entry.payload;
-			prev.requirements.push(structuredClone(payload.req));
-			return {
-				ok: true,
-				snapshot: payload.spec_version === state.spec_version ? prev : {
-					...prev,
-					state: {
-						...state,
-						spec_version: payload.spec_version
-					}
-				}
-			};
-		}
-		case "event:spec_scenario_added": {
-			const payload = entry.payload;
-			prev.scenarios.push(structuredClone(payload.scenario));
-			return {
-				ok: true,
-				snapshot: payload.spec_version === state.spec_version ? prev : {
-					...prev,
-					state: {
-						...state,
-						spec_version: payload.spec_version
-					}
-				}
-			};
-		}
-		case "event:spec_visual_added": {
-			const payload = entry.payload;
-			prev.visual_contracts.push(structuredClone(payload.visual));
-			return {
-				ok: true,
-				snapshot: payload.spec_version === state.spec_version ? prev : {
-					...prev,
-					state: {
-						...state,
-						spec_version: payload.spec_version
-					}
-				}
-			};
-		}
-		case "evidence:added": {
-			const payload = entry.payload;
-			const ev = {
-				id: payload.id,
-				kind: payload.kind,
-				covers: payload.covers,
-				actor: payload.actor
-			};
-			if (payload.result !== void 0) ev.result = payload.result;
-			if (payload.check !== void 0) ev.check = payload.check;
-			if (payload.reason !== void 0) ev.reason = payload.reason;
-			if (payload.attachments !== void 0) ev.attachments = payload.attachments;
-			prev.evidence.push(ev);
-			return {
-				ok: true,
-				snapshot: prev
-			};
-		}
-		case "lesson:recorded": return {
-			ok: true,
-			snapshot: prev
-		};
-		case "scope:recorded": return {
-			ok: true,
-			snapshot: prev
-		};
-		case "finding:raised": {
-			const payload = entry.payload;
-			const f = {
-				id: payload.id,
-				category: payload.category,
-				action: payload.action,
-				status: "open"
-			};
-			if (payload.summary !== void 0) f.summary = payload.summary;
-			if (payload.reason !== void 0) f.reason = payload.reason;
-			if (payload.target !== void 0) f.target = payload.target;
-			prev.findings.push(f);
-			return {
-				ok: true,
-				snapshot: prev
-			};
-		}
-		case "finding:closed": {
-			const payload = entry.payload;
-			const idx = prev.findings.findIndex((f) => f.id === payload.id);
-			if (idx === -1) return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: payload.id,
-					reason: "unknown"
-				}
-			};
-			if (prev.findings[idx].status === "closed") return {
-				ok: false,
-				code: "FINDING_NOT_FOUND",
-				detail: {
-					id: payload.id,
-					reason: "already_closed"
-				}
-			};
-			const findings = prev.findings.map((f, i) => i === idx ? {
-				...f,
-				status: "closed"
-			} : f);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					findings
-				}
-			};
-		}
-		case "pending:added": {
-			const payload = entry.payload;
-			const p = {
-				id: payload.id,
-				kind: payload.kind,
-				resolved: false
-			};
-			prev.pending.push(p);
-			return {
-				ok: true,
-				snapshot: prev
-			};
-		}
-		case "pending:resolved": {
-			const payload = entry.payload;
-			const headIdx = prev.pending.findIndex((p) => !p.resolved);
-			if (headIdx === -1) return {
-				ok: false,
-				...diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" })
-			};
-			const head = prev.pending[headIdx];
-			if (head.id !== payload.id) return {
-				ok: false,
-				...diagnostic$2("PENDING_NOT_FOUND", { reason: `id=${payload.id} does not match head id=${head.id} (FIFO violation)` })
-			};
-			const pending = prev.pending.map((p, i) => i === headIdx ? {
-				...p,
-				resolved: true
-			} : p);
-			return {
-				ok: true,
-				snapshot: {
-					...prev,
-					pending
-				}
-			};
-		}
-		case "session:delivered": return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					...state,
-					sub_state: "DONE.delivered",
-					phase: "DONE"
-				}
-			}
-		};
-		case "session:archived": return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					...state,
-					sub_state: "DONE.archived",
-					phase: "DONE"
-				}
-			}
-		};
-		case "session:abandoned": return {
-			ok: true,
-			snapshot: {
-				...prev,
-				state: {
-					...state,
-					sub_state: "DONE.abandoned",
-					phase: "DONE"
-				}
-			}
-		};
-		case "session:resumed": return {
-			ok: true,
-			snapshot: prev
-		};
-		case "spike:converted": return {
-			ok: true,
-			snapshot: prev
-		};
-		default: return {
-			ok: false,
-			code: "REDUCER_NOT_IMPLEMENTED",
-			detail: { kind }
-		};
-	}
-}
-//#endregion
 //#region src/core/machine.ts
 /** Preserve literal inference while rejecting missing and extra state keys. */
 function defineMachine(machine) {
@@ -6069,6 +5571,672 @@ function validateTransition(prev, target, ctx) {
 	return { ok: true };
 }
 //#endregion
+//#region src/core/intervention-policy.ts
+/** Actions whose selection is itself a non-blocking disposition. */
+const FINDING_DEFERRAL_ACTIONS = ["defer", "backlog"];
+/**
+* Derive disposition from the persisted action without widening the journal
+* or projection schema. Accepts string because historical slim snapshots type
+* FindingState.action loosely, while validated new entries use FindingAction.
+*/
+function isFindingDeferralAction(action) {
+	return FINDING_DEFERRAL_ACTIONS.includes(action);
+}
+/**
+* FINDING_ACTION_GRID — per-cell risk classification.
+* 4 `incoherent` cells (rev 4.3 ADR-0004 A7): structurally there is no
+* task target a transition can land on, so block early at preflight.
+* Implements the `docs/protocol.md §4.5` finding matrix.
+*/
+const FINDING_ACTION_GRID = {
+	"spec-gap": {
+		"amend-spec": "typical",
+		"amend-tasks": "unusual",
+		"fix-impl": "incoherent",
+		"fix-test": "incoherent",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"spec-defect": {
+		"amend-spec": "typical",
+		"amend-tasks": "unusual",
+		"fix-impl": "unusual",
+		"fix-test": "unusual",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"impl-defect": {
+		"amend-spec": "unusual",
+		"amend-tasks": "typical",
+		"fix-impl": "typical",
+		"fix-test": "unusual",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"test-defect": {
+		"amend-spec": "unusual",
+		"amend-tasks": "typical",
+		"fix-impl": "unusual",
+		"fix-test": "typical",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"new-scope": {
+		"amend-spec": "typical",
+		"amend-tasks": "typical",
+		"fix-impl": "incoherent",
+		"fix-test": "incoherent",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"risk-escalation": {
+		"amend-spec": "unusual",
+		"amend-tasks": "typical",
+		"fix-impl": "unusual",
+		"fix-test": "unusual",
+		defer: "typical",
+		backlog: "typical"
+	}
+};
+/** Look up the (category, action) cell risk in O(1). */
+function cellRisk(category, action) {
+	return FINDING_ACTION_GRID[category][action];
+}
+const FINDING_ACTION_TARGET_MODE = {
+	"amend-spec": "none",
+	"amend-tasks": "task_id_optional",
+	"fix-impl": "task_id_step",
+	"fix-test": "task_id_step",
+	defer: "none",
+	backlog: "none"
+};
+/**
+* For `task_id_step` actions only, the canonical step that the action's
+* back-edge mutation targets. fix-impl drives the `implement` step;
+* fix-test drives the `red` step (TDD failure-first lane).
+*/
+const FIX_ACTION_STEP = {
+	"fix-impl": "implement",
+	"fix-test": "red"
+};
+/** Action effect for batch assembly; admission still verifies authorization.
+* Unknown action strings have no mechanical siblings, preserving the loose
+* input surface used by CLI builders before payload admission. */
+function findingActionEffect(action) {
+	if (action === "fix-impl" || action === "fix-test") return {
+		kind: "fix-reset",
+		target: backEdgeTarget(action),
+		step: FIX_ACTION_STEP[action]
+	};
+	if (action === "amend-spec" || action === "amend-tasks") return {
+		kind: "back-edge",
+		target: backEdgeTarget(action)
+	};
+	return { kind: "none" };
+}
+/** Historical pending rows keep resolved entries; the head is first unresolved. */
+function pendingHeadIndex(rows) {
+	return rows.findIndex((row) => !row.resolved);
+}
+function pendingHead(rows) {
+	const index = pendingHeadIndex(rows);
+	return index === -1 ? void 0 : rows[index];
+}
+/** Preserve rich/slim fields and ordering; serialization remains with the writer. */
+function livePending(rows) {
+	return rows.filter((row) => !row.resolved);
+}
+function checkPendingAdvance(rows) {
+	const head = pendingHead(rows);
+	return head && (head.kind === "gate_decision" || head.kind === "profile_escalation") ? diagnostic$2("PENDING_BLOCKS_ADVANCE", {
+		pending_id: head.id,
+		kind: head.kind
+	}) : null;
+}
+/** Approved gates soft-bind to a gate head; rejected gates never co-resolve.
+* CLI assembly consumes only an eligible head. A failure is still reported
+* by admission at its existing stage, after other earlier checks. */
+function planGatePending(rows, gate, decision) {
+	if (decision === "rejected") return {
+		ok: true,
+		resolutionHead: void 0
+	};
+	const head = pendingHead(rows);
+	if (head && head.kind !== "gate_decision") return {
+		ok: false,
+		...diagnostic$2("GATE_NOT_PENDING", {
+			gate_kind: gate,
+			head_id: head.id,
+			head_kind: head.kind
+		})
+	};
+	return {
+		ok: true,
+		resolutionHead: head
+	};
+}
+function checkPendingEscalation(rows, subState) {
+	if (subState === "TRIAGE.score" || subState === "TRIAGE.confirm") return null;
+	const head = pendingHead(rows);
+	return head?.kind === "profile_escalation" ? null : diagnostic$2("ESCALATION_NOT_PENDING", { actual_head: head ? head.kind : "(none)" });
+}
+/** Called at reducer application, not promoted into admission. */
+function resolvePending(rows, id) {
+	const index = pendingHeadIndex(rows);
+	if (index === -1) return {
+		ok: false,
+		...diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" })
+	};
+	const head = rows[index];
+	if (head.id !== id) return {
+		ok: false,
+		...diagnostic$2("PENDING_NOT_FOUND", { reason: `id=${id} does not match head id=${head.id} (FIFO violation)` })
+	};
+	return {
+		ok: true,
+		pending: rows.map((row, i) => i === index ? {
+			...row,
+			resolved: true
+		} : row)
+	};
+}
+/** Intent routing for an already-live queue; all pending kinds require a next
+* action, whereas only gate/profile heads block phase advance. */
+function pendingResolutionOwner(kind, gateAtCursor) {
+	if (kind === "gate_decision" && gateAtCursor !== null) return {
+		owner: "gate decide",
+		gate: gateAtCursor
+	};
+	if (kind === "profile_escalation") return { owner: "profile escalate" };
+	return { owner: "pending resolve" };
+}
+//#endregion
+//#region src/core/reducer.ts
+function initialSnapshot() {
+	return {
+		state: null,
+		tasks: [],
+		evidence: [],
+		findings: [],
+		pending: [],
+		spec_header: null,
+		requirements: [],
+		scenarios: [],
+		visual_contracts: [],
+		tasks_based_on: null
+	};
+}
+function extractPhase(sub) {
+	const idx = sub.indexOf(".");
+	return sub.slice(0, idx);
+}
+/**
+* Applies an entry whose external validation has already succeeded.
+*
+* `prev` is consumed. Some cases mutate projection arrays in place and may
+* return the same snapshot object or array references.
+*
+* @internal Only entry-admission.ts may call this directly.
+*/
+function applyValidated(prev, entry) {
+	if (entry.kind === "session:started") {
+		if (prev.state !== null) return {
+			ok: false,
+			...diagnostic$2("ALREADY_STARTED", { kind: entry.kind })
+		};
+		const payload = entry.payload;
+		return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					session_id: payload.session_id,
+					feature: payload.feature,
+					phase: "TRIAGE",
+					sub_state: "TRIAGE.score",
+					iteration: 1,
+					spec_locked: false,
+					verify_accepted: false,
+					spec_version: 0,
+					ceremony: payload.ceremony
+				}
+			}
+		};
+	}
+	const state = prev.state;
+	const { kind } = entry;
+	switch (kind) {
+		case "event:phase_advanced": {
+			const payload = entry.payload;
+			const next = {
+				...state,
+				sub_state: payload.to,
+				phase: extractPhase(payload.to),
+				spec_locked: payload.to === "SPEC.spec" ? false : state.spec_locked,
+				iteration: payload.back_edge !== void 0 ? state.iteration + 1 : state.iteration
+			};
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					state: next
+				}
+			};
+		}
+		case "event:ceremony_set": {
+			const payload = entry.payload;
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					state: {
+						...state,
+						ceremony: payload
+					}
+				}
+			};
+		}
+		case "gate:decided": {
+			const payload = entry.payload;
+			if (payload.decision !== "approved") return {
+				ok: true,
+				snapshot: prev
+			};
+			switch (payload.gate_kind) {
+				case "spec-lock": return {
+					ok: true,
+					snapshot: {
+						...prev,
+						state: {
+							...state,
+							spec_locked: true
+						}
+					}
+				};
+				case "verify-accept": return {
+					ok: true,
+					snapshot: {
+						...prev,
+						state: {
+							...state,
+							verify_accepted: true
+						}
+					}
+				};
+				default: return payload.gate_kind;
+			}
+		}
+		case "event:tasks_planned": {
+			const payload = entry.payload;
+			const taskList = payload.tasks.map(extractTaskSlim);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks: taskList,
+					tasks_based_on: { spec: payload.based_on.spec }
+				}
+			};
+		}
+		case "event:tasks_amended": {
+			const payload = entry.payload;
+			const mode = payload.mode;
+			const idx = prev.tasks.findIndex((t) => t.id === payload.task.id);
+			if (mode === "add") {
+				if (idx !== -1) return {
+					ok: false,
+					code: "DUPLICATE_TASK_ID",
+					detail: { task_id: payload.task.id }
+				};
+				const slim = extractTaskSlim(payload.task);
+				return {
+					ok: true,
+					snapshot: {
+						...prev,
+						tasks: [...prev.tasks, slim]
+					}
+				};
+			}
+			const slim = extractTaskSlim(payload.task);
+			const tasks = prev.tasks.map((t, i) => i === idx ? slim : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_claimed": {
+			const payload = entry.payload;
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				status: "in_progress"
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_step_started": {
+			const payload = entry.payload;
+			const seeded = prev.tasks.find((t) => t.id === payload.task_id).steps[payload.step];
+			if (!seeded) return {
+				ok: false,
+				code: "TASK_STEP_NOT_FOUND",
+				detail: {
+					task_id: payload.task_id,
+					step: payload.step
+				}
+			};
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				steps: {
+					...t.steps,
+					[payload.step]: {
+						applicability: seeded.applicability,
+						status: "running"
+					}
+				}
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_step_done": {
+			const payload = entry.payload;
+			const task = prev.tasks.find((t) => t.id === payload.task_id);
+			const seeded = task.steps[payload.step];
+			if (!seeded) return {
+				ok: false,
+				code: "TASK_STEP_NOT_FOUND",
+				detail: {
+					task_id: payload.task_id,
+					step: payload.step
+				}
+			};
+			const newStatus = payload.result ?? "passed";
+			const updatedSteps = {
+				...task.steps,
+				[payload.step]: {
+					applicability: seeded.applicability,
+					status: newStatus
+				}
+			};
+			const nextStatus = task.status === "done" ? "done" : shouldPromoteToDone(updatedSteps) ? "done" : task.status;
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				steps: updatedSteps,
+				status: nextStatus,
+				...payload.red_test_registered === true ? { red_test_registered: true } : {}
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_step_reset": {
+			const payload = entry.payload;
+			const seeded = prev.tasks.find((t) => t.id === payload.task_id).steps[payload.step];
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				status: "in_progress",
+				steps: {
+					...t.steps,
+					[payload.step]: {
+						applicability: seeded.applicability,
+						status: "pending"
+					}
+				}
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:task_abandoned": {
+			const payload = entry.payload;
+			const tasks = prev.tasks.map((t) => t.id === payload.task_id ? {
+				...t,
+				status: "abandoned"
+			} : t);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					tasks
+				}
+			};
+		}
+		case "event:spec_submitted": {
+			const payload = entry.payload;
+			const specHeader = structuredClone({
+				feature: {
+					id: payload.feature.id,
+					name: payload.feature.name
+				},
+				intent: payload.intent,
+				adr_refs: payload.adr_refs,
+				needs_clarification: payload.needs_clarification
+			});
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					state: {
+						...state,
+						spec_version: payload.spec_version
+					},
+					spec_header: specHeader,
+					requirements: [],
+					scenarios: [],
+					visual_contracts: []
+				}
+			};
+		}
+		case "event:spec_req_added": {
+			const payload = entry.payload;
+			prev.requirements.push(structuredClone(payload.req));
+			return {
+				ok: true,
+				snapshot: payload.spec_version === state.spec_version ? prev : {
+					...prev,
+					state: {
+						...state,
+						spec_version: payload.spec_version
+					}
+				}
+			};
+		}
+		case "event:spec_scenario_added": {
+			const payload = entry.payload;
+			prev.scenarios.push(structuredClone(payload.scenario));
+			return {
+				ok: true,
+				snapshot: payload.spec_version === state.spec_version ? prev : {
+					...prev,
+					state: {
+						...state,
+						spec_version: payload.spec_version
+					}
+				}
+			};
+		}
+		case "event:spec_visual_added": {
+			const payload = entry.payload;
+			prev.visual_contracts.push(structuredClone(payload.visual));
+			return {
+				ok: true,
+				snapshot: payload.spec_version === state.spec_version ? prev : {
+					...prev,
+					state: {
+						...state,
+						spec_version: payload.spec_version
+					}
+				}
+			};
+		}
+		case "evidence:added": {
+			const payload = entry.payload;
+			const ev = {
+				id: payload.id,
+				kind: payload.kind,
+				covers: payload.covers,
+				actor: payload.actor
+			};
+			if (payload.result !== void 0) ev.result = payload.result;
+			if (payload.check !== void 0) ev.check = payload.check;
+			if (payload.reason !== void 0) ev.reason = payload.reason;
+			if (payload.attachments !== void 0) ev.attachments = payload.attachments;
+			prev.evidence.push(ev);
+			return {
+				ok: true,
+				snapshot: prev
+			};
+		}
+		case "lesson:recorded": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "scope:recorded": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "finding:raised": {
+			const payload = entry.payload;
+			const f = {
+				id: payload.id,
+				category: payload.category,
+				action: payload.action,
+				status: "open"
+			};
+			if (payload.summary !== void 0) f.summary = payload.summary;
+			if (payload.reason !== void 0) f.reason = payload.reason;
+			if (payload.target !== void 0) f.target = payload.target;
+			prev.findings.push(f);
+			return {
+				ok: true,
+				snapshot: prev
+			};
+		}
+		case "finding:closed": {
+			const payload = entry.payload;
+			const idx = prev.findings.findIndex((f) => f.id === payload.id);
+			if (idx === -1) return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				detail: {
+					id: payload.id,
+					reason: "unknown"
+				}
+			};
+			if (prev.findings[idx].status === "closed") return {
+				ok: false,
+				code: "FINDING_NOT_FOUND",
+				detail: {
+					id: payload.id,
+					reason: "already_closed"
+				}
+			};
+			const findings = prev.findings.map((f, i) => i === idx ? {
+				...f,
+				status: "closed"
+			} : f);
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					findings
+				}
+			};
+		}
+		case "pending:added": {
+			const payload = entry.payload;
+			const p = {
+				id: payload.id,
+				kind: payload.kind,
+				resolved: false
+			};
+			prev.pending.push(p);
+			return {
+				ok: true,
+				snapshot: prev
+			};
+		}
+		case "pending:resolved": {
+			const payload = entry.payload;
+			const resolved = resolvePending(prev.pending, payload.id);
+			if (!resolved.ok) return resolved;
+			return {
+				ok: true,
+				snapshot: {
+					...prev,
+					pending: resolved.pending
+				}
+			};
+		}
+		case "session:delivered": return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					...state,
+					sub_state: "DONE.delivered",
+					phase: "DONE"
+				}
+			}
+		};
+		case "session:archived": return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					...state,
+					sub_state: "DONE.archived",
+					phase: "DONE"
+				}
+			}
+		};
+		case "session:abandoned": return {
+			ok: true,
+			snapshot: {
+				...prev,
+				state: {
+					...state,
+					sub_state: "DONE.abandoned",
+					phase: "DONE"
+				}
+			}
+		};
+		case "session:resumed": return {
+			ok: true,
+			snapshot: prev
+		};
+		case "spike:converted": return {
+			ok: true,
+			snapshot: prev
+		};
+		default: return {
+			ok: false,
+			code: "REDUCER_NOT_IMPLEMENTED",
+			detail: { kind }
+		};
+	}
+}
+//#endregion
 //#region src/core/kind-guards.ts
 const ANY_SUB_STATE = Symbol("any-sub-state");
 const ANY_NON_DONE = Symbol("any-non-done");
@@ -6536,110 +6704,6 @@ function checkSpecVersion(c) {
 		}
 	}
 	return null;
-}
-//#endregion
-//#region src/core/intervention-policy.ts
-/** Actions whose selection is itself a non-blocking disposition. */
-const FINDING_DEFERRAL_ACTIONS = ["defer", "backlog"];
-/**
-* Derive disposition from the persisted action without widening the journal
-* or projection schema. Accepts string because historical slim snapshots type
-* FindingState.action loosely, while validated new entries use FindingAction.
-*/
-function isFindingDeferralAction(action) {
-	return FINDING_DEFERRAL_ACTIONS.includes(action);
-}
-/**
-* FINDING_ACTION_GRID — per-cell risk classification.
-* 4 `incoherent` cells (rev 4.3 ADR-0004 A7): structurally there is no
-* task target a transition can land on, so block early at preflight.
-* Implements the `docs/protocol.md §4.5` finding matrix.
-*/
-const FINDING_ACTION_GRID = {
-	"spec-gap": {
-		"amend-spec": "typical",
-		"amend-tasks": "unusual",
-		"fix-impl": "incoherent",
-		"fix-test": "incoherent",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"spec-defect": {
-		"amend-spec": "typical",
-		"amend-tasks": "unusual",
-		"fix-impl": "unusual",
-		"fix-test": "unusual",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"impl-defect": {
-		"amend-spec": "unusual",
-		"amend-tasks": "typical",
-		"fix-impl": "typical",
-		"fix-test": "unusual",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"test-defect": {
-		"amend-spec": "unusual",
-		"amend-tasks": "typical",
-		"fix-impl": "unusual",
-		"fix-test": "typical",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"new-scope": {
-		"amend-spec": "typical",
-		"amend-tasks": "typical",
-		"fix-impl": "incoherent",
-		"fix-test": "incoherent",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"risk-escalation": {
-		"amend-spec": "unusual",
-		"amend-tasks": "typical",
-		"fix-impl": "unusual",
-		"fix-test": "unusual",
-		defer: "typical",
-		backlog: "typical"
-	}
-};
-/** Look up the (category, action) cell risk in O(1). */
-function cellRisk(category, action) {
-	return FINDING_ACTION_GRID[category][action];
-}
-const FINDING_ACTION_TARGET_MODE = {
-	"amend-spec": "none",
-	"amend-tasks": "task_id_optional",
-	"fix-impl": "task_id_step",
-	"fix-test": "task_id_step",
-	defer: "none",
-	backlog: "none"
-};
-/**
-* For `task_id_step` actions only, the canonical step that the action's
-* back-edge mutation targets. fix-impl drives the `implement` step;
-* fix-test drives the `red` step (TDD failure-first lane).
-*/
-const FIX_ACTION_STEP = {
-	"fix-impl": "implement",
-	"fix-test": "red"
-};
-/** Action effect for batch assembly; admission still verifies authorization.
-* Unknown action strings have no mechanical siblings, preserving the loose
-* input surface used by CLI builders before payload admission. */
-function findingActionEffect(action) {
-	if (action === "fix-impl" || action === "fix-test") return {
-		kind: "fix-reset",
-		target: backEdgeTarget(action),
-		step: FIX_ACTION_STEP[action]
-	};
-	if (action === "amend-spec" || action === "amend-tasks") return {
-		kind: "back-edge",
-		target: backEdgeTarget(action)
-	};
-	return { kind: "none" };
 }
 //#endregion
 //#region src/core/task-amend-policy.ts
@@ -7296,17 +7360,8 @@ function checkGateDecided(c) {
 				expected: "VERIFY.accept"
 			}
 		};
-		if (entry.payload.decision === "approved") {
-			const pendingHead = ctx.snapshot.pending.find((p) => !p.resolved);
-			if (pendingHead && pendingHead.kind !== "gate_decision") return {
-				ok: false,
-				...diagnostic$2("GATE_NOT_PENDING", {
-					gate_kind: gateKind,
-					head_id: pendingHead.id,
-					head_kind: pendingHead.kind
-				})
-			};
-		}
+		const pendingPlan = planGatePending(ctx.snapshot.pending, gateKind, entry.payload.decision);
+		if (!pendingPlan.ok) return pendingPlan;
 	}
 	return null;
 }
@@ -7323,14 +7378,10 @@ function checkPhaseAdvanced(c) {
 				current_sub_state: sub_state
 			}
 		};
-		const head = ctx.snapshot.pending.find((p) => !p.resolved);
-		if (head && (head.kind === "gate_decision" || head.kind === "profile_escalation")) return {
+		const pendingFailure = checkPendingAdvance(ctx.snapshot.pending);
+		if (pendingFailure) return {
 			ok: false,
-			code: "PENDING_BLOCKS_ADVANCE",
-			detail: {
-				pending_id: head.id,
-				kind: head.kind
-			}
+			...pendingFailure
 		};
 		const backEdge = payload.back_edge;
 		if (backEdge !== void 0) {
@@ -7471,14 +7522,11 @@ function checkSpikeConverted(c) {
 function checkCeremonySet(c) {
 	const { entry, sub_state, ctx } = c;
 	if (entry.kind === "event:ceremony_set") {
-		if (!(sub_state === "TRIAGE.score" || sub_state === "TRIAGE.confirm")) {
-			const head = ctx.snapshot.pending.find((p) => !p.resolved);
-			if (!head || head.kind !== "profile_escalation") return {
-				ok: false,
-				code: "ESCALATION_NOT_PENDING",
-				detail: { actual_head: head ? head.kind : "(none)" }
-			};
-		}
+		const pendingFailure = checkPendingEscalation(ctx.snapshot.pending, sub_state);
+		if (pendingFailure) return {
+			ok: false,
+			...pendingFailure
+		};
 	}
 	return null;
 }
@@ -8271,7 +8319,7 @@ function composeStateProjection(snapshot, entries) {
 		iteration: state.iteration,
 		spec_locked: state.spec_locked,
 		verify_accepted: state.verify_accepted,
-		pending: composePendingJson(entries).pending.filter((p) => !p.resolved).map(({ resolved: _resolved, ...queue }) => queue),
+		pending: livePending(composePendingJson(entries).pending).map(({ resolved: _resolved, ...queue }) => queue),
 		ceremony: state.ceremony,
 		ceremony_label: ceremonyLabel,
 		complexity_score: null,
@@ -8519,7 +8567,7 @@ function buildRegistryFile(input) {
 	const sessionLabel = startPayload.session_label ?? "";
 	const workspace = startPayload.workspace;
 	const ceremonyLabel = startPayload.ceremony_label;
-	const unresolved = composePendingJson(entries).pending.filter((p) => !p.resolved).map(({ resolved: _resolved, ...rest }) => rest);
+	const unresolved = livePending(composePendingJson(entries).pending).map(({ resolved: _resolved, ...rest }) => rest);
 	const pendingHead = unresolved[0] ?? null;
 	const pendingQueueDepth = unresolved.length;
 	const activeTasks = snapshot.tasks.filter((t) => t.status === "in_progress").map((t) => t.id);
@@ -12716,10 +12764,6 @@ function profileEscalateAction() {
 		reason: "PROFILE_ESCALATION_PENDING"
 	};
 }
-function gateFromCursor(subState) {
-	const gate = gateNameForCursor(subState);
-	return gate === null ? null : buildGateDecideAction(gate);
-}
 function verifyNextTarget(subState, applicable) {
 	if (!subState.startsWith("VERIFY.")) return void 0;
 	if (subState === "VERIFY.accept") return void 0;
@@ -12739,13 +12783,12 @@ function verifyNextTarget(subState, applicable) {
 function chooseNextAction(input) {
 	const head = input.pending[0];
 	if (head !== void 0) {
-		if (head.kind === "gate_decision") {
-			const gate = gateFromCursor(input.sub_state);
-			if (gate !== null) return gate;
-			return pendingResolveAction(head);
+		const intervention = pendingResolutionOwner(head.kind, gateNameForCursor(input.sub_state));
+		switch (intervention.owner) {
+			case "gate decide": return buildGateDecideAction(intervention.gate);
+			case "profile escalate": return profileEscalateAction();
+			case "pending resolve": return pendingResolveAction(head);
 		}
-		if (head.kind === "profile_escalation") return profileEscalateAction();
-		return pendingResolveAction(head);
 	}
 	return transitionOwnerFor({
 		sub_state: input.sub_state,
@@ -13265,8 +13308,8 @@ function registerGate(program, ctx, mutator, actor) {
 			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
-		const pendingHead = session.snapshot.pending.find((p) => !p.resolved);
-		const coEmitPendingResolved = approve && pendingHead && pendingHead.kind === "gate_decision";
+		const pendingPlan = planGatePending(session.snapshot.pending, gateName, approve ? "approved" : "rejected");
+		const pendingHead = pendingPlan.ok ? pendingPlan.resolutionHead : void 0;
 		if (approve) {
 			if (gateName === "spec-lock") {
 				const result = await mutator.run(featureDir, session, buildGateApprovalBatch({
@@ -13275,7 +13318,7 @@ function registerGate(program, ctx, mutator, actor) {
 					humanActor,
 					cliActor: actor,
 					from,
-					...coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}
+					...pendingHead ? { pendingHeadId: pendingHead.id } : {}
 				}));
 				if (!result) return;
 				const out = {
@@ -13303,7 +13346,7 @@ function registerGate(program, ctx, mutator, actor) {
 				reason: opts.reason,
 				humanActor,
 				cliActor: actor,
-				...coEmitPendingResolved && pendingHead ? { pendingHeadId: pendingHead.id } : {}
+				...pendingHead ? { pendingHeadId: pendingHead.id } : {}
 			}));
 			if (!result) return;
 			const out = {
@@ -13656,7 +13699,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			ctx.failure(diagnosticVariant("failure.no_session.generic", { feature: opts.feature }));
 			return;
 		}
-		const head = session.snapshot.pending.find((p) => !p.resolved);
+		const head = pendingHead(session.snapshot.pending);
 		if (!head) {
 			ctx.failure(diagnostic$2("ESCALATION_NOT_PENDING", { actual_head: "(none)" }));
 			return;
@@ -14959,7 +15002,7 @@ function registerPending(program, ctx, mutator, actor) {
 		const loaded = await ctx.loadProjectionsOrFail(featureDir, ["pending"], opts.feature, "failure.no_session.pending");
 		if (loaded === null) return;
 		const entries = loaded.pending.pending;
-		const headIdx = entries.findIndex((p) => !p.resolved);
+		const headIdx = pendingHeadIndex(entries);
 		const rows = entries.map((p, i) => ({
 			id: p.pending_id,
 			kind: p.kind,
@@ -14987,7 +15030,7 @@ function registerPending(program, ctx, mutator, actor) {
 			ctx.failure(diagnosticVariant("failure.no_session.pending", { feature: opts.feature }));
 			return;
 		}
-		const headIdx = session.snapshot.pending.findIndex((p) => !p.resolved);
+		const headIdx = pendingHeadIndex(session.snapshot.pending);
 		let target;
 		if (opts.id !== void 0) {
 			const idx = session.snapshot.pending.findIndex((p) => p.id === opts.id);
@@ -15028,7 +15071,7 @@ function registerPending(program, ctx, mutator, actor) {
 			ctx.failure(diagnosticVariant("failure.no_session.pending", { feature: opts.feature }));
 			return;
 		}
-		const head = session.snapshot.pending.find((p) => !p.resolved);
+		const head = pendingHead(session.snapshot.pending);
 		if (!head) {
 			ctx.failure(diagnostic$2("PENDING_NOT_FOUND", { reason: "no pending head" }));
 			return;
