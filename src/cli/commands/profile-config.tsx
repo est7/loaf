@@ -356,7 +356,7 @@ export function registerProfileConfig(
         lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
       } catch (error) {
         if (error instanceof FeatureWriteLeaseError) {
-          ctx.emitFailure(error.code, error.message);
+          ctx.diagnosticFailure(error.diagnostic);
           return;
         }
         throw error;

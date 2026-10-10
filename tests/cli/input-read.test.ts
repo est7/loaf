@@ -1,3 +1,4 @@
+import type { CatalogDiagnostic } from "../../src/core/error-catalog.js";
 // Canonical JSON input ingestion (classification + policy + IO + diagnostics).
 //
 // Covers the complete protocol §10.7 `--input <-|inline|path>` boundary.
@@ -31,33 +32,14 @@ const DECLARATION: JsonInputDeclaration = {
   command: "loaf test",
   helpPrefix: "JSON source",
   inlineLabel: "inline JSON",
-  stdinExpectation: "piped input",
 };
 
-type Failure = {
-  route: "failure" | "emit-failure";
-  code: string;
-  message: string;
-  detail?: Record<string, unknown>;
-};
+type Failure = CatalogDiagnostic;
 
 function recordingContext(failures: Failure[]): CommandContext {
   return {
-    failure(code: string, message: string, detail?: Record<string, unknown>): void {
-      failures.push({
-        route: "failure",
-        code,
-        message,
-        ...(detail === undefined ? {} : { detail }),
-      });
-    },
-    emitFailure(code: string, message: string, detail?: Record<string, unknown>): void {
-      failures.push({
-        route: "emit-failure",
-        code,
-        message,
-        ...(detail === undefined ? {} : { detail }),
-      });
+    diagnosticFailure(failure: CatalogDiagnostic) {
+      failures.push(failure);
     },
   } as unknown as CommandContext;
 }
@@ -108,7 +90,6 @@ describe("JSON input ingestion", () => {
     expect(r.ok).toBe(false);
     expect(failures).toEqual([
       expect.objectContaining({
-        route: "failure",
         code: "INPUT_FILE_NOT_FOUND",
         detail: { path: "/tmp/does/not/exist-loaf-sc3.json" },
       }),
@@ -120,9 +101,11 @@ describe("JSON input ingestion", () => {
     const r = await ingestor().readJson(recordingContext(failures), "{not json}", DECLARATION);
     expect(r.ok).toBe(false);
     expect(failures[0]).toMatchObject({
-      route: "failure",
       code: "SCHEMA_VALIDATION_FAILED",
-      message: expect.stringMatching(/json/i),
+      detail: {
+        command: "loaf test",
+        reason: expect.stringMatching(/JSON|property name|Unexpected/i),
+      },
     });
   });
 
@@ -149,14 +132,12 @@ describe("JSON input ingestion", () => {
     }).readJson(recordingContext(failures), "-", DECLARATION);
     expect(r.ok).toBe(false);
     expect(failures[0]).toMatchObject({
-      route: "failure",
       code: "MISSING_INPUT",
-      message: expect.stringMatching(/stdin/i),
-      detail: { cause: expect.stringContaining("EAGAIN") },
+      detail: { command: "loaf test", source: "stdin", cause: "EAGAIN: stdin closed" },
     });
   });
 
-  test("TTY stdin is rejected before read and uses declaration wording", async () => {
+  test("TTY stdin is rejected before read and retains command/source detail", async () => {
     const failures: Failure[] = [];
     let reads = 0;
     const r = await ingestor({
@@ -170,26 +151,23 @@ describe("JSON input ingestion", () => {
     expect(r.ok).toBe(false);
     expect(reads).toBe(0);
     expect(failures[0]).toMatchObject({
-      route: "failure",
       code: "USAGE",
-      message: expect.stringContaining("`loaf test --input -` expects piped input"),
+      detail: { command: "loaf test", source: "stdin", reason: "stdin_is_tty" },
     });
   });
 
-  test("missing optional input uses the declaration's route and message", async () => {
+  test("missing input carries the declared command through the single outlet", async () => {
     const failures: Failure[] = [];
     const declaration: JsonInputDeclaration = {
       ...DECLARATION,
-      missing: { route: "emit-failure", message: "use --input or --schema" },
     };
     const r = await ingestor().readJson(recordingContext(failures), undefined, declaration);
 
     expect(r.ok).toBe(false);
     expect(failures).toEqual([
       {
-        route: "emit-failure",
         code: "MISSING_INPUT",
-        message: "use --input or --schema",
+        detail: { command: "loaf test" },
       },
     ]);
   });

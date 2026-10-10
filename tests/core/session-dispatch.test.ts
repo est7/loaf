@@ -185,7 +185,7 @@ describe("SC-8 — session dispatch resolver, session sources", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("USAGE");
-      expect(result.message).toContain("too short");
+      expect(result.detail).toMatchObject({ reason: "session_prefix_too_short", min_length: 8 });
     }
   });
 
@@ -208,7 +208,7 @@ describe("SC-8 — session dispatch resolver, session sources", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("SESSION_NOT_FOUND");
-      expect(result.message).toContain("cannot be parsed");
+      expect(result.detail).toMatchObject({ reason: "corrupt-json" });
     }
   });
 
@@ -227,7 +227,7 @@ describe("SC-8 — session dispatch resolver, session sources", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("SESSION_NOT_FOUND");
-      expect(result.message).toContain("cannot be parsed");
+      expect(result.detail).toMatchObject({ reason: "schema-invalid" });
     }
   });
 });

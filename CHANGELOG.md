@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Replay retains REDUCER_REJECTED and its inner diagnostic as structured data.
   Missing-target findings render action/reason without invented task/step values;
   NO_SESSION uses a directory-independent minimum for core admission.
+- Mutation, gate, closure, dispatch, and input adapters now preserve structured
+  diagnostics through the catalog outlet. Removed failure-route options and
+  input-specific diagnostic prose; expected domain records no longer carry
+  messages. Gate check messages are derived at presentation, with canonical
+  English JSON and localized text. Commit/append/runtime-clear decisions stay
+  unchanged, including failures after a committed append.
+- Schema validation base rendering now accepts actual non-Zod reasons; snapshot
+  diagnostics can represent unresolved selection without an invented directory.
+  Lock diagnostics use common write-lock wording and carry actual timeout/path
+  metadata. Existing schema/site variants and internal status codes are retained.
 
 ## [0.10.0] — 2026-10-10
 

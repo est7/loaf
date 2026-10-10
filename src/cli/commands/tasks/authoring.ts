@@ -17,10 +17,7 @@ import {
 import { allocateTaskAuthoringInputs, collectOccupiedTaskIds } from "../../task-authoring.js";
 import { jsonInputHelp, type JsonInputDeclaration } from "../../input-ingestion.js";
 import { FAILURE_SITE_KEYS, SUCCESS_KEYS } from "../../runtime-i18n-keys.js";
-import {
-  buildNextAdvisoryFromSnapshot,
-  selectorForCommandContext,
-} from "../../next-advisory.js";
+import { buildNextAdvisoryFromSnapshot, selectorForCommandContext } from "../../next-advisory.js";
 import type { TasksRegistrationDeps } from "./types.js";
 
 const TASKS_SUBMIT_INPUT: JsonInputDeclaration = {
@@ -28,12 +25,6 @@ const TASKS_SUBMIT_INPUT: JsonInputDeclaration = {
   helpPrefix: "JSON source",
   inlineLabel: "inline JSON literal",
   helpSuffix: " (protocol §10.7). Whole-graph single object only.",
-  stdinExpectation: "piped input",
-  missing: {
-    message:
-      "loaf tasks submit requires --input <src> (or pass --schema to dump the input JSON Schema)",
-    route: "emit-failure",
-  },
 };
 
 const TASKS_ADD_INPUT: JsonInputDeclaration = {
@@ -41,12 +32,6 @@ const TASKS_ADD_INPUT: JsonInputDeclaration = {
   helpPrefix: "JSON source for semantic task input (single object or array)",
   inlineLabel: "inline JSON",
   helpSuffix: " (protocol §10.7)",
-  stdinExpectation: "piped input",
-  missing: {
-    message:
-      "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-    route: "emit-failure",
-  },
 };
 
 const TASKS_AMEND_INPUT: JsonInputDeclaration = {
@@ -54,7 +39,6 @@ const TASKS_AMEND_INPUT: JsonInputDeclaration = {
   helpPrefix: "New id-less task definition for a sponsored graph replacement",
   inlineLabel: "inline JSON",
   helpText: "New id-less task definition for a sponsored graph replacement (JSON file or '-')",
-  stdinExpectation: "piped input",
 };
 
 export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDeps): void {
@@ -68,126 +52,129 @@ export function registerTaskSubmit(tasksCmd: Command, deps: TasksRegistrationDep
     .option("--schema", "Dump the semantic authoring JSON Schema instead of mutating")
     .option("--feature <name>", "Feature whose task graph to submit")
     .option("--feature-dir <path>", "Override default .loaf/<feature> directory")
-    .action(async (rawOpts: {
-      input?: string;
-      schema?: boolean;
-      feature: string;
-      featureDir?: string;
-    }) => {
-      if (rawOpts.schema === true) {
-        if (ctx.rejectIfDryRun("tasks submit --schema")) return;
-        mutator.emitSchemaAndExit("tasks:submit");
-        return;
-      }
-      if (!input.requireArg(ctx, rawOpts.input, TASKS_SUBMIT_INPUT)) return;
-      const opts = rawOpts as { input: string; feature: string; featureDir?: string };
-      const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
-      if (!read.ok) return;
-      const parsed = TasksSubmitInput.safeParse(read.value);
-      if (!parsed.success) {
-        ctx.failure(
-          "SCHEMA_VALIDATION_FAILED",
-          "tasks submit input must be a strict semantic graph with id-less tasks and unique local_key values",
-          {
-            issues: parsed.error.issues,
-            migration: "legacy-full-input-rejected",
+    .action(
+      async (rawOpts: {
+        input?: string;
+        schema?: boolean;
+        feature: string;
+        featureDir?: string;
+      }) => {
+        if (rawOpts.schema === true) {
+          if (ctx.rejectIfDryRun("tasks submit --schema")) return;
+          mutator.emitSchemaAndExit("tasks:submit");
+          return;
+        }
+        if (!input.requireArg(ctx, rawOpts.input, TASKS_SUBMIT_INPUT)) return;
+        const opts = rawOpts as { input: string; feature: string; featureDir?: string };
+        const read = await input.readJson(ctx, opts.input, TASKS_SUBMIT_INPUT);
+        if (!read.ok) return;
+        const parsed = TasksSubmitInput.safeParse(read.value);
+        if (!parsed.success) {
+          ctx.failure(
+            "SCHEMA_VALIDATION_FAILED",
+            "tasks submit input must be a strict semantic graph with id-less tasks and unique local_key values",
+            {
+              issues: parsed.error.issues,
+              migration: "legacy-full-input-rejected",
+            },
+          );
+          return;
+        }
+
+        const featureDir = await ctx.dispatchOrFail(opts);
+        if (featureDir === null) return;
+        const session = await ctx.resolveSession(featureDir);
+        if (!session.snapshot.state) {
+          ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
+          return;
+        }
+
+        const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
+        const result = await mutator.runPlannedBatch(
+          featureDir,
+          session,
+          (snapshot) => {
+            const allocation = allocateTaskAuthoringInputs(parsed.data.tasks, occupiedTaskIds);
+            if (!allocation.ok) return allocation;
+            const specVersion = snapshot.state?.spec_version;
+            if (specVersion === undefined) {
+              return {
+                ok: false,
+                code: "REDUCER_ERROR",
+                message: "internal: session state missing while planning task graph",
+                detail: {},
+              };
+            }
+            return {
+              ok: true,
+              entries: [
+                {
+                  kind: "event:tasks_planned",
+                  payload: {
+                    based_on: { spec: specVersion },
+                    tasks: allocation.tasks,
+                  },
+                  actor,
+                },
+              ],
+            };
+          },
+          {},
+        );
+        if (!result) return;
+        const state = result.snapshot.state;
+        if (state === null) {
+          ctx.emitFailure(
+            "REDUCER_ERROR",
+            "internal: state missing from snapshot after successful event:tasks_planned apply",
+          );
+          return;
+        }
+
+        // Success output via ctx.success — output bytes identical to
+        // pre-SC-4b shape (asserted via existing tasks-submit tests).
+        const tasks = result.snapshot.tasks;
+        const taskIds = tasks.map((t) => t.id);
+        const plannedTasks = (
+          result.entries[0]!.payload as {
+            tasks: Array<{ id: string }>;
+          }
+        ).tasks;
+        const taskIdsByLocalKey = Object.fromEntries(
+          parsed.data.tasks.map((task, index) => [task.local_key, plannedTasks[index]!.id]),
+        );
+        const out = {
+          ok: true,
+          feature: opts.feature,
+          sub_state: state.sub_state,
+          tasks_count: tasks.length,
+          task_ids: taskIds,
+          task_ids_by_local_key: taskIdsByLocalKey,
+          tasks_based_on: result.snapshot.tasks_based_on,
+        };
+        const selector = await selectorForCommandContext(ctx);
+        ctx.success(
+          out,
+          (i18n) =>
+            i18n.t(
+              tasks.length === 1
+                ? SUCCESS_KEYS.tasksSubmitTextOne
+                : SUCCESS_KEYS.tasksSubmitTextMany,
+              {
+                count: tasks.length,
+                task_ids: taskIds.join(", "),
+              },
+            ) + "\n",
+          (i18n) => {
+            const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
+            return {
+              stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
+              ...(next === undefined ? {} : { next }),
+            };
           },
         );
-        return;
-      }
-
-      const featureDir = await ctx.dispatchOrFail(opts);
-      if (featureDir === null) return;
-      const session = await ctx.resolveSession(featureDir);
-      if (!session.snapshot.state) {
-        ctx.emitNoSessionFailure(FAILURE_SITE_KEYS.noSessionTasks, opts.feature);
-        return;
-      }
-
-      const occupiedTaskIds = collectOccupiedTaskIds(session.snapshot, session.entries);
-      const result = await mutator.runPlannedBatch(
-        featureDir,
-        session,
-        (snapshot) => {
-          const allocation = allocateTaskAuthoringInputs(parsed.data.tasks, occupiedTaskIds);
-          if (!allocation.ok) return allocation;
-          const specVersion = snapshot.state?.spec_version;
-          if (specVersion === undefined) {
-            return {
-              ok: false,
-              code: "REDUCER_ERROR",
-              message: "internal: session state missing while planning task graph",
-              detail: {},
-            };
-          }
-          return {
-            ok: true,
-            entries: [{
-              kind: "event:tasks_planned",
-              payload: {
-                based_on: { spec: specVersion },
-                tasks: allocation.tasks,
-              },
-              actor,
-            }],
-          };
-        },
-        { route: "raw-ctx-failure" },
-      );
-      if (!result) return;
-      const state = result.snapshot.state;
-      if (state === null) {
-        ctx.emitFailure(
-          "REDUCER_ERROR",
-          "internal: state missing from snapshot after successful event:tasks_planned apply",
-        );
-        return;
-      }
-
-      // Success output via ctx.success — output bytes identical to
-      // pre-SC-4b shape (asserted via existing tasks-submit tests).
-      const tasks = result.snapshot.tasks;
-      const taskIds = tasks.map((t) => t.id);
-      const plannedTasks = (result.entries[0]!.payload as {
-        tasks: Array<{ id: string }>;
-      }).tasks;
-      const taskIdsByLocalKey = Object.fromEntries(
-        parsed.data.tasks.map((task, index) => [task.local_key, plannedTasks[index]!.id]),
-      );
-      const out = {
-        ok: true,
-        feature: opts.feature,
-        sub_state: state.sub_state,
-        tasks_count: tasks.length,
-        task_ids: taskIds,
-        task_ids_by_local_key: taskIdsByLocalKey,
-        tasks_based_on: result.snapshot.tasks_based_on,
-      };
-      const selector = await selectorForCommandContext(ctx);
-      ctx.success(
-        out,
-        (i18n) =>
-          i18n.t(
-            tasks.length === 1 ? SUCCESS_KEYS.tasksSubmitTextOne : SUCCESS_KEYS.tasksSubmitTextMany,
-            {
-              count: tasks.length,
-              task_ids: taskIds.join(", "),
-            },
-          ) + "\n",
-        (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(
-            i18n,
-            result.snapshot,
-            featureDir,
-            selector,
-          );
-          return {
-            stateChange: i18n.t(SUCCESS_KEYS.tasksSubmitStateChange, { count: tasks.length }),
-            ...(next === undefined ? {} : { next }),
-          };
-        },
-      );
-    });
+      },
+    );
 }
 
 export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps): void {
@@ -308,7 +295,7 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
                 })),
               };
             },
-            { timestamps: "per-entry", route: "raw-ctx-failure" },
+            { timestamps: "per-entry" },
           );
           if (!result) return;
           const newIds = result.entries.map(
@@ -373,24 +360,28 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
             };
             return {
               ok: true,
-              entries: [{
-                kind: "event:tasks_planned",
-                payload: {
-                  based_on,
-                  tasks: [...existingFull, ...allocation.tasks],
+              entries: [
+                {
+                  kind: "event:tasks_planned",
+                  payload: {
+                    based_on,
+                    tasks: [...existingFull, ...allocation.tasks],
+                  },
+                  actor,
                 },
-                actor,
-              }],
+              ],
             };
           },
-          { route: "raw-ctx-failure" },
+          {},
         );
         if (!result) return;
 
         // (7) Success output — echo the allocated ids for shell scripting.
-        const plannedTasks = (result.entries[0]!.payload as {
-          tasks: Array<{ id: string }>;
-        }).tasks;
+        const plannedTasks = (
+          result.entries[0]!.payload as {
+            tasks: Array<{ id: string }>;
+          }
+        ).tasks;
         const newIds = plannedTasks.slice(existingFull.length).map((task) => task.id);
         const taskIdsByLocalKey = Object.fromEntries(
           validatedInputs.map((task, index) => [task.local_key, newIds[index]!]),
@@ -556,20 +547,15 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
           const sWithProgress = carryForwardStepProgress(sNewGraph, sCanonical);
           const sMaterialized = materializeTaskForAmend(sWithProgress, sCurrent);
           // (b6) Emit event:tasks_amended mode="replace" + sponsorship marker.
-          const sResult = await mutator.run(
-            sFeatureDir,
-            sSession,
-            {
-              kind: "event:tasks_amended",
-              payload: {
-                mode: "replace",
-                task: sMaterialized,
-                sponsored_by_finding_id: findingId,
-              },
-              actor,
+          const sResult = await mutator.run(sFeatureDir, sSession, {
+            kind: "event:tasks_amended",
+            payload: {
+              mode: "replace",
+              task: sMaterialized,
+              sponsored_by_finding_id: findingId,
             },
-            "raw-ctx-failure",
-          );
+            actor,
+          });
           if (!sResult) return;
           const sOut = {
             ok: true,

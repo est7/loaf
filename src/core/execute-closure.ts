@@ -35,22 +35,27 @@ export type ExecuteClosureResult =
   | { kind: "failure"; failure: MutateFailure }
   | { kind: "not-committed" };
 
-export class ExecuteClosureError extends Error {
-  readonly code:
+export type ExecuteClosureFailure = {
+  code:
     | "EXECUTE_CLOSURE_RELOAD_FAILED"
     | "EXECUTE_CLOSURE_STATE_CHANGED"
     | "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS";
-  readonly detail?: Record<string, unknown>;
+  detail: Record<string, unknown>;
+};
 
+export class ExecuteClosureError extends Error {
   constructor(
-    code: ExecuteClosureError["code"],
-    message: string,
-    detail?: Record<string, unknown>,
+    readonly failure: ExecuteClosureFailure,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(failure.code, options);
     this.name = "ExecuteClosureError";
-    this.code = code;
-    if (detail !== undefined) this.detail = detail;
+  }
+  get code() {
+    return this.failure.code;
+  }
+  get detail() {
+    return this.failure.detail;
   }
 }
 
@@ -63,8 +68,11 @@ async function reloadForCommitProof(
     return await loader(featureDir);
   } catch (error) {
     throw new ExecuteClosureError(
-      "EXECUTE_CLOSURE_RELOAD_FAILED",
-      `cannot reload journal to prove EXECUTE closure commit: ${(error as Error).message}`,
+      {
+        code: "EXECUTE_CLOSURE_RELOAD_FAILED",
+        detail: { feature_dir: featureDir, cause: (error as Error).message },
+      },
+      { cause: error },
     );
   }
 }
@@ -110,8 +118,7 @@ export async function executeClosureTransaction(
       },
     );
     if (!prepared.ok) {
-      const { code, message, detail } = prepared.failure;
-      throw new ExecuteClosureError(code, message, detail);
+      throw new ExecuteClosureError(prepared.failure);
     }
     const result = await mutateBatch(
       buildScopeClosureEntries(options.actor, initialState.iteration, prepared.paths, heartbeatAt),
@@ -150,8 +157,7 @@ export async function executeClosureTransaction(
         if (state.sub_state === "EXECUTE.done" && committed !== null) {
           const settled = await settlePendingScope(current, context, "recovered");
           if (!settled.ok) {
-            const { code, message, detail } = settled.failure;
-            throw new ExecuteClosureError(code, message, detail);
+            throw new ExecuteClosureError(settled.failure);
           }
           outcome = { kind: "recovered", session, from: "EXECUTE.work" };
           return settled.runtime;
@@ -160,17 +166,15 @@ export async function executeClosureTransaction(
           throw new ClosureNotCommitted();
         }
         if (state.sub_state !== "EXECUTE.work") {
-          throw new ExecuteClosureError(
-            "EXECUTE_CLOSURE_STATE_CHANGED",
-            `session moved to ${state.sub_state} while preparing EXECUTE closure`,
-            { expected: "EXECUTE.work", actual: state.sub_state },
-          );
+          throw new ExecuteClosureError({
+            code: "EXECUTE_CLOSURE_STATE_CHANGED",
+            detail: { expected: "EXECUTE.work", actual: state.sub_state },
+          });
         }
 
         const prepared = await preparePendingScopeClosure(current, context);
         if (!prepared.ok) {
-          const { code, message, detail } = prepared.failure;
-          throw new ExecuteClosureError(code, message, detail);
+          throw new ExecuteClosureError(prepared.failure);
         }
         await options.hooks?.beforeAppend?.();
         const result = await mutateBatch(
@@ -194,8 +198,7 @@ export async function executeClosureTransaction(
               "committed-failure",
             );
             if (!settled.ok) {
-              const { code, message, detail } = settled.failure;
-              throw new ExecuteClosureError(code, message, detail);
+              throw new ExecuteClosureError(settled.failure);
             }
             outcome = { kind: "failure", failure: result };
             await options.hooks?.afterCommitBeforeClear?.();

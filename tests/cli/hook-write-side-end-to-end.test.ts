@@ -539,7 +539,7 @@ describe("ticket #11 SC3 — scope-track runtime accumulator", () => {
     const { repoRoot, featureDir } = await tmpRepo();
     try {
       await startAtExecuteWork(featureDir);
-      const spy = vi.spyOn(runtimeStore, "withRuntimeLock").mockRejectedValueOnce(new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", "held by live owner"));
+      const spy = vi.spyOn(runtimeStore, "withRuntimeLock").mockRejectedValueOnce(new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", "held by live owner", undefined, { lock_path: "/runtime/test.lock", timeout_seconds: 2 }));
       let result: Awaited<ReturnType<typeof runCli>>;
       try {
         result = await runCli([...scope(featureDir, "../outside.ts"), "--format", "json"], { runtimeDir: path.join(repoRoot, "runtime") });

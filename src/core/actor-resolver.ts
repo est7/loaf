@@ -1,3 +1,4 @@
+import type { Diagnostic } from "./error-catalog.js";
 // actor-resolver — pure policy module for human:* actor resolution.
 //
 // Resolution order: $LOAF_USER → git config user.email (when interactive) → fail.
@@ -28,7 +29,7 @@ export type ResolverFailureCode = "NO_HUMAN_ACTOR" | "INVALID_ACTOR_FORMAT";
 
 export type ResolverResult =
   | { ok: true; actor: string }
-  | { ok: false; code: ResolverFailureCode; message: string };
+  | ({ ok: false } & Diagnostic<ResolverFailureCode>);
 
 const NAMESPACE_PREFIXES = ["human:", "skill:", "ci:", "cli:", "migration:"];
 
@@ -37,29 +38,28 @@ function buildHumanActor(rawValue: string): ResolverResult {
     return {
       ok: false,
       code: "INVALID_ACTOR_FORMAT",
-      message: "actor value is empty (check $LOAF_USER)",
+      detail: { reason: "empty", value: rawValue },
     };
   }
   if (rawValue.trim().length === 0) {
     return {
       ok: false,
       code: "INVALID_ACTOR_FORMAT",
-      message: "actor value is all whitespace (check $LOAF_USER)",
+      detail: { reason: "all_whitespace", value: rawValue },
     };
   }
   if (rawValue !== rawValue.trim()) {
     return {
       ok: false,
       code: "INVALID_ACTOR_FORMAT",
-      message: "actor value has leading/trailing whitespace; trim $LOAF_USER",
+      detail: { reason: "leading_or_trailing_whitespace", value: rawValue },
     };
   }
   if (NAMESPACE_PREFIXES.some((p) => rawValue.startsWith(p))) {
     return {
       ok: false,
       code: "INVALID_ACTOR_FORMAT",
-      message:
-        "actor value starts with a reserved namespace prefix (human: / skill: / ci: / cli: / migration:); pass the raw identifier without prefix",
+      detail: { reason: "reserved_namespace", value: rawValue },
     };
   }
   const candidate = `human:${rawValue}`;
@@ -67,7 +67,7 @@ function buildHumanActor(rawValue: string): ResolverResult {
     return {
       ok: false,
       code: "INVALID_ACTOR_FORMAT",
-      message: "actor candidate does not satisfy ActorString format",
+      detail: { reason: "actor_schema_invalid", value: rawValue },
     };
   }
   return { ok: true, actor: candidate };
@@ -82,8 +82,7 @@ export function resolveHumanActor(deps: ResolverDeps): ResolverResult {
     return {
       ok: false,
       code: "NO_HUMAN_ACTOR",
-      message:
-        "non-interactive context (isInteractiveHuman=false) and $LOAF_USER unset; refusing to auto-derive human actor from git config. Set LOAF_USER explicitly.",
+      detail: { reason: "non_interactive" },
     };
   }
   let gitEmail: string | null = null;
@@ -96,8 +95,7 @@ export function resolveHumanActor(deps: ResolverDeps): ResolverResult {
     return {
       ok: false,
       code: "NO_HUMAN_ACTOR",
-      message:
-        "no $LOAF_USER set and git config user.email unavailable or empty; set LOAF_USER or configure git user.email",
+      detail: { reason: "git_identity_unavailable" },
     };
   }
   return buildHumanActor(gitEmail);

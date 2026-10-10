@@ -298,7 +298,7 @@ export type CommandContext = {
   dispatchForHookOptional: (opts: {
     feature?: string;
     featureDir?: string;
-  }) => Promise<{ featureDir: string } | { skip: true; stale?: { code: string; message: string } }>;
+  }) => Promise<{ featureDir: string } | { skip: true; stale?: CatalogDiagnostic }>;
   /** Phase W8 0a — resolve the path for a write-side hook or return null. */
   resolveHookPath: (opts: { path?: string }) => Promise<string | null>;
   /** Phase W8 0a — fail-closed dispatch for write-guard. */
@@ -306,7 +306,7 @@ export type CommandContext = {
     feature?: string;
     featureDir?: string;
   }) => Promise<
-    { featureDir: string } | { allow: true } | { failClosed: true; code: string; message: string }
+    { featureDir: string } | { allow: true } | ({ failClosed: true } & CatalogDiagnostic)
   >;
   /** Phase W8 0a — reject if dry-run (read-only / wrapping / etc.). */
   rejectIfDryRun: (
@@ -558,7 +558,7 @@ export function createCommandContext(
         isInteractiveHuman: isInteractive,
       });
       if (!r.ok) {
-        ctx.emitFailure(r.code, r.message);
+        ctx.diagnosticFailure(r);
         return null;
       }
       return r.actor;
@@ -567,7 +567,7 @@ export function createCommandContext(
     async dispatchOrFail(opts: { feature?: string; featureDir?: string }): Promise<string | null> {
       const dispatch = await ctx.resolveDispatch();
       if (!dispatch.ok) {
-        ctx.emitFailure(dispatch.code, dispatch.message, dispatch.detail);
+        ctx.diagnosticFailure(dispatch);
         return null;
       }
       if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
@@ -580,9 +580,7 @@ export function createCommandContext(
     async dispatchForHookOptional(opts: {
       feature?: string;
       featureDir?: string;
-    }): Promise<
-      { featureDir: string } | { skip: true; stale?: { code: string; message: string } }
-    > {
+    }): Promise<{ featureDir: string } | { skip: true; stale?: CatalogDiagnostic }> {
       let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
       try {
         dispatch = await ctx.resolveDispatch();
@@ -596,7 +594,7 @@ export function createCommandContext(
         return { featureDir: dispatch.featureDir };
       }
       if (dispatch.code === "SNAPSHOT_STALE_REBUILD_REQUIRED") {
-        return { skip: true, stale: { code: dispatch.code, message: dispatch.message } };
+        return { skip: true, stale: dispatch };
       }
       return { skip: true };
     },
@@ -632,7 +630,7 @@ export function createCommandContext(
       feature?: string;
       featureDir?: string;
     }): Promise<
-      { featureDir: string } | { allow: true } | { failClosed: true; code: string; message: string }
+      { featureDir: string } | { allow: true } | ({ failClosed: true } & CatalogDiagnostic)
     > {
       let dispatch: Awaited<ReturnType<typeof ctx.resolveDispatch>>;
       try {
@@ -641,7 +639,7 @@ export function createCommandContext(
         return {
           failClosed: true,
           code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-          message: `write-guard cannot resolve the session: ${(err as Error).message}`,
+          detail: { reason: (err as Error).message },
         };
       }
       if (dispatch.ok) {
@@ -651,7 +649,7 @@ export function createCommandContext(
         return { featureDir: dispatch.featureDir };
       }
       if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
-      return { failClosed: true, code: dispatch.code, message: dispatch.message };
+      return { failClosed: true, ...dispatch };
     },
 
     rejectIfDryRun(
@@ -689,11 +687,7 @@ export function createCommandContext(
           return null;
         }
         if (err instanceof SnapshotStaleError) {
-          ctx.emitFailure(
-            err.code,
-            `snapshot stale (reason=${err.reason}) — run \`loaf doctor --rebuild --feature ${feature}\` to re-serialize from journal truth`,
-            err.detail,
-          );
+          ctx.diagnosticFailure(err);
           return null;
         }
         throw err;

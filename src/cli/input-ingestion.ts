@@ -16,8 +16,6 @@ export const InputSourceResolver = z.discriminatedUnion("kind", [
 ]);
 export type InputSource = z.infer<typeof InputSourceResolver>;
 
-export type InputFailureRoute = "failure" | "emit-failure";
-
 export type JsonInputDeclaration = Readonly<{
   /** Command label without the `--input -` suffix, for diagnostics. */
   command: string;
@@ -29,15 +27,6 @@ export type JsonInputDeclaration = Readonly<{
   helpSuffix?: string;
   /** Compatibility escape hatch for a legacy help sentence. */
   helpText?: string;
-  /** Existing command-specific wording: `piped input` or `piped JSON`. */
-  stdinExpectation: "piped input" | "piped JSON";
-  /** Optional exact compatibility text for commands with a specialized pipe example. */
-  ttyMessage?: string;
-  /** Required only when the command makes `--input` optional for `--schema` or another lane. */
-  missing?: Readonly<{
-    message: string;
-    route: InputFailureRoute;
-  }>;
 }>;
 
 export type JsonInputResult = { ok: true; value: unknown } | { ok: false };
@@ -74,17 +63,6 @@ export function jsonInputHelp(declaration: JsonInputDeclaration): string {
   return `${declaration.helpPrefix}: \`-\` (stdin), ${declaration.inlineLabel}, or file path${declaration.helpSuffix ?? ""}`;
 }
 
-function emitFailure(
-  ctx: CommandContext,
-  route: InputFailureRoute,
-  code: string,
-  message: string,
-  detail?: Record<string, unknown>,
-): void {
-  if (route === "emit-failure") ctx.emitFailure(code, message, detail);
-  else ctx.failure(code, message, detail);
-}
-
 export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputIngestor {
   const readFile = deps.readFile ?? ((filePath: string) => fs.readFile(filePath, "utf8"));
   const requireArg = (
@@ -93,11 +71,7 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
     declaration: JsonInputDeclaration,
   ): arg is string => {
     if (arg !== undefined) return true;
-    const missing = declaration.missing ?? {
-      message: `${declaration.command} requires --input <src>`,
-      route: "failure" as const,
-    };
-    emitFailure(ctx, missing.route, "MISSING_INPUT", missing.message);
+    ctx.diagnosticFailure({ code: "MISSING_INPUT", detail: { command: declaration.command } });
     return false;
   };
 
@@ -108,13 +82,10 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
 
       const source = parseInputSource(arg);
       if (source.kind === "stdin" && deps.isStdinTty()) {
-        ctx.failure(
-          "USAGE",
-          declaration.ttyMessage ??
-            `stdin is TTY — \`${declaration.command} --input -\` expects ${declaration.stdinExpectation}. ` +
-              `Pipe JSON via \`... | ${declaration.command} --input -\`, OR pass inline ` +
-              "JSON / file path. Run --help for examples.",
-        );
+        ctx.diagnosticFailure({
+          code: "USAGE",
+          detail: { command: declaration.command, source: "stdin", reason: "stdin_is_tty" },
+        });
         return { ok: false };
       }
 
@@ -126,7 +97,10 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
           raw = await deps.readStdin();
         } catch (error) {
           const message = (error as Error).message;
-          ctx.failure("MISSING_INPUT", `cannot read stdin: ${message}`, { cause: message });
+          ctx.diagnosticFailure({
+            code: "MISSING_INPUT",
+            detail: { command: declaration.command, source: "stdin", cause: message },
+          });
           return { ok: false };
         }
       } else {
@@ -134,17 +108,13 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
           raw = await readFile(source.path);
         } catch (error) {
           const cause = error as NodeJS.ErrnoException;
-          if (cause.code === "ENOENT") {
-            ctx.failure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${source.path}`, {
+          ctx.diagnosticFailure({
+            code: "INPUT_FILE_NOT_FOUND",
+            detail: {
               path: source.path,
-            });
-          } else {
-            ctx.failure(
-              "INPUT_FILE_NOT_FOUND",
-              `input file unreadable: ${source.path} — ${cause.message}`,
-              { path: source.path, cause: cause.message },
-            );
-          }
+              ...(cause.code === "ENOENT" ? {} : { cause: cause.message }),
+            },
+          });
           return { ok: false };
         }
       }
@@ -153,7 +123,10 @@ export function createJsonInputIngestor(deps: JsonInputIngestorDeps): JsonInputI
         return { ok: true, value: JSON.parse(raw) };
       } catch (error) {
         const cause = (error as Error).message;
-        ctx.failure("SCHEMA_VALIDATION_FAILED", `invalid JSON: ${cause}`, { cause });
+        ctx.diagnosticFailure({
+          code: "SCHEMA_VALIDATION_FAILED",
+          detail: { reason: cause, command: declaration.command, cause },
+        });
         return { ok: false };
       }
     },

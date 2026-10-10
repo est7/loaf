@@ -59,11 +59,27 @@ export class RuntimeStoreError extends Error {
   readonly code: RuntimeStoreErrorCode;
   readonly holder?: RuntimeLockFile;
 
-  constructor(code: RuntimeStoreErrorCode, message: string, holder?: RuntimeLockFile) {
+  readonly lockDetail?: { lock_path: string; timeout_seconds: number };
+  constructor(
+    ...args:
+      | [
+          code: "RUNTIME_FILE_INVALID" | "RUNTIME_IDENTITY_MISMATCH",
+          message: string,
+          holder?: RuntimeLockFile,
+        ]
+      | [
+          code: "RUNTIME_LOCK_TIMEOUT" | "RUNTIME_LOCK_INVALID",
+          message: string,
+          holder: RuntimeLockFile | undefined,
+          lockDetail: { lock_path: string; timeout_seconds: number },
+        ]
+  ) {
+    const [code, message, holder, lockDetail] = args;
     super(message);
     this.name = "RuntimeStoreError";
     this.code = code;
     if (holder !== undefined) this.holder = holder;
+    if (lockDetail !== undefined) this.lockDetail = lockDetail;
   }
 }
 
@@ -292,6 +308,7 @@ async function acquireRuntimeLock(
             confirmed === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT",
             `runtime lock ownership changed before acquisition completed`,
             confirmed ?? undefined,
+            { lock_path: lockPath, timeout_seconds: timeoutMs / 1000 },
           );
         }
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
@@ -326,6 +343,7 @@ async function acquireRuntimeLock(
           "RUNTIME_LOCK_TIMEOUT",
           `runtime lock stale recovery exceeded its bounded retry budget`,
           current ?? holder,
+          { lock_path: lockPath, timeout_seconds: timeoutMs / 1000 },
         );
       }
       continue;
@@ -337,6 +355,7 @@ async function acquireRuntimeLock(
           ? `runtime lock ${lockPath} is malformed or incomplete; refusing stale removal`
           : `runtime lock held by live PID ${holder.pid} during ${holder.operation}`,
         holder ?? undefined,
+        { lock_path: lockPath, timeout_seconds: timeoutMs / 1000 },
       );
     }
     await new Promise((resolve) => setTimeout(resolve, retryDelayMs));

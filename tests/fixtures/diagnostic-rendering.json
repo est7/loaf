@@ -34,12 +34,13 @@
     "detail": {
       "command": "value_command",
       "zod_message": "value_zod_message",
-      "zod_path": "value_zod_path"
+      "zod_path": "value_zod_path",
+      "reason": "value_reason"
     },
-    "en_message": "input does not satisfy schema for value_command: value_zod_path: value_zod_message",
-    "zh_message": "input does not satisfy schema for value_command: value_zod_path: value_zod_message",
-    "en_text": "error: SCHEMA_VALIDATION_FAILED — input does not satisfy schema for value_command: value_zod_path: value_zod_message\n  fix: for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf value_command --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry\n  see: protocol.md#§10.5\n",
-    "zh_text": "error: SCHEMA_VALIDATION_FAILED — input does not satisfy schema for value_command: value_zod_path: value_zod_message\n  fix: for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf value_command --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry\n  see: protocol.md#§10.5\n"
+    "en_message": "validation failed: value_reason",
+    "zh_message": "validation failed: value_reason",
+    "en_text": "error: SCHEMA_VALIDATION_FAILED — validation failed: value_reason\n  fix: inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract\n  see: protocol.md#§10.5\n",
+    "zh_text": "error: SCHEMA_VALIDATION_FAILED — validation failed: value_reason\n  fix: inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract\n  see: protocol.md#§10.5\n"
   },
   {
     "code": "SPEC_LOCKED_NO_DIRECT_EDIT",
@@ -329,10 +330,10 @@
     "detail": {
       "timeout_seconds": "value_timeout_seconds"
     },
-    "en_message": "could not acquire .loaf/<feature>/.lock within value_timeout_secondss",
-    "zh_message": "could not acquire .loaf/<feature>/.lock within value_timeout_secondss",
-    "en_text": "error: LOCK_TIMEOUT — could not acquire .loaf/<feature>/.lock within value_timeout_secondss\n  fix: another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.\n  see: protocol.md#§11.2\n",
-    "zh_text": "error: LOCK_TIMEOUT — could not acquire .loaf/<feature>/.lock within value_timeout_secondss\n  fix: another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.\n  see: protocol.md#§11.2\n"
+    "en_message": "could not acquire the write lock within value_timeout_secondss",
+    "zh_message": "could not acquire the write lock within value_timeout_secondss",
+    "en_text": "error: LOCK_TIMEOUT — could not acquire the write lock within value_timeout_secondss\n  fix: another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: LOCK_TIMEOUT — could not acquire the write lock within value_timeout_secondss\n  fix: another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.\n  see: protocol.md#§11.2\n"
   },
   {
     "code": "LOCK_INVALID",
@@ -1292,10 +1293,10 @@
       "feature_dir": "value_feature_dir",
       "reason": "value_reason"
     },
-    "en_message": "snapshot stale (reason=value_reason) at value_feature_dir; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
-    "zh_message": "snapshot 失效(reason=value_reason) at value_feature_dir;跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
-    "en_text": "error: SNAPSHOT_STALE_REBUILD_REQUIRED — snapshot stale (reason=value_reason) at value_feature_dir; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth\n  fix: snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.\n  see: protocol.md#§10.15\n",
-    "zh_text": "error: SNAPSHOT_STALE_REBUILD_REQUIRED — snapshot 失效(reason=value_reason) at value_feature_dir;跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建\n  fix: snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.\n  see: protocol.md#§10.15\n"
+    "en_message": "snapshot stale (reason=value_reason); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+    "zh_message": "snapshot 失效(reason=value_reason);跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+    "en_text": "error: SNAPSHOT_STALE_REBUILD_REQUIRED — snapshot stale (reason=value_reason); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth\n  fix: snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: SNAPSHOT_STALE_REBUILD_REQUIRED — snapshot 失效(reason=value_reason);跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建\n  fix: snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.\n  see: protocol.md#§10.15\n"
   },
   {
     "code": "JOURNAL_TAIL_REQUIRES_NEWER_LOAF",

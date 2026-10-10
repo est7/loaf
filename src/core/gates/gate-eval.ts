@@ -26,8 +26,7 @@ type SpecReadFailure = {
     {
       check: 1;
       code: "SPEC_FRONTMATTER_INVALID";
-      message: string;
-      detail: Record<string, unknown>;
+      detail: Record<string, unknown> & { subcode: string };
     },
   ];
 };
@@ -39,8 +38,8 @@ export function specReadFailure(read: ReadFailure): SpecReadFailure {
       {
         check: 1,
         code: "SPEC_FRONTMATTER_INVALID",
-        message: read.message,
-        detail: { subcode: read.code, ...(read.detail ?? {}) },
+
+        detail: { subcode: read.code, ...read.detail },
       },
     ],
   };

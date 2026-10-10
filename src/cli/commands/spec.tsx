@@ -28,10 +28,7 @@ import {
 } from "../../core/spec-schema.js";
 import { promises as fsP } from "node:fs";
 import path from "node:path";
-import {
-  buildNextAdvisoryFromSnapshot,
-  selectorForCommandContext,
-} from "../next-advisory.js";
+import { buildNextAdvisoryFromSnapshot, selectorForCommandContext } from "../next-advisory.js";
 
 interface SpecAddKindConfig {
   name: "req" | "scenario" | "visual";
@@ -46,7 +43,6 @@ const SPEC_SUBMIT_INPUT: JsonInputDeclaration = {
   helpPrefix: "JSON source",
   inlineLabel: "inline JSON literal",
   helpSuffix: " (protocol §10.7)",
-  stdinExpectation: "piped input",
 };
 
 const SPEC_EDIT_INPUT: JsonInputDeclaration = {
@@ -54,10 +50,6 @@ const SPEC_EDIT_INPUT: JsonInputDeclaration = {
   helpPrefix: 'JSON {"body":"<Markdown>"} source',
   inlineLabel: "inline JSON",
   helpSuffix: "; preserves current frontmatter",
-  stdinExpectation: "piped JSON",
-  ttyMessage:
-    "stdin is TTY — `loaf spec edit --input -` expects piped JSON. " +
-    'Pipe {"body":"<Markdown>"} via stdin, or pass inline JSON / a file path.',
 };
 
 function specAddInputDeclaration(name: SpecAddKindConfig["name"]): JsonInputDeclaration {
@@ -66,11 +58,6 @@ function specAddInputDeclaration(name: SpecAddKindConfig["name"]): JsonInputDecl
     helpPrefix: `JSON source for SpecAdd${name[0]!.toUpperCase()}${name.slice(1)}Input (item or array)`,
     inlineLabel: "inline JSON",
     helpSuffix: " (protocol §10.7)",
-    stdinExpectation: "piped input",
-    missing: {
-      message: `loaf spec add-${name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
-      route: "emit-failure",
-    },
   };
 }
 const REGISTER_SPEC_ADD: SpecAddKindConfig[] = [
@@ -244,12 +231,7 @@ export function registerSpec(
         now,
       });
       // (7) Mutate.
-      const result = await mutator.runPreparedBatch(
-        featureDir,
-        session,
-        entries,
-        "raw-ctx-failure",
-      );
+      const result = await mutator.runPreparedBatch(featureDir, session, entries);
       if (!result) return;
       // Output. Echo collected ids for shell scripting.
       const reqIds = result.snapshot.requirements.map((r) => r.id);
@@ -275,12 +257,7 @@ export function registerSpec(
             vis_count: visIds.length,
           }) + "\n",
         (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(
-            i18n,
-            result.snapshot,
-            featureDir,
-            selector,
-          );
+          const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
           return {
             stateChange: i18n.t(SUCCESS_KEYS.specSubmitStateChange, {
               spec_version: out.spec_version,
@@ -674,12 +651,7 @@ export function registerSpec(
       if (hasInput && !ctx.dryRun) {
         await fsP.writeFile(specMdPath, afterContent, "utf8");
       }
-      const mutateResult = await mutator.runPreparedBatch(
-        featureDir,
-        session,
-        entries,
-        "emit-failure",
-      );
+      const mutateResult = await mutator.runPreparedBatch(featureDir, session, entries);
       if (!mutateResult) return;
       const newSpecVersion = (entries[0]!.payload as { spec_version: number }).spec_version;
       ctx.success(
@@ -795,7 +767,7 @@ export function registerSpec(
             },
             actor,
           }));
-          const result = await mutator.run(featureDir, session, entries, "raw-ctx-failure");
+          const result = await mutator.run(featureDir, session, entries);
           if (!result) return;
           const specVersion = result.snapshot.state?.spec_version;
           ctx.success(

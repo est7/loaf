@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../core/error-catalog.js";
 import {
   materializeTaskInput,
   TaskInput,
@@ -13,12 +14,7 @@ export type TaskAuthoringAllocation =
       tasks: TaskFullPayload[];
       task_ids_by_local_key: Record<string, string>;
     }
-  | {
-      ok: false;
-      code: "SCHEMA_VALIDATION_FAILED" | "REDUCER_ERROR";
-      message: string;
-      detail: Record<string, unknown>;
-    };
+  | ({ ok: false } & Diagnostic<"SCHEMA_VALIDATION_FAILED" | "REDUCER_ERROR">);
 
 /** Collect every task id ever authored so whole-graph replacement never reuses one. */
 export function collectOccupiedTaskIds(
@@ -65,7 +61,7 @@ export function allocateTaskAuthoringInputs(
     return {
       ok: false,
       code: "REDUCER_ERROR",
-      message: `internal: task id ${invalid} is not canonical T-NNN; cannot allocate the next id`,
+
       detail: { task_id: invalid },
     };
   }
@@ -89,8 +85,9 @@ export function allocateTaskAuthoringInputs(
         return {
           ok: false,
           code: "SCHEMA_VALIDATION_FAILED",
-          message: `task local_key=${input.local_key} depends on unknown local_key=${dependency.local_key}`,
+
           detail: {
+            reason: "unknown_dependency_local_key",
             local_key: input.local_key,
             dependency_local_key: dependency.local_key,
           },

@@ -3,7 +3,6 @@
 // intent-shaped entries; this module owns mutation context, timestamp policy,
 // commit-aware dry-run presentation, and failure routing.
 
-import type { CatalogDiagnostic } from "../core/error-catalog.js";
 import {
   mutate,
   mutateBatch,
@@ -25,7 +24,6 @@ import type { Snapshot } from "../core/reducer.js";
 import type { CommandContext } from "./command-context.js";
 
 type RunPartial = Parameters<typeof mutate>[0];
-export type FailureRoute = "emit-failure" | "legacy-fail" | "raw-ctx-failure";
 export type TimestampStrategy = "shared" | "per-entry";
 export type MutateOkSingle = Extract<Awaited<ReturnType<typeof mutate>>, { ok: true }>;
 export type MutateOkBatch = Extract<Awaited<ReturnType<typeof mutateBatch>>, { ok: true }>;
@@ -46,17 +44,11 @@ export type CommandMutatorDeps = {
 export type CommandMutator = {
   /** Single-entry or shared-timestamp batch mutation. */
   run: {
-    (
-      featureDir: string,
-      session: SessionLoad,
-      entry: MutatorEntry,
-      route?: FailureRoute,
-    ): Promise<MutateOkSingle | null>;
+    (featureDir: string, session: SessionLoad, entry: MutatorEntry): Promise<MutateOkSingle | null>;
     (
       featureDir: string,
       session: SessionLoad,
       entries: readonly MutatorEntry[],
-      route?: FailureRoute,
     ): Promise<MutateOkBatch | null>;
   };
   /** Batch mutation with an explicit timestamp policy. */
@@ -64,26 +56,24 @@ export type CommandMutator = {
     featureDir: string,
     session: SessionLoad,
     entries: readonly MutatorEntry[],
-    options: { timestamps: TimestampStrategy; route?: FailureRoute },
+    options: { timestamps: TimestampStrategy },
   ) => Promise<MutateOkBatch | null>;
   /** Mutate a batch whose actor, schema version, and timestamp are already fixed. */
   runPreparedBatch: (
     featureDir: string,
     session: SessionLoad,
     entries: readonly RunPartial[],
-    route?: FailureRoute,
   ) => Promise<MutateOkBatch | null>;
   /** Build and stamp entries while the feature write lease is held. */
   runPlannedBatch: (
     featureDir: string,
     session: SessionLoad,
     planner: (snapshot: Readonly<Snapshot>) => CommandMutationPlan | Promise<CommandMutationPlan>,
-    options?: { timestamps?: TimestampStrategy; route?: FailureRoute },
+    options?: { timestamps?: TimestampStrategy },
   ) => Promise<MutateOkBatch | null>;
   /** Adapt the core EXECUTE closure transaction without leaking mutation helpers. */
   runExecuteClosure: (
     options: Omit<ExecuteClosureOptions, "mutateContext">,
-    route?: FailureRoute,
   ) => Promise<SuccessfulExecuteClosure | null>;
   /** Emit the input schema for a mutator command and call ctx.success. */
   emitSchemaAndExit: (commandKey: MutatorCommand) => void;
@@ -112,25 +102,11 @@ export function createCommandMutator(
     ctx.success({ ok: true, dry_run: true, would: { kind } }, () => `dry-run: would ${kind}\n`);
   };
 
-  const routeMutateFailure = (
-    route: FailureRoute,
-    r: { code: string; message: string; detail?: Record<string, unknown> } | CatalogDiagnostic,
-  ): void => {
-    if (!("message" in r)) {
-      ctx.diagnosticFailure(r);
-      return;
-    }
-    if (route === "legacy-fail") ctx.fail(r.code, r.message);
-    else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
-    else ctx.emitFailure(r.code, r.message, r.detail);
-  };
-
   function acceptResult<Ok extends MutateOkSingle | MutateOkBatch>(
     result: Ok | MutateFailure,
-    route: FailureRoute,
   ): Ok | null {
     if (!result.ok) {
-      routeMutateFailure(route, result);
+      ctx.diagnosticFailure(result);
       return null;
     }
     if (result.commit_state === "not-committed") {
@@ -144,7 +120,6 @@ export function createCommandMutator(
     featureDir: string,
     session: SessionLoad,
     input: MutatorEntry | readonly MutatorEntry[],
-    route: FailureRoute = "emit-failure",
   ): Promise<MutateOkSingle | MutateOkBatch | null> {
     const now = new Date().toISOString();
     const stamp = (e: MutatorEntry): RunPartial => ({
@@ -158,14 +133,14 @@ export function createCommandMutator(
     const result = Array.isArray(input)
       ? await mutateBatch(input.map(stamp), mctx)
       : await mutate(stamp(input as MutatorEntry), mctx);
-    return acceptResult(result, route);
+    return acceptResult(result);
   }
 
   async function runBatch(
     featureDir: string,
     session: SessionLoad,
     entries: readonly MutatorEntry[],
-    options: { timestamps: TimestampStrategy; route?: FailureRoute },
+    options: { timestamps: TimestampStrategy },
   ): Promise<MutateOkBatch | null> {
     const sharedAt = options.timestamps === "shared" ? new Date().toISOString() : undefined;
     const prepared = entries.map(
@@ -177,24 +152,23 @@ export function createCommandMutator(
         payload: entry.payload,
       }),
     );
-    return runPreparedBatch(featureDir, session, prepared, options.route ?? "emit-failure");
+    return runPreparedBatch(featureDir, session, prepared);
   }
 
   async function runPreparedBatch(
     featureDir: string,
     session: SessionLoad,
     entries: readonly RunPartial[],
-    route: FailureRoute = "emit-failure",
   ): Promise<MutateOkBatch | null> {
     const result = await mutateBatch([...entries], createMutationContext(featureDir, session));
-    return acceptResult(result, route);
+    return acceptResult(result);
   }
 
   async function runPlannedBatch(
     featureDir: string,
     session: SessionLoad,
     planner: (snapshot: Readonly<Snapshot>) => CommandMutationPlan | Promise<CommandMutationPlan>,
-    options: { timestamps?: TimestampStrategy; route?: FailureRoute } = {},
+    options: { timestamps?: TimestampStrategy } = {},
   ): Promise<MutateOkBatch | null> {
     const result = await mutateBatchPlanned(
       async (snapshot) => {
@@ -215,22 +189,21 @@ export function createCommandMutator(
       },
       createMutationContext(featureDir, session),
     );
-    return acceptResult(result, options.route ?? "emit-failure");
+    return acceptResult(result);
   }
 
   async function runExecuteClosure(
     options: Omit<ExecuteClosureOptions, "mutateContext">,
-    route: FailureRoute = "emit-failure",
   ): Promise<SuccessfulExecuteClosure | null> {
     const closure = await executeClosureTransaction({
       ...options,
       mutateContext: (session) => createMutationContext(options.featureDir, session),
     });
     if (closure.kind === "failure") {
-      acceptResult(closure.failure, route);
+      acceptResult(closure.failure);
       return null;
     }
-    if (closure.kind === "committed" && acceptResult(closure.result, route) === null) {
+    if (closure.kind === "committed" && acceptResult(closure.result) === null) {
       return null;
     }
     return closure;

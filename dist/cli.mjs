@@ -590,19 +590,11 @@ const ERROR_CATALOG = {
 	},
 	SCHEMA_VALIDATION_FAILED: {
 		exit_code: 2,
-		message_template: "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
-		fix_template: "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
-		template_keys: [
-			"command",
-			"zod_message",
-			"zod_path"
-		],
+		message_template: "validation failed: {reason}",
+		fix_template: "inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract",
+		template_keys: ["reason"],
 		doc_anchor: "protocol.md#§10.5",
-		detail_keys: [
-			"command",
-			"zod_message",
-			"zod_path"
-		],
+		detail_keys: ["reason"],
 		variants: {
 			"failure.hook.stdin_parse_failed": {
 				message_template: "{reason}",
@@ -904,7 +896,7 @@ const ERROR_CATALOG = {
 	},
 	LOCK_TIMEOUT: {
 		exit_code: 2,
-		message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
+		message_template: "could not acquire the write lock within {timeout_seconds}s",
 		fix_template: "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
 		template_keys: ["timeout_seconds"],
 		doc_anchor: "protocol.md#§11.2",
@@ -1387,7 +1379,8 @@ const ERROR_CATALOG = {
 			"kind",
 			"reasons",
 			"task_id"
-		]
+		],
+		list_separator: { reasons: "; " }
 	},
 	GATE_PRECONDITION_VIOLATION: {
 		exit_code: 2,
@@ -1804,12 +1797,12 @@ const ERROR_CATALOG = {
 	},
 	SNAPSHOT_STALE_REBUILD_REQUIRED: {
 		exit_code: 2,
-		message_template: "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
-		zh_message_template: "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+		message_template: "snapshot stale (reason={reason}); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+		zh_message_template: "snapshot 失效(reason={reason});跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
 		fix_template: "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
-		template_keys: ["feature_dir", "reason"],
+		template_keys: ["reason"],
 		doc_anchor: "protocol.md#§10.15",
-		detail_keys: ["feature_dir", "reason"]
+		detail_keys: ["reason"]
 	},
 	JOURNAL_TAIL_REQUIRES_NEWER_LOAF: {
 		exit_code: 2,
@@ -2195,6 +2188,17 @@ const DIAGNOSTIC_VARIANTS = Object.fromEntries(Object.entries(ERROR_CATALOG).fla
 	code,
 	template
 }]) : []));
+/** Constructs an ambiguous existing site without replacing its subcode.
+* Context is added only for catalog variants, never ordinary code records. */
+function diagnosticVariant(context, detail) {
+	return {
+		code: DIAGNOSTIC_VARIANTS[context].code,
+		detail: {
+			...detail,
+			context
+		}
+	};
+}
 const DIAGNOSTIC_CODE_VALUES = Object.keys(ERROR_CATALOG);
 z.enum(DIAGNOSTIC_CODE_VALUES);
 //#endregion
@@ -2394,7 +2398,7 @@ var en_default = {
 		"INPUT_FILE_NOT_FOUND": "input file does not exist: {path}",
 		"MISSING_INPUT": "required input source missing or unreadable: --input not provided OR stdin could not be read (--input - failed)",
 		"SPEC_EDIT_INPUT_REQUIRED": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
-		"SCHEMA_VALIDATION_FAILED": "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
+		"SCHEMA_VALIDATION_FAILED": "validation failed: {reason}",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
 		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
@@ -2420,7 +2424,7 @@ var en_default = {
 		"VAGUE_NO_SCENARIO": "requirement {req_id} reads as vague but is not anchored to a measurable threshold or to a verifying scenario",
 		"DRIVES_NOT_BOUND": "REQ {req_id} is not referenced by any task.drives[]",
 		"MUTATION_OUT_OF_RIGHTS": "event:tasks_amended on task {task_id} is not permitted at sub_state {sub_state} — §8.6 grants no mutation right for this change",
-		"LOCK_TIMEOUT": "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
+		"LOCK_TIMEOUT": "could not acquire the write lock within {timeout_seconds}s",
 		"LOCK_INVALID": "feature write lease at {lock_path} is malformed or incomplete",
 		"FEATURE_NOT_FOUND": "no feature found in cwd (.loaf/ is empty or missing, or no projection has phase != DONE)",
 		"FEATURE_AMBIGUOUS": "current working directory has {count} active features and no dispatch context: {feature_list}",
@@ -2504,7 +2508,7 @@ var en_default = {
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
 		"SPIKE_CONVERT_NO_SPIKE_TASK": "cannot convert: the session has no non-abandoned spike task; `loaf spike convert` is a spike-task exit (protocol §8.3)",
-		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot stale (reason={reason}); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
 		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery refused at seq {seq}: journal kind {kind} uses entry schema {entry_schema_version} ({reason})",
 		"INVALID_PRESET": "invalid ceremony preset",
 		"USAGE": "invalid CLI usage",
@@ -2525,7 +2529,7 @@ var en_default = {
 		"INPUT_FILE_NOT_FOUND": "verify the path, or pass '-' to read from stdin / inline JSON starting with a JSON object or array — see `loaf <cmd> --help` for examples",
 		"MISSING_INPUT": "pass --input with one of: a JSON file path, '-' for stdin (with valid piped JSON), or inline JSON; for stdin failures, pass valid JSON to `loaf <cmd> --input -` on stdin; for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf <cmd> --schema --format=json` to view the input schema",
 		"SPEC_EDIT_INPUT_REQUIRED": "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
-		"SCHEMA_VALIDATION_FAILED": "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
+		"SCHEMA_VALIDATION_FAILED": "inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
 		"SPEC_NOT_INITIALIZED": "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
 		"SPEC_ALREADY_INITIALIZED": "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
@@ -3383,7 +3387,7 @@ var zh_default = {
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
 		"SPIKE_CONVERT_NO_SPIKE_TASK": "无法 convert:session 没有非-abandoned 的 spike task;`loaf spike convert` 是 spike-task 出口(protocol §8.3)",
-		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+		"SNAPSHOT_STALE_REBUILD_REQUIRED": "snapshot 失效(reason={reason});跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
 		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "tail recovery 已拒绝:seq {seq} 的 journal kind {kind} 使用 entry schema {entry_schema_version} ({reason})",
 		"INVALID_PRESET": "ceremony preset 不合法",
 		"USAGE": "CLI 用法不合法",
@@ -3997,6 +4001,18 @@ function catalogVars(template, detail) {
 	}
 	return vars;
 }
+/** Project nested domain check records only at the presentation boundary. */
+function presentedDetail(detail, i18n) {
+	if (!Array.isArray(detail["checks"])) return detail;
+	const checks = detail["checks"];
+	return {
+		...detail,
+		checks: checks.map((check) => ({
+			...check,
+			message: diagnosticMessage(check, i18n)
+		}))
+	};
+}
 function diagnosticContextRows(detail) {
 	const lines = [];
 	const checks = detail["checks"];
@@ -4036,14 +4052,15 @@ function renderDiagnostic(diagnostic, i18n) {
 function writeDiagnosticFailure(diagnostic, presentation) {
 	const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
 	const { parent, context, template, vars, message } = renderDiagnostic(diagnostic, i18n);
+	const detail = presentedDetail(diagnostic.detail, i18n);
 	if (presentation.format === "json") presentation.writeStderr(JSON.stringify({
 		ok: false,
 		code: diagnostic.code,
 		message,
-		detail: diagnostic.detail
+		detail
 	}) + "\n");
 	else {
-		let output = `error: ${diagnostic.code} — ${message}\n` + diagnosticContextRows(diagnostic.detail);
+		let output = `error: ${diagnostic.code} — ${message}\n` + diagnosticContextRows(detail);
 		if (template.fix_template !== void 0) {
 			const fixKey = context === void 0 ? `diagnostic_fix.${diagnostic.code}` : `diagnostic_variant_fix.${context}`;
 			output += `  fix: ${i18n.t(fixKey, vars)}\n`;
@@ -5359,7 +5376,11 @@ async function checkSnapshotFresh(meta, journalPath) {
 			fresh: false,
 			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 			reason: "journal_missing",
-			detail: { journal_path: journalPath }
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "journal_missing",
+				journal_path: journalPath
+			}
 		};
 		throw err;
 	}
@@ -5372,7 +5393,11 @@ async function checkSnapshotFresh(meta, journalPath) {
 			fresh: false,
 			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 			reason: "journal_empty",
-			detail: { meta_last_applied_seq: meta.last_applied_seq }
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "journal_empty",
+				meta_last_applied_seq: meta.last_applied_seq
+			}
 		};
 	}
 	const tailRead = Math.min(stat.size, ENTRY_BYTE_LIMIT);
@@ -5385,7 +5410,11 @@ async function checkSnapshotFresh(meta, journalPath) {
 			fresh: false,
 			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 			reason: "trailing_partial_line",
-			detail: { tail_bytes: trailingText.length }
+			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "trailing_partial_line",
+				tail_bytes: trailingText.length
+			}
 		};
 		const withoutTrailingNl = trailingText.slice(0, -1);
 		const lastNl = withoutTrailingNl.lastIndexOf("\n");
@@ -5397,6 +5426,8 @@ async function checkSnapshotFresh(meta, journalPath) {
 			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 			reason: "tail_offset_mismatch",
 			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "tail_offset_mismatch",
 				journal_tail_offset: tailLineOffset,
 				meta_last_entry_offset: meta.last_entry_offset
 			}
@@ -5407,6 +5438,8 @@ async function checkSnapshotFresh(meta, journalPath) {
 			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
 			reason: "tail_hash_mismatch",
 			detail: {
+				feature_dir: path.dirname(journalPath),
+				reason: "tail_hash_mismatch",
 				actual: actualHash,
 				expected: meta.last_entry_line_hash
 			}
@@ -5496,9 +5529,9 @@ async function readMetaOrThrow(metaPath, featureDir) {
 function staleFromReader(result, featureDir) {
 	if (result.fresh) return null;
 	return new SnapshotStaleError(result.reason, {
+		...result.detail,
 		feature_dir: featureDir,
-		fix: fixForFeatureDir(featureDir),
-		...result.detail
+		fix: fixForFeatureDir(featureDir)
 	});
 }
 /**
@@ -9194,29 +9227,27 @@ async function resolveDispatch(input) {
 	const featureDirFlag = pickFlagValue(input.argv, "--feature-dir");
 	const sessionEnv = input.env["LOAF_SESSION"];
 	const featureEnv = input.env["LOAF_FEATURE"];
-	if (sessionFlag !== void 0 && featureDirFlag !== void 0) return usageConflict("--session and --feature-dir are mutually exclusive", ["--session", "--feature-dir"], "session identity comes from the registry; manual --feature-dir is contradictory");
+	if (sessionFlag !== void 0 && featureDirFlag !== void 0) return usageConflict(["--session", "--feature-dir"]);
 	if (sessionFlag !== void 0) return resolveBySessionId(sessionFlag, input, "session-flag");
 	if (featureFlag !== void 0) return resolveByFeatureName(featureFlag, input, "feature-flag", featureDirFlag);
-	if (sessionEnv !== void 0 && featureDirFlag !== void 0) return usageConflict("$LOAF_SESSION and --feature-dir are mutually exclusive", ["$LOAF_SESSION", "--feature-dir"], "session identity comes from the registry; manual --feature-dir is contradictory");
+	if (sessionEnv !== void 0 && featureDirFlag !== void 0) return usageConflict(["$LOAF_SESSION", "--feature-dir"]);
 	if (sessionEnv !== void 0 && sessionEnv.length > 0) return resolveBySessionId(sessionEnv, input, "session-env");
 	if (featureEnv !== void 0 && featureEnv.length > 0) return resolveByFeatureName(featureEnv, input, "feature-env", featureDirFlag);
-	if (featureDirFlag !== void 0) return usageConflict("--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature", ["--feature-dir"], "pass --feature <name> alongside --feature-dir, or set $LOAF_FEATURE");
+	if (featureDirFlag !== void 0) return usageConflict(["--feature-dir"]);
 	return autoPickFromCwd(input);
 }
-function usageConflict(message, conflicting, fix) {
+function usageConflict(conflicting) {
 	return {
 		ok: false,
-		code: "USAGE",
-		message: `${message}. ${fix}`,
-		detail: { conflicting }
+		...diagnosticVariant(conflicting.length === 1 ? "failure.dispatch.feature_dir_requires_feature" : "failure.dispatch.session_feature_dir_conflict", { conflicting })
 	};
 }
 async function resolveBySessionId(uuidOrPrefix, input, source) {
 	if (uuidOrPrefix.length < MIN_SHORT_UUID_PREFIX) return {
 		ok: false,
 		code: "USAGE",
-		message: `--session prefix '${uuidOrPrefix}' is too short (<${MIN_SHORT_UUID_PREFIX} chars). Pass ≥${MIN_SHORT_UUID_PREFIX} chars or the full UUID.`,
 		detail: {
+			reason: "session_prefix_too_short",
 			uuid_or_prefix: uuidOrPrefix,
 			min_length: MIN_SHORT_UUID_PREFIX,
 			source
@@ -9230,7 +9261,6 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 		return {
 			ok: false,
 			code: "SESSION_NOT_FOUND",
-			message: `--session ${uuidOrPrefix} matches no entry in the registry`,
 			detail: {
 				uuid_or_prefix: uuidOrPrefix,
 				registry_dir: registryDir,
@@ -9247,7 +9277,6 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 	if (matches.length === 0) return {
 		ok: false,
 		code: "SESSION_NOT_FOUND",
-		message: `--session ${uuidOrPrefix} matches no entry in the registry`,
 		detail: {
 			uuid_or_prefix: uuidOrPrefix,
 			registry_dir: registryDir,
@@ -9257,7 +9286,6 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 	if (matches.length > 1) return {
 		ok: false,
 		code: "SESSION_SHORT_AMBIGUOUS",
-		message: `--session ${uuidOrPrefix} matches ${matches.length} sessions in the registry: ` + matches.join(", "),
 		detail: {
 			prefix: uuidOrPrefix,
 			match_count: matches.length,
@@ -9270,10 +9298,11 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 	if (!read.ok) return {
 		ok: false,
 		code: "SESSION_NOT_FOUND",
-		message: `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${read.strictDetail}`,
 		detail: {
 			uuid_or_prefix: uuidOrPrefix,
 			session_id: sessionId,
+			reason: read.reason,
+			cause: read.strictDetail,
 			source
 		}
 	};
@@ -9281,7 +9310,6 @@ async function resolveBySessionId(uuidOrPrefix, input, source) {
 	if ((await tryRealpath(registryFile.cwd) ?? registryFile.cwd) !== (await tryRealpath(input.cwd) ?? input.cwd)) return {
 		ok: false,
 		code: "SESSION_CWD_MISMATCH",
-		message: `--session ${uuidOrPrefix} is registered against cwd=${registryFile.cwd}, but the current cwd is ${input.cwd}`,
 		detail: {
 			uuid: sessionId,
 			registered_cwd: registryFile.cwd,
@@ -9317,7 +9345,6 @@ async function resolveByFeatureName(name, input, source, featureDirOverride) {
 		if (err instanceof NoSessionError) return {
 			ok: false,
 			code: "FEATURE_NOT_FOUND",
-			message: `feature '${name}' has no session at ${featureDir}`,
 			detail: {
 				feature: name,
 				feature_dir: featureDir,
@@ -9327,9 +9354,9 @@ async function resolveByFeatureName(name, input, source, featureDirOverride) {
 		if (err instanceof SnapshotStaleError) return {
 			ok: false,
 			code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-			message: `feature '${name}' projection is stale at ${featureDir} (reason: ${err.reason})`,
 			detail: {
 				...err.detail,
+				feature_dir: featureDir,
 				reason: err.reason,
 				dispatch_source: source
 			}
@@ -9346,7 +9373,6 @@ async function autoPickFromCwd(input) {
 		return {
 			ok: false,
 			code: "FEATURE_NOT_FOUND",
-			message: "no feature found in cwd (.loaf/ is empty or missing)",
 			detail: { cwd: input.cwd }
 		};
 	}
@@ -9369,7 +9395,6 @@ async function autoPickFromCwd(input) {
 			if (err instanceof SnapshotStaleError) return {
 				ok: false,
 				code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-				message: `auto-pick aborted: '${candidate}' projection is stale (reason: ${err.reason}). Run 'loaf doctor --rebuild --feature ${candidate}' to resync.`,
 				detail: {
 					feature: candidate,
 					feature_dir: featureDir,
@@ -9383,7 +9408,6 @@ async function autoPickFromCwd(input) {
 	if (active.length === 0) return {
 		ok: false,
 		code: "FEATURE_NOT_FOUND",
-		message: "no feature found in cwd (.loaf/ is empty, missing, or all features are DONE)",
 		detail: {
 			cwd: input.cwd,
 			candidate_count: candidates.length
@@ -9392,7 +9416,6 @@ async function autoPickFromCwd(input) {
 	if (active.length >= 2) return {
 		ok: false,
 		code: "FEATURE_AMBIGUOUS",
-		message: `current working directory has ${active.length} active features and no dispatch context: ` + active.map((a) => a.feature).join(", "),
 		detail: {
 			count: active.length,
 			feature_list: active.map((a) => a.feature)
@@ -9421,28 +9444,43 @@ function buildHumanActor(rawValue) {
 	if (rawValue.length === 0) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
-		message: "actor value is empty (check $LOAF_USER)"
+		detail: {
+			reason: "empty",
+			value: rawValue
+		}
 	};
 	if (rawValue.trim().length === 0) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
-		message: "actor value is all whitespace (check $LOAF_USER)"
+		detail: {
+			reason: "all_whitespace",
+			value: rawValue
+		}
 	};
 	if (rawValue !== rawValue.trim()) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
-		message: "actor value has leading/trailing whitespace; trim $LOAF_USER"
+		detail: {
+			reason: "leading_or_trailing_whitespace",
+			value: rawValue
+		}
 	};
 	if (NAMESPACE_PREFIXES.some((p) => rawValue.startsWith(p))) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
-		message: "actor value starts with a reserved namespace prefix (human: / skill: / ci: / cli: / migration:); pass the raw identifier without prefix"
+		detail: {
+			reason: "reserved_namespace",
+			value: rawValue
+		}
 	};
 	const candidate = `human:${rawValue}`;
 	if (!ActorString.safeParse(candidate).success) return {
 		ok: false,
 		code: "INVALID_ACTOR_FORMAT",
-		message: "actor candidate does not satisfy ActorString format"
+		detail: {
+			reason: "actor_schema_invalid",
+			value: rawValue
+		}
 	};
 	return {
 		ok: true,
@@ -9455,7 +9493,7 @@ function resolveHumanActor(deps) {
 	if (!deps.isInteractiveHuman) return {
 		ok: false,
 		code: "NO_HUMAN_ACTOR",
-		message: "non-interactive context (isInteractiveHuman=false) and $LOAF_USER unset; refusing to auto-derive human actor from git config. Set LOAF_USER explicitly."
+		detail: { reason: "non_interactive" }
 	};
 	let gitEmail = null;
 	try {
@@ -9466,7 +9504,7 @@ function resolveHumanActor(deps) {
 	if (gitEmail === null || gitEmail.length === 0) return {
 		ok: false,
 		code: "NO_HUMAN_ACTOR",
-		message: "no $LOAF_USER set and git config user.email unavailable or empty; set LOAF_USER or configure git user.email"
+		detail: { reason: "git_identity_unavailable" }
 	};
 	return buildHumanActor(gitEmail);
 }
@@ -9863,7 +9901,7 @@ function createCommandContext(argv, deps) {
 				isInteractiveHuman: isInteractive
 			});
 			if (!r.ok) {
-				ctx.emitFailure(r.code, r.message);
+				ctx.diagnosticFailure(r);
 				return null;
 			}
 			return r.actor;
@@ -9871,7 +9909,7 @@ function createCommandContext(argv, deps) {
 		async dispatchOrFail(opts) {
 			const dispatch = await ctx.resolveDispatch();
 			if (!dispatch.ok) {
-				ctx.emitFailure(dispatch.code, dispatch.message, dispatch.detail);
+				ctx.diagnosticFailure(dispatch);
 				return null;
 			}
 			if (dispatch.autoPickAdvisory) ctx.advisory(dispatch.autoPickAdvisory);
@@ -9895,10 +9933,7 @@ function createCommandContext(argv, deps) {
 			}
 			if (dispatch.code === "SNAPSHOT_STALE_REBUILD_REQUIRED") return {
 				skip: true,
-				stale: {
-					code: dispatch.code,
-					message: dispatch.message
-				}
+				stale: dispatch
 			};
 			return { skip: true };
 		},
@@ -9925,7 +9960,7 @@ function createCommandContext(argv, deps) {
 				return {
 					failClosed: true,
 					code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-					message: `write-guard cannot resolve the session: ${err.message}`
+					detail: { reason: err.message }
 				};
 			}
 			if (dispatch.ok) {
@@ -9937,8 +9972,7 @@ function createCommandContext(argv, deps) {
 			if (dispatch.code === "FEATURE_NOT_FOUND") return { allow: true };
 			return {
 				failClosed: true,
-				code: dispatch.code,
-				message: dispatch.message
+				...dispatch
 			};
 		},
 		rejectIfDryRun(command, commandType = "read-only") {
@@ -9965,7 +9999,7 @@ function createCommandContext(argv, deps) {
 					return null;
 				}
 				if (err instanceof SnapshotStaleError) {
-					ctx.emitFailure(err.code, `snapshot stale (reason=${err.reason}) — run \`loaf doctor --rebuild --feature ${feature}\` to re-serialize from journal truth`, err.detail);
+					ctx.diagnosticFailure(err);
 					return null;
 				}
 				throw err;
@@ -10422,19 +10456,14 @@ function jsonInputHelp(declaration) {
 	if (declaration.helpText !== void 0) return declaration.helpText;
 	return `${declaration.helpPrefix}: \`-\` (stdin), ${declaration.inlineLabel}, or file path${declaration.helpSuffix ?? ""}`;
 }
-function emitFailure(ctx, route, code, message, detail) {
-	if (route === "emit-failure") ctx.emitFailure(code, message, detail);
-	else ctx.failure(code, message, detail);
-}
 function createJsonInputIngestor(deps) {
 	const readFile = deps.readFile ?? ((filePath) => promises.readFile(filePath, "utf8"));
 	const requireArg = (ctx, arg, declaration) => {
 		if (arg !== void 0) return true;
-		const missing = declaration.missing ?? {
-			message: `${declaration.command} requires --input <src>`,
-			route: "failure"
-		};
-		emitFailure(ctx, missing.route, "MISSING_INPUT", missing.message);
+		ctx.diagnosticFailure({
+			code: "MISSING_INPUT",
+			detail: { command: declaration.command }
+		});
 		return false;
 	};
 	return {
@@ -10443,7 +10472,14 @@ function createJsonInputIngestor(deps) {
 			if (!requireArg(ctx, arg, declaration)) return { ok: false };
 			const source = parseInputSource(arg);
 			if (source.kind === "stdin" && deps.isStdinTty()) {
-				ctx.failure("USAGE", declaration.ttyMessage ?? `stdin is TTY — \`${declaration.command} --input -\` expects ${declaration.stdinExpectation}. Pipe JSON via \`... | ${declaration.command} --input -\`, OR pass inline JSON / file path. Run --help for examples.`);
+				ctx.diagnosticFailure({
+					code: "USAGE",
+					detail: {
+						command: declaration.command,
+						source: "stdin",
+						reason: "stdin_is_tty"
+					}
+				});
 				return { ok: false };
 			}
 			let raw;
@@ -10452,17 +10488,26 @@ function createJsonInputIngestor(deps) {
 				raw = await deps.readStdin();
 			} catch (error) {
 				const message = error.message;
-				ctx.failure("MISSING_INPUT", `cannot read stdin: ${message}`, { cause: message });
+				ctx.diagnosticFailure({
+					code: "MISSING_INPUT",
+					detail: {
+						command: declaration.command,
+						source: "stdin",
+						cause: message
+					}
+				});
 				return { ok: false };
 			}
 			else try {
 				raw = await readFile(source.path);
 			} catch (error) {
 				const cause = error;
-				if (cause.code === "ENOENT") ctx.failure("INPUT_FILE_NOT_FOUND", `input file does not exist: ${source.path}`, { path: source.path });
-				else ctx.failure("INPUT_FILE_NOT_FOUND", `input file unreadable: ${source.path} — ${cause.message}`, {
-					path: source.path,
-					cause: cause.message
+				ctx.diagnosticFailure({
+					code: "INPUT_FILE_NOT_FOUND",
+					detail: {
+						path: source.path,
+						...cause.code === "ENOENT" ? {} : { cause: cause.message }
+					}
 				});
 				return { ok: false };
 			}
@@ -10473,7 +10518,14 @@ function createJsonInputIngestor(deps) {
 				};
 			} catch (error) {
 				const cause = error.message;
-				ctx.failure("SCHEMA_VALIDATION_FAILED", `invalid JSON: ${cause}`, { cause });
+				ctx.diagnosticFailure({
+					code: "SCHEMA_VALIDATION_FAILED",
+					detail: {
+						reason: cause,
+						command: declaration.command,
+						cause
+					}
+				});
 				return { ok: false };
 			}
 		}
@@ -10655,15 +10707,18 @@ const FeatureLeaseFile = z.object({
 	owner: z.string().regex(/^[0-9a-f]{32}$/)
 }).strict();
 var FeatureWriteLeaseError = class extends Error {
-	code;
+	diagnostic;
 	lockPath;
 	holder;
-	constructor(code, message, lockPath, holder) {
+	constructor(diagnostic, message, lockPath, holder) {
 		super(message);
-		this.code = code;
+		this.diagnostic = diagnostic;
 		this.lockPath = lockPath;
 		this.holder = holder;
 		this.name = "FeatureWriteLeaseError";
+	}
+	get code() {
+		return this.diagnostic.code;
 	}
 };
 const DEFAULT_RETRY_DELAY_MS$1 = 20;
@@ -10795,7 +10850,13 @@ async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
 		}
 		const observed = await observe(lockPath);
 		attempts += 1;
-		if (observed.kind === "invalid") throw new FeatureWriteLeaseError("LOCK_INVALID", `feature write lease ${lockPath} is malformed or incomplete; refusing recovery`, lockPath);
+		if (observed.kind === "invalid") throw new FeatureWriteLeaseError({
+			code: "LOCK_INVALID",
+			detail: {
+				lock_path: lockPath,
+				lease_code: "LOCK_INVALID"
+			}
+		}, `feature write lease ${lockPath} is malformed or incomplete; refusing recovery`, lockPath);
 		if (observed.kind === "valid") {
 			lastHolder = observed.metadata;
 			if (!isPidAlive(observed.metadata.pid)) {
@@ -10811,7 +10872,15 @@ async function acquireFeatureWriteLease(featureDir, operation, options = {}) {
 		}
 		if (attempts < maxAttempts) await sleep(retryDelayMs);
 	}
-	throw new FeatureWriteLeaseError("LOCK_TIMEOUT", lastHolder ? `feature write lease held by live PID ${lastHolder.pid} during ${lastHolder.operation}` : `could not acquire feature write lease ${lockPath} within ${timeoutMs}ms`, lockPath, lastHolder);
+	throw new FeatureWriteLeaseError({
+		code: "LOCK_TIMEOUT",
+		detail: {
+			lock_path: lockPath,
+			lease_code: "LOCK_TIMEOUT",
+			timeout_seconds: timeoutMs / 1e3,
+			...lastHolder !== void 0 && { holder: lastHolder }
+		}
+	}, lastHolder ? `feature write lease held by live PID ${lastHolder.pid} during ${lastHolder.operation}` : `could not acquire feature write lease ${lockPath} within ${timeoutMs}ms`, lockPath, lastHolder);
 }
 /**
 * The CLI's first SIGINT exits synchronously, so async `finally` blocks cannot
@@ -10859,7 +10928,6 @@ async function readSpecFrontmatter(featureDir) {
 		if (err.code === "ENOENT") return {
 			ok: false,
 			code: "SPEC_NOT_FOUND",
-			message: `spec.md not found at ${specPath}`,
 			detail: { path: specPath }
 		};
 		throw err;
@@ -10868,8 +10936,10 @@ async function readSpecFrontmatter(featureDir) {
 	if (!match) return {
 		ok: false,
 		code: "SPEC_YAML_INVALID",
-		message: "spec.md is missing a YAML frontmatter block fenced by `---` on the first line",
-		detail: { path: specPath }
+		detail: {
+			path: specPath,
+			reason: "frontmatter_fence_missing"
+		}
 	};
 	let parsed;
 	try {
@@ -10878,7 +10948,6 @@ async function readSpecFrontmatter(featureDir) {
 		return {
 			ok: false,
 			code: "SPEC_YAML_INVALID",
-			message: `spec.md frontmatter YAML failed to parse: ${err.message}`,
 			detail: {
 				path: specPath,
 				error: err.message
@@ -10889,7 +10958,6 @@ async function readSpecFrontmatter(featureDir) {
 	if (!validated.success) return {
 		ok: false,
 		code: "SPEC_FRONTMATTER_INVALID",
-		message: "spec.md frontmatter failed SpecFrontmatter schema validation",
 		detail: {
 			path: specPath,
 			issues: validated.error.issues
@@ -10939,7 +11007,6 @@ function buildSpecLockCheckInput(snapshot) {
 		failure: {
 			check: 1,
 			code: "SPEC_FRONTMATTER_INVALID",
-			message: "snapshot has no projected spec; submit a spec before evaluating spec-lock",
 			detail: {
 				source: "snapshot",
 				subcode: "SPEC_NOT_FOUND",
@@ -10963,7 +11030,6 @@ function buildSpecLockCheckInput(snapshot) {
 		failure: {
 			check: 1,
 			code: "SPEC_FRONTMATTER_INVALID",
-			message: "snapshot spec projection failed SpecFrontmatter schema validation",
 			detail: {
 				source: "snapshot",
 				subcode: "SPEC_FRONTMATTER_INVALID",
@@ -10994,22 +11060,20 @@ function specLockCheck(snapshot, frontmatter) {
 		...diagnostic$2("SPEC_HAS_UNCLARIFIED", {
 			count: frontmatter.needs_clarification.length,
 			ids: frontmatter.needs_clarification.map((nc) => nc.id)
-		}),
-		message: `spec has ${frontmatter.needs_clarification.length} unresolved needs_clarification entries; resolve or remove them before spec-lock`
+		})
 	});
 	let check3Failed = false;
 	if (snapshot.tasks_based_on === null) {
 		failures.push({
 			check: 3,
 			code: "TASKS_NOT_PLANNED",
-			message: `tasks have not been planned yet; spec-lock requires a task graph (tasks_based_on=null in snapshot)`
+			detail: {}
 		});
 		check3Failed = true;
 	} else if (snapshot.tasks_based_on.spec !== frontmatter.spec_version) {
 		failures.push({
 			check: 3,
 			code: "TASKS_BASED_ON_STALE",
-			message: `tasks_based_on.spec=${snapshot.tasks_based_on.spec} does not match frontmatter.spec_version=${frontmatter.spec_version}; the task graph was planned against an older spec`,
 			detail: {
 				tasks_based_on_spec: snapshot.tasks_based_on.spec,
 				current_spec_version: frontmatter.spec_version
@@ -11021,14 +11085,12 @@ function specLockCheck(snapshot, frontmatter) {
 		for (const req of frontmatter.requirements) if (!snapshot.tasks.some((t) => t.drives.includes(req.id))) failures.push({
 			check: 4,
 			code: "REQ_NOT_DRIVEN",
-			message: `${req.id} is not referenced by any task.drives[]; add a task that drives this requirement before spec-lock`,
 			detail: { req_id: req.id }
 		});
 	}
 	for (const req of frontmatter.requirements) if (!hasVerifiability(req)) failures.push({
 		check: 5,
 		code: "MISSING_VERIFIABILITY",
-		message: `${req.id} must declare measurable, verified_by_scenarios[], or acceptance_na+acceptance_na_reason (≥10 chars)`,
 		detail: {
 			req_id: req.id,
 			req_type: req.type
@@ -11040,7 +11102,6 @@ function specLockCheck(snapshot, frontmatter) {
 		if (!snapshot.tasks.some((t) => t.requires_acceptance === true && t.drives.includes(scenario.id))) failures.push({
 			check: 6,
 			code: "E2E_SCENARIO_UNBOUND",
-			message: `e2e scenario ${scenario.id} has no binding task (requires_acceptance=true AND drives includes ${scenario.id}); either add a binding task or mark scenario with acceptance_na+reason`,
 			detail: { scenario_id: scenario.id }
 		});
 	}
@@ -11049,7 +11110,6 @@ function specLockCheck(snapshot, frontmatter) {
 		if (!snapshot.tasks.some((t) => t.kind === "visual-ui" && (t.visual_contract_refs ?? []).includes(visual.id))) failures.push({
 			check: 7,
 			code: "VISUAL_CONTRACT_UNBOUND",
-			message: `visual_contract ${visual.id} has no visual-ui task with visual_contract_refs containing it; add a binding visual-ui task or mark contract with visual_na+reason`,
 			detail: { visual_id: visual.id }
 		});
 	}
@@ -11063,7 +11123,6 @@ function specLockCheck(snapshot, frontmatter) {
 		if (reasons.length > 0) failures.push({
 			check: 8,
 			code: "TASK_KIND_SCHEMA_VIOLATION",
-			message: `task ${task.id} (kind=${task.kind}) violates projected kind-specific obligations: ${reasons.join("; ")}`,
 			detail: {
 				task_id: task.id,
 				kind: task.kind,
@@ -11085,10 +11144,9 @@ function specReadFailure(read) {
 		checks: [{
 			check: 1,
 			code: "SPEC_FRONTMATTER_INVALID",
-			message: read.message,
 			detail: {
 				subcode: read.code,
-				...read.detail ?? {}
+				...read.detail
 			}
 		}]
 	};
@@ -11335,7 +11393,6 @@ function evalLaneStatus(snapshot, frontmatter) {
 	for (const lane of applicableLanes) if (!laneIsPassed(lane, snapshot.evidence)) failures.push({
 		check: 1,
 		code: "VERIFY_LANE_NOT_PASSED",
-		message: `applicable VERIFY lane=${lane} has no evidence with passing/approved/waived result; add evidence with check=${lane} or a matching kind`,
 		detail: { lane }
 	});
 	return failures;
@@ -11346,7 +11403,6 @@ function evalOpenFindings(snapshot) {
 	return [{
 		check: 2,
 		code: "OPEN_FINDINGS_PRESENT",
-		message: `${open.length} actionable finding(s) still open; resolve or close before verify-accept`,
 		detail: {
 			count: open.length,
 			open_ids: open.map((f) => f.id)
@@ -11361,7 +11417,6 @@ function evalCoverage(snapshot, frontmatter) {
 		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, req.id))) failures.push({
 			check: 3,
 			code: "COVERAGE_NOT_SATISFIED",
-			message: `${req.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind in REQ-allowed list (task-summary/verify-review/spec-review/manual/waiver) covering this id`,
 			detail: {
 				covered_id: req.id,
 				covered_kind: "REQ"
@@ -11374,7 +11429,6 @@ function evalCoverage(snapshot, frontmatter) {
 		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, scen.id))) failures.push({
 			check: 3,
 			code: "COVERAGE_NOT_SATISFIED",
-			message: `${scen.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=acceptance / manual+reason / waiver+reason covering this id`,
 			detail: {
 				covered_id: scen.id,
 				covered_kind: "SCEN"
@@ -11386,7 +11440,6 @@ function evalCoverage(snapshot, frontmatter) {
 		if (!snapshot.evidence.some((ev) => satisfiesCoverage(ev, vis.id))) failures.push({
 			check: 3,
 			code: "COVERAGE_NOT_SATISFIED",
-			message: `${vis.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=visual-review+attachment / manual+reason / waiver+reason covering this id`,
 			detail: {
 				covered_id: vis.id,
 				covered_kind: "VIS"
@@ -11401,7 +11454,7 @@ function evalTaskEvidence(snapshot, frontmatter) {
 		failures.push({
 			check: 4,
 			code: "TASKS_NOT_PLANNED",
-			message: `tasks have not been planned yet; verify-accept check 4 requires a task graph (tasks_based_on=null in snapshot)`
+			detail: {}
 		});
 		return failures;
 	}
@@ -11409,7 +11462,6 @@ function evalTaskEvidence(snapshot, frontmatter) {
 		failures.push({
 			check: 4,
 			code: "TASKS_BASED_ON_STALE",
-			message: `tasks_based_on.spec=${snapshot.tasks_based_on.spec} does not match frontmatter.spec_version=${frontmatter.spec_version}; verify-accept check 4 cannot evaluate a stale task graph`,
 			detail: {
 				tasks_based_on_spec: snapshot.tasks_based_on.spec,
 				current_spec_version: frontmatter.spec_version
@@ -11420,13 +11472,11 @@ function evalTaskEvidence(snapshot, frontmatter) {
 	for (const { task, gaps } of evaluateTaskProof(snapshot, verifyAcceptPolicy)) for (const gap of gaps) if (gap === "no-passing-evidence") failures.push({
 		check: 4,
 		code: "TASK_DONE_NO_EVIDENCE",
-		message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
 		detail: { task_id: task.id }
 	});
 	else failures.push({
 		check: 4,
 		code: "BUG_TASK_RED_NOT_REGISTERED",
-		message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
 		detail: { task_id: task.id }
 	});
 	return failures;
@@ -11437,19 +11487,18 @@ function evalSpecReview(snapshot) {
 	if (specReviews.length === 0) return [{
 		check: 5,
 		code: "SPEC_REVIEW_MISSING",
-		message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`
+		detail: {}
 	}];
 	const implementers = deriveImplementers(snapshot);
 	if (implementers.size === 0) return [{
 		check: 5,
 		code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
-		message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`
+		detail: {}
 	}];
 	const conflicts = specReviews.filter((ev) => implementers.has(ev.actor));
 	if (conflicts.length > 0 && conflicts.length === specReviews.length) return [{
 		check: 5,
 		code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
-		message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
 		detail: {
 			spec_review_actors: specReviews.map((ev) => ev.actor),
 			implementers: [...implementers]
@@ -11543,10 +11592,9 @@ async function evaluateVerifyAcceptDiagnostic(snapshot, featureDir) {
 	if (!read.ok) return {
 		ok: false,
 		code: "SPEC_FRONTMATTER_INVALID",
-		message: read.message,
 		detail: {
 			subcode: read.code,
-			...read.detail ?? {}
+			...read.detail
 		}
 	};
 	return {
@@ -11716,7 +11764,6 @@ function validateScopeClosureBatch(candidates, priorEntries, expectedIteration) 
 	if (scopeIndexes.length === 0) return null;
 	if (scopeIndexes.length !== 1 || closureIndexes.length !== 1 || scopeIndexes[0] + 1 !== closureIndexes[0]) return {
 		code: "SCOPE_RECORDED_BATCH_INVALID",
-		message: "scope:recorded must sit immediately before exactly one EXECUTE.work → EXECUTE.done transition in the same batch",
 		detail: {
 			reason: "missing_or_non_adjacent_execute_closure",
 			scope_indexes: scopeIndexes,
@@ -11726,12 +11773,10 @@ function validateScopeClosureBatch(candidates, priorEntries, expectedIteration) 
 	const fact = parseAdjacentFact(candidates[scopeIndexes[0]], candidates[closureIndexes[0]]);
 	if (fact === null) return {
 		code: "SCOPE_RECORDED_BATCH_INVALID",
-		message: "scope:recorded closure must be an actor-matched two-entry batch with indexes 0/1 and count 2",
 		detail: { reason: "invalid_batch_envelope_or_actor" }
 	};
 	if (fact.iteration !== expectedIteration) return {
 		code: "SCOPE_RECORDED_BATCH_INVALID",
-		message: `scope:recorded iteration ${fact.iteration} does not match closing iteration ${expectedIteration}`,
 		detail: {
 			reason: "iteration_mismatch",
 			iteration: fact.iteration,
@@ -11740,7 +11785,6 @@ function validateScopeClosureBatch(candidates, priorEntries, expectedIteration) 
 	};
 	if (parseScopeClosureFacts(priorEntries).facts.some((prior) => prior.iteration === expectedIteration)) return {
 		code: "SCOPE_RECORDED_ITERATION_DUPLICATE",
-		message: `scope:recorded already exists for iteration ${expectedIteration}`,
 		detail: { iteration: expectedIteration }
 	};
 	return null;
@@ -11786,7 +11830,6 @@ async function mutateBatch(partials, ctx) {
 	if (partials.length === 0) return classifyCommitState({
 		ok: false,
 		code: "INVALID_BATCH",
-		message: "mutateBatch called with empty partials array; pass at least one entry",
 		detail: { partials_length: 0 }
 	}, ctx.dryRun ?? false);
 	return withMutationLease(ctx, () => mutateBatchUnderLease(partials, ctx));
@@ -11817,13 +11860,7 @@ async function withMutationLease(ctx, operation) {
 	} catch (error) {
 		if (error instanceof FeatureWriteLeaseError) return classifyCommitState({
 			ok: false,
-			code: error.code,
-			message: error.message,
-			detail: {
-				lock_path: error.lockPath,
-				lease_code: error.code,
-				...error.holder !== void 0 && { holder: error.holder }
-			}
+			...error.diagnostic
 		}, ctx.dryRun ?? false);
 		throw error;
 	}
@@ -11837,7 +11874,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 	if (partials.length === 0) return {
 		ok: false,
 		code: "INVALID_BATCH",
-		message: "mutateBatch called with empty partials array; pass at least one entry",
 		detail: { partials_length: 0 }
 	};
 	const FORBIDDEN = [
@@ -11852,7 +11888,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 		for (const f of FORBIDDEN) if (f in partial) return {
 			ok: false,
 			code: "INVALID_BATCH",
-			message: `partial at index ${i} contains forbidden field '${f}'; mutateBatch owns seq/entry_id/batch envelope`,
 			failed_index: i,
 			detail: {
 				forbidden_field: f,
@@ -11925,7 +11960,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 	if (gateApprovals.length > 1) return {
 		ok: false,
 		code: "MULTIPLE_GATE_DECISIONS",
-		message: `batch contains ${gateApprovals.length} approved gate:decided entries; protocol §10.8 requires one gate decision per atomic operation`,
 		detail: {
 			count: gateApprovals.length,
 			gate_kinds: gateApprovals.map((c) => c.payload.gate_kind)
@@ -11938,7 +11972,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 			if (!gateResult.ok) return {
 				ok: false,
 				code: "GATE_PRECONDITION_VIOLATION",
-				message: `gate:decided spec-lock approval failed ${gateResult.checks.length} spec-lock check(s); see detail.checks`,
 				detail: {
 					gate: "spec-lock",
 					failure_count: gateResult.checks.length,
@@ -11950,7 +11983,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 			if (!gateResult.ok) return {
 				ok: false,
 				code: "GATE_PRECONDITION_VIOLATION",
-				message: `gate:decided verify-accept approval failed ${gateResult.checks.length} verify-accept check(s); see detail.checks`,
 				detail: {
 					gate: "verify-accept",
 					failure_count: gateResult.checks.length,
@@ -11964,7 +11996,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 	if (ctxEntriesTailSeq !== ctx.tail_seq || ctx.meta.last_applied_seq !== ctx.tail_seq || emptyPrefixMetaBad) return {
 		ok: false,
 		code: "INVALID_BATCH",
-		message: `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` + (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") + `; entries + meta must describe the same journal prefix as tail_seq`,
 		detail: {
 			tail_seq: ctx.tail_seq,
 			entries_tail_seq: ctxEntriesTailSeq,
@@ -11978,10 +12009,10 @@ async function mutateBatchUnderLease(partials, ctx) {
 		return {
 			ok: false,
 			code: "APPEND_ERROR",
-			message: error instanceof AppendError ? error.message : `journal tail check failed: ${error.message}`,
 			detail: {
 				code: error instanceof AppendError ? error.code : error.code ?? "TAIL_READ_FAILED",
 				...error instanceof AppendError ? error.detail ?? {} : {},
+				cause: error instanceof AppendError ? error.message : String(error),
 				phase: "lease-tail-check"
 			}
 		};
@@ -12000,7 +12031,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 		return {
 			ok: false,
 			code: "SIDECAR_ERROR",
-			message: `sidecar finalize failed: ${String(err)}`,
 			failed_index: i,
 			detail: { err: String(err) }
 		};
@@ -12033,7 +12063,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 	if (!isDeepStrictEqual(finalSnapshot, snapshotAcc)) return {
 		ok: false,
 		code: "REDUCER_ERROR",
-		message: "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
 		detail: { phase: "drift-check" }
 	};
 	const journalPath = path.join(ctx.feature_dir, "journal.jsonl");
@@ -12044,16 +12073,15 @@ async function mutateBatchUnderLease(partials, ctx) {
 		if (err instanceof AppendError) return {
 			ok: false,
 			code: "APPEND_ERROR",
-			message: err.message,
 			detail: {
 				code: err.code,
-				...err.detail ?? {}
+				...err.detail ?? {},
+				cause: err.message
 			}
 		};
 		return {
 			ok: false,
 			code: "APPEND_ERROR",
-			message: `append failed: ${String(err)}`,
 			detail: { err: String(err) }
 		};
 	}
@@ -12065,7 +12093,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 			ok: false,
 			commit_state: "committed",
 			code: "PROJECTION_WRITE_FAILED",
-			message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${finalSnapshot.state?.spec_version ?? "unknown"}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
 			snapshot: finalSnapshot,
 			entries: promoted,
 			meta: appendMeta,
@@ -12091,7 +12118,6 @@ async function mutateBatchUnderLease(partials, ctx) {
 			ok: false,
 			commit_state: "committed",
 			code: "PROJECTION_WRITE_FAILED",
-			message: `snapshot projection write failed after journal append at last_seq=${lastSeq}; journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${err.message}`,
 			snapshot: finalSnapshot,
 			entries: promoted,
 			meta: appendMeta,
@@ -12099,7 +12125,8 @@ async function mutateBatchUnderLease(partials, ctx) {
 				projection: "snapshots",
 				path: path.join(ctx.feature_dir, "snapshots"),
 				last_seq: lastSeq,
-				error: err.message
+				error: err.message,
+				spec_version: finalSnapshot.state?.spec_version ?? null
 			}
 		};
 	}
@@ -12117,12 +12144,13 @@ async function mutateBatchUnderLease(partials, ctx) {
 				ok: false,
 				commit_state: "committed",
 				code: "PROJECTION_WRITE_FAILED",
-				message: `registry derivation failed after journal append; journal is authoritative; reload registry projections after correcting the defect. Cause: ${err.message}`,
 				snapshot: finalSnapshot,
 				entries: promoted,
 				meta: appendMeta,
 				detail: {
 					projection: "registry",
+					last_seq: promoted[promoted.length - 1].seq,
+					spec_version: finalSnapshot.state?.spec_version ?? null,
 					phase: "derivation",
 					error: err.message
 				}
@@ -12147,17 +12175,13 @@ async function mutateBatchUnderLease(partials, ctx) {
 async function mutate(partial, ctx) {
 	const batch = await mutateBatch([partial], ctx);
 	if (!batch.ok) {
-		if (batch.commit_state === "committed") return {
-			ok: false,
-			commit_state: "committed",
-			code: batch.code,
-			message: batch.message,
-			...batch.failed_index !== void 0 && { failed_index: batch.failed_index },
-			...batch.detail !== void 0 && { detail: batch.detail },
-			snapshot: batch.snapshot,
-			entry: batch.entries[0],
-			meta: batch.meta
-		};
+		if (batch.commit_state === "committed") {
+			const { entries, ...failure } = batch;
+			return {
+				...failure,
+				entry: entries[0]
+			};
+		}
 		return batch;
 	}
 	return {
@@ -12247,11 +12271,14 @@ const RuntimeLockFile = z.object({
 var RuntimeStoreError = class extends Error {
 	code;
 	holder;
-	constructor(code, message, holder) {
+	lockDetail;
+	constructor(...args) {
+		const [code, message, holder, lockDetail] = args;
 		super(message);
 		this.name = "RuntimeStoreError";
 		this.code = code;
 		if (holder !== void 0) this.holder = holder;
+		if (lockDetail !== void 0) this.lockDetail = lockDetail;
 	}
 };
 const DEFAULT_LOCK_TIMEOUT_MS = 2e3;
@@ -12410,7 +12437,10 @@ async function acquireRuntimeLock(identity, operation, options) {
 			const confirmed = await readLock(lockPath);
 			if (confirmed?.owner !== lock.owner) {
 				attempts += 1;
-				if (attempts >= maxAttempts) throw new RuntimeStoreError(confirmed === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", `runtime lock ownership changed before acquisition completed`, confirmed ?? void 0);
+				if (attempts >= maxAttempts) throw new RuntimeStoreError(confirmed === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", `runtime lock ownership changed before acquisition completed`, confirmed ?? void 0, {
+					lock_path: lockPath,
+					timeout_seconds: timeoutMs / 1e3
+				});
 				await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 				continue;
 			}
@@ -12430,10 +12460,16 @@ async function acquireRuntimeLock(identity, operation, options) {
 			if (current !== null && isSameLockGeneration(holder, current) && !isPidAlive(current.pid)) await promises.unlink(lockPath).catch((error) => {
 				if (error.code !== "ENOENT") throw error;
 			});
-			if (attempts >= maxAttempts) throw new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", `runtime lock stale recovery exceeded its bounded retry budget`, current ?? holder);
+			if (attempts >= maxAttempts) throw new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", `runtime lock stale recovery exceeded its bounded retry budget`, current ?? holder, {
+				lock_path: lockPath,
+				timeout_seconds: timeoutMs / 1e3
+			});
 			continue;
 		}
-		if (attempts >= maxAttempts) throw new RuntimeStoreError(holder === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", holder === null ? `runtime lock ${lockPath} is malformed or incomplete; refusing stale removal` : `runtime lock held by live PID ${holder.pid} during ${holder.operation}`, holder ?? void 0);
+		if (attempts >= maxAttempts) throw new RuntimeStoreError(holder === null ? "RUNTIME_LOCK_INVALID" : "RUNTIME_LOCK_TIMEOUT", holder === null ? `runtime lock ${lockPath} is malformed or incomplete; refusing stale removal` : `runtime lock held by live PID ${holder.pid} during ${holder.operation}`, holder ?? void 0, {
+			lock_path: lockPath,
+			timeout_seconds: timeoutMs / 1e3
+		});
 		await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 	}
 }
@@ -12546,8 +12582,8 @@ async function preparePendingScopeClosure(current, context) {
 		ok: false,
 		failure: {
 			code: "EXECUTE_CLOSURE_STATE_CHANGED",
-			message: `runtime pending scope is from future iteration ${pending.iteration}, ahead of journal iteration ${context.iteration}`,
 			detail: {
+				reason: "pending_iteration_ahead",
 				pending_iteration: pending.iteration,
 				current_iteration: context.iteration
 			}
@@ -12566,8 +12602,8 @@ async function settlePendingScope(current, context, phase) {
 		ok: false,
 		failure: {
 			code: "EXECUTE_CLOSURE_STATE_CHANGED",
-			message: "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",
 			detail: {
+				reason: "pending_iteration_ahead",
 				pending_iteration: pending.iteration,
 				iteration: context.iteration
 			}
@@ -12585,8 +12621,10 @@ async function settlePendingScope(current, context, phase) {
 		ok: false,
 		failure: {
 			code: "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS",
-			message: "post-append journal proof does not cover all pending scope paths; refusing to clear",
-			detail: { iteration: context.iteration }
+			detail: {
+				reason: "pending_paths_not_covered",
+				iteration: context.iteration
+			}
 		}
 	};
 	return {
@@ -12601,20 +12639,30 @@ async function settlePendingScope(current, context, phase) {
 //#region src/core/execute-closure.ts
 var ClosureNotCommitted = class extends Error {};
 var ExecuteClosureError = class extends Error {
-	code;
-	detail;
-	constructor(code, message, detail) {
-		super(message);
+	failure;
+	constructor(failure, options) {
+		super(failure.code, options);
+		this.failure = failure;
 		this.name = "ExecuteClosureError";
-		this.code = code;
-		if (detail !== void 0) this.detail = detail;
+	}
+	get code() {
+		return this.failure.code;
+	}
+	get detail() {
+		return this.failure.detail;
 	}
 };
 async function reloadForCommitProof(featureDir, loader = (target) => loadSession(target, { ensureDir: false })) {
 	try {
 		return await loader(featureDir);
 	} catch (error) {
-		throw new ExecuteClosureError("EXECUTE_CLOSURE_RELOAD_FAILED", `cannot reload journal to prove EXECUTE closure commit: ${error.message}`);
+		throw new ExecuteClosureError({
+			code: "EXECUTE_CLOSURE_RELOAD_FAILED",
+			detail: {
+				feature_dir: featureDir,
+				cause: error.message
+			}
+		}, { cause: error });
 	}
 }
 /**
@@ -12637,10 +12685,7 @@ async function executeClosureTransaction(options) {
 			entries: options.session.entries,
 			featureDir: options.featureDir
 		});
-		if (!prepared.ok) {
-			const { code, message, detail } = prepared.failure;
-			throw new ExecuteClosureError(code, message, detail);
-		}
+		if (!prepared.ok) throw new ExecuteClosureError(prepared.failure);
 		const result = await mutateBatch(buildScopeClosureEntries(options.actor, initialState.iteration, prepared.paths, heartbeatAt), options.mutateContext(options.session));
 		return result.ok ? {
 			kind: "committed",
@@ -12669,10 +12714,7 @@ async function executeClosureTransaction(options) {
 			const committed = findScopeClosureFact(session.entries, state.iteration);
 			if (state.sub_state === "EXECUTE.done" && committed !== null) {
 				const settled = await settlePendingScope(current, context, "recovered");
-				if (!settled.ok) {
-					const { code, message, detail } = settled.failure;
-					throw new ExecuteClosureError(code, message, detail);
-				}
+				if (!settled.ok) throw new ExecuteClosureError(settled.failure);
 				outcome = {
 					kind: "recovered",
 					session,
@@ -12681,15 +12723,15 @@ async function executeClosureTransaction(options) {
 				return settled.runtime;
 			}
 			if (state.sub_state === "EXECUTE.done") throw new ClosureNotCommitted();
-			if (state.sub_state !== "EXECUTE.work") throw new ExecuteClosureError("EXECUTE_CLOSURE_STATE_CHANGED", `session moved to ${state.sub_state} while preparing EXECUTE closure`, {
-				expected: "EXECUTE.work",
-				actual: state.sub_state
+			if (state.sub_state !== "EXECUTE.work") throw new ExecuteClosureError({
+				code: "EXECUTE_CLOSURE_STATE_CHANGED",
+				detail: {
+					expected: "EXECUTE.work",
+					actual: state.sub_state
+				}
 			});
 			const prepared = await preparePendingScopeClosure(current, context);
-			if (!prepared.ok) {
-				const { code, message, detail } = prepared.failure;
-				throw new ExecuteClosureError(code, message, detail);
-			}
+			if (!prepared.ok) throw new ExecuteClosureError(prepared.failure);
 			await options.hooks?.beforeAppend?.();
 			const result = await mutateBatch(buildScopeClosureEntries(options.actor, state.iteration, prepared.paths, heartbeatAt), options.mutateContext(session));
 			if (result.ok) {
@@ -12708,10 +12750,7 @@ async function executeClosureTransaction(options) {
 						...context,
 						entries: committedEntries
 					}, "committed-failure");
-					if (!settled.ok) {
-						const { code, message, detail } = settled.failure;
-						throw new ExecuteClosureError(code, message, detail);
-					}
+					if (!settled.ok) throw new ExecuteClosureError(settled.failure);
 					outcome = {
 						kind: "failure",
 						failure: result
@@ -12807,18 +12846,9 @@ function createCommandMutator(ctx, deps) {
 			would: { kind }
 		}, () => `dry-run: would ${kind}\n`);
 	};
-	const routeMutateFailure = (route, r) => {
-		if (!("message" in r)) {
-			ctx.diagnosticFailure(r);
-			return;
-		}
-		if (route === "legacy-fail") ctx.fail(r.code, r.message);
-		else if (route === "raw-ctx-failure") ctx.failure(r.code, r.message, r.detail);
-		else ctx.emitFailure(r.code, r.message, r.detail);
-	};
-	function acceptResult(result, route) {
+	function acceptResult(result) {
 		if (!result.ok) {
-			routeMutateFailure(route, result);
+			ctx.diagnosticFailure(result);
 			return null;
 		}
 		if (result.commit_state === "not-committed") {
@@ -12827,7 +12857,7 @@ function createCommandMutator(ctx, deps) {
 		}
 		return result;
 	}
-	async function runImpl(featureDir, session, input, route = "emit-failure") {
+	async function runImpl(featureDir, session, input) {
 		const now = (/* @__PURE__ */ new Date()).toISOString();
 		const stamp = (e) => ({
 			at: now,
@@ -12837,7 +12867,7 @@ function createCommandMutator(ctx, deps) {
 			payload: e.payload
 		});
 		const mctx = createMutationContext(featureDir, session);
-		return acceptResult(Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx), route);
+		return acceptResult(Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx));
 	}
 	async function runBatch(featureDir, session, entries, options) {
 		const sharedAt = options.timestamps === "shared" ? (/* @__PURE__ */ new Date()).toISOString() : void 0;
@@ -12847,10 +12877,10 @@ function createCommandMutator(ctx, deps) {
 			entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
 			kind: entry.kind,
 			payload: entry.payload
-		})), options.route ?? "emit-failure");
+		})));
 	}
-	async function runPreparedBatch(featureDir, session, entries, route = "emit-failure") {
-		return acceptResult(await mutateBatch([...entries], createMutationContext(featureDir, session)), route);
+	async function runPreparedBatch(featureDir, session, entries) {
+		return acceptResult(await mutateBatch([...entries], createMutationContext(featureDir, session)));
 	}
 	async function runPlannedBatch(featureDir, session, planner, options = {}) {
 		return acceptResult(await mutateBatchPlanned(async (snapshot) => {
@@ -12867,18 +12897,18 @@ function createCommandMutator(ctx, deps) {
 					payload: entry.payload
 				}))
 			};
-		}, createMutationContext(featureDir, session)), options.route ?? "emit-failure");
+		}, createMutationContext(featureDir, session)));
 	}
-	async function runExecuteClosure(options, route = "emit-failure") {
+	async function runExecuteClosure(options) {
 		const closure = await executeClosureTransaction({
 			...options,
 			mutateContext: (session) => createMutationContext(options.featureDir, session)
 		});
 		if (closure.kind === "failure") {
-			acceptResult(closure.failure, route);
+			acceptResult(closure.failure);
 			return null;
 		}
-		if (closure.kind === "committed" && acceptResult(closure.result, route) === null) return null;
+		if (closure.kind === "committed" && acceptResult(closure.result) === null) return null;
 		return closure;
 	}
 	const emitSchemaAndExit = (commandKey) => {
@@ -12892,6 +12922,29 @@ function createCommandMutator(ctx, deps) {
 		runPlannedBatch,
 		runExecuteClosure,
 		emitSchemaAndExit
+	};
+}
+//#endregion
+//#region src/cli/runtime-store-diagnostic.ts
+/** Preserve the established CLI mapping for runtime status errors. */
+function runtimeStoreDiagnostic(error, source) {
+	const detail = {
+		source,
+		runtime_code: error.code,
+		reason: error.message,
+		...error.holder !== void 0 && { holder: error.holder }
+	};
+	if (error.code === "RUNTIME_LOCK_TIMEOUT" || error.code === "RUNTIME_LOCK_INVALID") return {
+		code: "LOCK_TIMEOUT",
+		detail: {
+			...detail,
+			...error.lockDetail,
+			timeout_seconds: error.lockDetail.timeout_seconds
+		}
+	};
+	return {
+		code: "SCHEMA_VALIDATION_FAILED",
+		detail
 	};
 }
 //#endregion
@@ -13150,7 +13203,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 				...opts.label !== void 0 ? { session_label: opts.label } : {}
 			},
 			actor
-		}, "legacy-fail");
+		});
 		if (!result) return;
 		const state = result.snapshot.state;
 		if (state === null) {
@@ -13202,7 +13255,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 					},
 					debug: ctx.debug,
 					...executeClosureHooks !== void 0 && { hooks: executeClosureHooks }
-				}, "legacy-fail");
+				});
 				if (closure === null) return;
 				if (closure.kind !== "not-committed") {
 					const snapshot = closure.kind === "committed" ? closure.result.snapshot : closure.session.snapshot;
@@ -13225,13 +13278,17 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 					return;
 				}
 			} catch (error) {
-				const isRuntimeLockFailure = error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
-				if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
-				const code = isRuntimeLockFailure ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";
-				ctx.failure(code, `EXECUTE closure failed: ${error.message}`, {
-					source: "execute-closure",
-					...error instanceof ExecuteClosureError && error.detail !== void 0 ? error.detail : {}
+				if (!(error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_")) && !(error instanceof ExecuteClosureError)) throw error;
+				if (error instanceof ExecuteClosureError) ctx.diagnosticFailure({
+					code: "SCHEMA_VALIDATION_FAILED",
+					detail: {
+						source: "execute-closure",
+						closure_code: error.code,
+						reason: error.code,
+						...error.detail
+					}
 				});
+				else ctx.diagnosticFailure(runtimeStoreDiagnostic(error, "execute-closure"));
 				return;
 			}
 		}
@@ -13242,7 +13299,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 				to
 			},
 			actor
-		}, "legacy-fail");
+		});
 		if (!result) return;
 		const out = {
 			ok: true,
@@ -13318,9 +13375,12 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 		if (loaded.state.sub_state.startsWith("VERIFY.")) {
 			const read = await readSpecFrontmatter(featureDir);
 			if (!read.ok) {
-				ctx.emitFailure("SPEC_FRONTMATTER_INVALID", read.message, {
-					subcode: read.code,
-					...read.detail ?? {}
+				ctx.diagnosticFailure({
+					code: "SPEC_FRONTMATTER_INVALID",
+					detail: {
+						subcode: read.code,
+						...read.detail
+					}
 				});
 				return;
 			}
@@ -13595,7 +13655,7 @@ function registerTerminalExecute(program, ctx, mutator, actor) {
 			kind: "session:delivered",
 			payload,
 			actor: humanActor
-		}, "raw-ctx-failure");
+		});
 		if (!result) return;
 		const out = {
 			ok: true,
@@ -13944,7 +14004,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
 		} catch (error) {
 			if (error instanceof FeatureWriteLeaseError) {
-				ctx.emitFailure(error.code, error.message);
+				ctx.diagnosticFailure(error.diagnostic);
 				return;
 			}
 			throw error;
@@ -14022,15 +14082,11 @@ function maxTaskSerial(taskIds) {
 */
 function allocateTaskAuthoringInputs(inputs, occupiedTaskIds) {
 	const maxSerial = maxTaskSerial(occupiedTaskIds);
-	if (maxSerial === null) {
-		const invalid = occupiedTaskIds.find((taskId) => !/^T-\d{3,}$/.test(taskId));
-		return {
-			ok: false,
-			code: "REDUCER_ERROR",
-			message: `internal: task id ${invalid} is not canonical T-NNN; cannot allocate the next id`,
-			detail: { task_id: invalid }
-		};
-	}
+	if (maxSerial === null) return {
+		ok: false,
+		code: "REDUCER_ERROR",
+		detail: { task_id: occupiedTaskIds.find((taskId) => !/^T-\d{3,}$/.test(taskId)) }
+	};
 	const taskIdsByLocalKey = {};
 	for (let index = 0; index < inputs.length; index += 1) taskIdsByLocalKey[inputs[index].local_key] = `T-${String(maxSerial + index + 1).padStart(3, "0")}`;
 	const tasks = [];
@@ -14045,8 +14101,8 @@ function allocateTaskAuthoringInputs(inputs, occupiedTaskIds) {
 			if (taskId === void 0) return {
 				ok: false,
 				code: "SCHEMA_VALIDATION_FAILED",
-				message: `task local_key=${input.local_key} depends on unknown local_key=${dependency.local_key}`,
 				detail: {
+					reason: "unknown_dependency_local_key",
 					local_key: input.local_key,
 					dependency_local_key: dependency.local_key
 				}
@@ -14079,30 +14135,19 @@ const TASKS_SUBMIT_INPUT = {
 	command: "loaf tasks submit",
 	helpPrefix: "JSON source",
 	inlineLabel: "inline JSON literal",
-	helpSuffix: " (protocol §10.7). Whole-graph single object only.",
-	stdinExpectation: "piped input",
-	missing: {
-		message: "loaf tasks submit requires --input <src> (or pass --schema to dump the input JSON Schema)",
-		route: "emit-failure"
-	}
+	helpSuffix: " (protocol §10.7). Whole-graph single object only."
 };
 const TASKS_ADD_INPUT = {
 	command: "loaf tasks add",
 	helpPrefix: "JSON source for semantic task input (single object or array)",
 	inlineLabel: "inline JSON",
-	helpSuffix: " (protocol §10.7)",
-	stdinExpectation: "piped input",
-	missing: {
-		message: "loaf tasks add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-		route: "emit-failure"
-	}
+	helpSuffix: " (protocol §10.7)"
 };
 const TASKS_AMEND_INPUT = {
 	command: "loaf tasks amend",
 	helpPrefix: "New id-less task definition for a sponsored graph replacement",
 	inlineLabel: "inline JSON",
-	helpText: "New id-less task definition for a sponsored graph replacement (JSON file or '-')",
-	stdinExpectation: "piped input"
+	helpText: "New id-less task definition for a sponsored graph replacement (JSON file or '-')"
 };
 function registerTaskSubmit(tasksCmd, deps) {
 	const { ctx, mutator, actor, input } = deps;
@@ -14153,7 +14198,7 @@ function registerTaskSubmit(tasksCmd, deps) {
 					actor
 				}]
 			};
-		}, { route: "raw-ctx-failure" });
+		}, {});
 		if (!result) return;
 		const state = result.snapshot.state;
 		if (state === null) {
@@ -14246,10 +14291,7 @@ function registerTaskAdd(tasksCmd, deps) {
 						}
 					}))
 				};
-			}, {
-				timestamps: "per-entry",
-				route: "raw-ctx-failure"
-			});
+			}, { timestamps: "per-entry" });
 			if (!result) return;
 			const newIds = result.entries.map((entry) => entry.payload.task.id);
 			const taskIdsByLocalKey = Object.fromEntries(validatedInputs.map((task, index) => [task.local_key, newIds[index]]));
@@ -14291,7 +14333,7 @@ function registerTaskAdd(tasksCmd, deps) {
 					actor
 				}]
 			};
-		}, { route: "raw-ctx-failure" });
+		}, {});
 		if (!result) return;
 		const newIds = result.entries[0].payload.tasks.slice(existingFull.length).map((task) => task.id);
 		const taskIdsByLocalKey = Object.fromEntries(validatedInputs.map((task, index) => [task.local_key, newIds[index]]));
@@ -14379,7 +14421,7 @@ function registerTaskAmend(tasksCmd, deps) {
 					sponsored_by_finding_id: findingId
 				},
 				actor
-			}, "raw-ctx-failure");
+			});
 			if (!sResult) return;
 			const sOut = {
 				ok: true,
@@ -15298,12 +15340,7 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 		command: "loaf evidence add",
 		helpPrefix: "JSON authoring source (single object OR non-empty array)",
 		inlineLabel: "inline JSON",
-		helpSuffix: "; internal sidecar refs are rejected",
-		stdinExpectation: "piped input",
-		missing: {
-			message: "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-			route: "emit-failure"
-		}
+		helpSuffix: "; internal sidecar refs are rejected"
 	};
 	const evidenceCmd = program.command("evidence").description("Evidence ledger commands (add, list)");
 	evidenceCmd.command("add").description("Append evidence entry/entries from --input <src> JSON (CLI allocates EV-id; single object or non-empty array for batch)").option("--input <src>", jsonInputHelp(inputDeclaration)).option("--schema", "Dump the input JSON Schema instead of mutating (Phase 16 SC-10)").option("--feature <name>", "Feature whose ledger to append to").option("--feature-dir <path>", "Override default .loaf/<feature> directory").action(async (rawOpts) => {
@@ -15368,7 +15405,7 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 			},
 			actor
 		}));
-		const result = await mutator.run(featureDir, session, entries, "raw-ctx-failure");
+		const result = await mutator.run(featureDir, session, entries);
 		if (!result) return;
 		const isBatch = Array.isArray(parsed);
 		const evidenceItems = validatedInputs.map((input, i) => ({
@@ -15988,7 +16025,17 @@ function buildEnvelope(checks, findings, lanes) {
 			action: finding.action
 		})),
 		lanes,
-		checks
+		checks: checks.map((row) => ({
+			...row,
+			failures: row.failures.map((failure) => {
+				const { detail, ...fields } = failure;
+				return {
+					...fields,
+					message: diagnosticMessage(failure),
+					...Object.keys(detail).length > 0 ? { detail } : {}
+				};
+			})
+		}))
 	};
 }
 /** Presentation — fixed column widths per the §7.4 example shape. */
@@ -16035,7 +16082,10 @@ function renderText(env, i18n = DEFAULT_I18N) {
 		const label = labels[row.check].padEnd(labelWidth);
 		const status = statusGlyph(row.status, i18n).padEnd(4);
 		lines.push(`${label}  ${status}${failureSummary(row.failures, i18n)}`);
-		if (row.status === "fail" && row.failures.length > 1) for (const f of row.failures) lines.push(`    - ${f.code}: ${f.message}`);
+		if (row.status === "fail" && row.failures.length > 1) for (const f of row.failures) lines.push(`    - ${f.code}: ${diagnosticMessage({
+			code: f.code,
+			detail: f.detail ?? {}
+		}, i18n)}`);
 	}
 	for (const [index, lane] of env.lanes.entries()) {
 		const label = laneLabels[index].padEnd(labelWidth);
@@ -17016,7 +17066,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		if (event === "closure-check") {
 			const d = await ctx.dispatchForHookOptional(opts);
 			if ("skip" in d) {
-				if (d.stale) process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
+				if (d.stale) process.stderr.write(`warning: closure-check skipped — ${diagnosticMessage(d.stale)}\n`);
 				return;
 			}
 			let loaded;
@@ -17055,12 +17105,15 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			try {
 				dispatch = await ctx.resolveDispatch();
 			} catch (error) {
-				ctx.emitFailure("SNAPSHOT_STALE_REBUILD_REQUIRED", `scope-track cannot select a trustworthy session: ${error.message}`, { reason: error.message });
+				ctx.diagnosticFailure({
+					code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+					detail: { reason: error.message }
+				});
 				return;
 			}
 			if (!dispatch.ok) {
 				if (dispatch.code === "FEATURE_NOT_FOUND") return;
-				ctx.emitFailure(dispatch.code, `scope-track cannot select a session: ${dispatch.message}`, dispatch.detail);
+				ctx.diagnosticFailure(dispatch);
 				return;
 			}
 			opts.feature = dispatch.feature;
@@ -17068,9 +17121,12 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
 			const sessionId = dispatch.sessionId;
 			if (sessionId === null) {
-				ctx.emitFailure("SCHEMA_VALIDATION_FAILED", "scope-track selected a session without a canonical session_id", {
-					source: "scope-track",
-					reason: "selected_session_id_missing"
+				ctx.diagnosticFailure({
+					code: "SCHEMA_VALIDATION_FAILED",
+					detail: {
+						source: "scope-track",
+						reason: "selected_session_id_missing"
+					}
 				});
 				return;
 			}
@@ -17082,8 +17138,10 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 					kinds: ["state"]
 				})).state;
 			} catch (error) {
-				const code = error instanceof SnapshotStaleError ? error.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-				ctx.emitFailure(code, `scope-track cannot load selected state: ${error.message}`, { reason: error.message });
+				ctx.diagnosticFailure({
+					code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+					detail: error instanceof SnapshotStaleError ? error.detail : { reason: error.message }
+				});
 				return;
 			}
 			let normalized;
@@ -17106,17 +17164,22 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 					}
 				});
 			} catch (error) {
-				const code = error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_") ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";
-				ctx.emitFailure(code, `scope-track runtime update failed: ${error.message}`, {
-					source: "session-runtime",
-					reason: error.message
+				ctx.diagnosticFailure(error instanceof RuntimeStoreError ? runtimeStoreDiagnostic(error, "session-runtime") : {
+					code: "SCHEMA_VALIDATION_FAILED",
+					detail: {
+						source: "session-runtime",
+						reason: error.message
+					}
 				});
 				return;
 			}
-			if (!normalized.ok) ctx.emitFailure("SCHEMA_VALIDATION_FAILED", `scope-track rejected path: ${normalized.reason}`, {
-				source: "scope-track",
-				path: target,
-				reason: normalized.reason
+			if (!normalized.ok) ctx.diagnosticFailure({
+				code: "SCHEMA_VALIDATION_FAILED",
+				detail: {
+					source: "scope-track",
+					path: target,
+					reason: normalized.reason
+				}
 			});
 			return;
 		}
@@ -17125,7 +17188,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		const wd = await ctx.resolveDispatchForWriteGuard(opts);
 		if ("allow" in wd) return;
 		if ("failClosed" in wd) {
-			ctx.emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
+			ctx.diagnosticFailure(wd);
 			return;
 		}
 		const repoRoot = path.dirname(path.dirname(wd.featureDir));
@@ -17146,8 +17209,10 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 				kinds: ["state", "tasks"]
 			});
 		} catch (err) {
-			const code = err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-			ctx.emitFailure(code, `write-guard blocked: ${err.message}`, { reason: err.message });
+			ctx.diagnosticFailure({
+				code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+				detail: err instanceof SnapshotStaleError ? err.detail : { reason: err.message }
+			});
 			return;
 		}
 		const { state, tasks } = loaded;
@@ -17327,7 +17392,7 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 		const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
 		const diag = await evaluateVerifyAcceptDiagnostic(session.snapshot, featureDir);
 		if (!diag.ok) {
-			ctx.emitFailure(diag.code, diag.message, diag.detail);
+			ctx.diagnosticFailure(diag);
 			return;
 		}
 		const env = buildEnvelope(diag.checks, session.snapshot.findings, diag.lanes);
@@ -17516,8 +17581,8 @@ function buildSpecStatusEnvelope(result) {
 	const failures = checks.map((failure) => ({
 		check: failure.check,
 		code: failure.code,
-		message: failure.message,
-		detail: failure.detail ?? null
+		message: diagnosticMessage(failure),
+		detail: Object.keys(failure.detail).length === 0 ? null : failure.detail
 	}));
 	const suppressedChecks = checks.some((failure) => failure.check === 3) ? CHECK_3_SUPPRESSION.map((row) => ({ ...row })) : [];
 	return {
@@ -17532,7 +17597,10 @@ function renderSpecStatusText(env, i18n) {
 	const failureLines = env.failures.map((failure) => i18n.t(CHROME_KEYS.specStatusFailureRow, {
 		check: failure.check,
 		code: failure.code,
-		message: failure.message
+		message: diagnosticMessage({
+			code: failure.code,
+			detail: failure.detail ?? {}
+		}, i18n)
 	}) + "\n");
 	const suppressedLines = env.suppressed_checks.map((row) => i18n.t(CHROME_KEYS.specStatusSuppressedRow, {
 		check: row.check,
@@ -17601,28 +17669,20 @@ const SPEC_SUBMIT_INPUT = {
 	command: "loaf spec submit",
 	helpPrefix: "JSON source",
 	inlineLabel: "inline JSON literal",
-	helpSuffix: " (protocol §10.7)",
-	stdinExpectation: "piped input"
+	helpSuffix: " (protocol §10.7)"
 };
 const SPEC_EDIT_INPUT = {
 	command: "loaf spec edit",
 	helpPrefix: "JSON {\"body\":\"<Markdown>\"} source",
 	inlineLabel: "inline JSON",
-	helpSuffix: "; preserves current frontmatter",
-	stdinExpectation: "piped JSON",
-	ttyMessage: "stdin is TTY — `loaf spec edit --input -` expects piped JSON. Pipe {\"body\":\"<Markdown>\"} via stdin, or pass inline JSON / a file path."
+	helpSuffix: "; preserves current frontmatter"
 };
 function specAddInputDeclaration(name) {
 	return {
 		command: `loaf spec add-${name}`,
 		helpPrefix: `JSON source for SpecAdd${name[0].toUpperCase()}${name.slice(1)}Input (item or array)`,
 		inlineLabel: "inline JSON",
-		helpSuffix: " (protocol §10.7)",
-		stdinExpectation: "piped input",
-		missing: {
-			message: `loaf spec add-${name} requires --input <src> (or pass --schema to dump the input JSON Schema)`,
-			route: "emit-failure"
-		}
+		helpSuffix: " (protocol §10.7)"
 	};
 }
 const REGISTER_SPEC_ADD = [
@@ -17702,7 +17762,7 @@ function registerSpec(program, ctx, mutator, actor, isStdinTty, isStdoutTty, inp
 			actor,
 			now
 		});
-		const result = await mutator.runPreparedBatch(featureDir, session, entries, "raw-ctx-failure");
+		const result = await mutator.runPreparedBatch(featureDir, session, entries);
 		if (!result) return;
 		const reqIds = result.snapshot.requirements.map((r) => r.id);
 		const scenIds = result.snapshot.scenarios.map((s) => s.id);
@@ -17935,7 +17995,7 @@ feature:
 			now
 		});
 		if (hasInput && !ctx.dryRun) await promises.writeFile(specMdPath, afterContent, "utf8");
-		const mutateResult = await mutator.runPreparedBatch(featureDir, session, entries, "emit-failure");
+		const mutateResult = await mutator.runPreparedBatch(featureDir, session, entries);
 		if (!mutateResult) return;
 		const newSpecVersion = entries[0].payload.spec_version;
 		ctx.success({
@@ -18004,7 +18064,7 @@ feature:
 				},
 				actor
 			}));
-			const result = await mutator.run(featureDir, session, entries, "raw-ctx-failure");
+			const result = await mutator.run(featureDir, session, entries);
 			if (!result) return;
 			const specVersion = result.snapshot.state?.spec_version;
 			ctx.success({

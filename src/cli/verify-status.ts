@@ -1,3 +1,5 @@
+import type { CatalogDiagnostic } from "../core/error-catalog.js";
+import { diagnosticMessage } from "./diagnostic-failure.js";
 // Phase 16 SC-9a-1 — `loaf verify status` read-side surface.
 //
 // Renders the verify-accept gate's diagnostic view as a fixed four-lane
@@ -31,18 +33,23 @@ import type {
 import { isFindingDeferralAction, type FindingDeferralAction } from "../core/finding-schema.js";
 import type { FindingState } from "../core/projection-types.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
-import {
-  applicabilityKey,
-  CHROME_KEYS,
-  verifyCheckKindKey,
-} from "./runtime-i18n-keys.js";
+import { applicabilityKey, CHROME_KEYS, verifyCheckKindKey } from "./runtime-i18n-keys.js";
+
+type PresentedCheck = Omit<PerCheckResult, "failures"> & {
+  failures: Array<{
+    check: FailedCheck["check"];
+    code: FailedCheck["code"];
+    message: string;
+    detail?: Record<string, unknown>;
+  }>;
+};
 
 export interface VerifyStatusEnvelope {
   ok: true;
   all_pass: boolean;
   deferred_findings: Array<{ id: string; action: FindingDeferralAction }>;
   lanes: VerifyLaneApplicability[];
-  checks: PerCheckResult[];
+  checks: PresentedCheck[];
 }
 
 /** Build the JSON envelope from evaluateAllChecks output. */
@@ -55,7 +62,24 @@ export function buildEnvelope(
   const deferredFindings = findings
     .filter((finding) => finding.status === "open" && isFindingDeferralAction(finding.action))
     .map((finding) => ({ id: finding.id, action: finding.action as FindingDeferralAction }));
-  return { ok: true, all_pass: allPass, deferred_findings: deferredFindings, lanes, checks };
+  const presented = checks.map((row) => ({
+    ...row,
+    failures: row.failures.map((failure) => {
+      const { detail, ...fields } = failure;
+      return {
+        ...fields,
+        message: diagnosticMessage(failure),
+        ...(Object.keys(detail).length > 0 ? { detail } : {}),
+      };
+    }),
+  }));
+  return {
+    ok: true,
+    all_pass: allPass,
+    deferred_findings: deferredFindings,
+    lanes,
+    checks: presented,
+  };
 }
 
 /** Presentation — fixed column widths per the §7.4 example shape. */
@@ -77,7 +101,7 @@ function statusGlyph(status: PerCheckResult["status"], i18n: I18n): string {
   return i18n.t(CHROME_KEYS.verifyStatusNa);
 }
 
-function failureSummary(failures: FailedCheck[], i18n: I18n): string {
+function failureSummary(failures: Array<{ code: string }>, i18n: I18n): string {
   if (failures.length === 0) return "";
   if (failures.length === 1) {
     const f = failures[0];
@@ -122,7 +146,9 @@ export function renderText(env: VerifyStatusEnvelope, i18n: I18n = DEFAULT_I18N)
     // Show nested failure detail under fail rows for multi-fail visibility.
     if (row.status === "fail" && row.failures.length > 1) {
       for (const f of row.failures) {
-        lines.push(`    - ${f.code}: ${f.message}`);
+        lines.push(
+          `    - ${f.code}: ${diagnosticMessage({ code: f.code, detail: f.detail ?? {} } as CatalogDiagnostic, i18n)}`,
+        );
       }
     }
   }

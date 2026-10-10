@@ -1,3 +1,4 @@
+import type { Diagnostic } from "./error-catalog.js";
 // Owner-fenced, bounded-wait lease for canonical per-feature writes.
 //
 // This is intentionally separate from the high-frequency session runtime
@@ -45,13 +46,16 @@ export const FEATURE_WRITE_LEASE_MECHANISM =
 
 export class FeatureWriteLeaseError extends Error {
   constructor(
-    readonly code: FeatureWriteLeaseErrorCode,
+    readonly diagnostic: Diagnostic<FeatureWriteLeaseErrorCode>,
     message: string,
     readonly lockPath: string,
     readonly holder?: FeatureLeaseFile,
   ) {
     super(message);
     this.name = "FeatureWriteLeaseError";
+  }
+  get code(): FeatureWriteLeaseErrorCode {
+    return this.diagnostic.code;
   }
 }
 
@@ -220,7 +224,7 @@ export async function acquireFeatureWriteLease(
     attempts += 1;
     if (observed.kind === "invalid") {
       throw new FeatureWriteLeaseError(
-        "LOCK_INVALID",
+        { code: "LOCK_INVALID", detail: { lock_path: lockPath, lease_code: "LOCK_INVALID" } },
         `feature write lease ${lockPath} is malformed or incomplete; refusing recovery`,
         lockPath,
       );
@@ -250,7 +254,15 @@ export async function acquireFeatureWriteLease(
   }
 
   throw new FeatureWriteLeaseError(
-    "LOCK_TIMEOUT",
+    {
+      code: "LOCK_TIMEOUT",
+      detail: {
+        lock_path: lockPath,
+        lease_code: "LOCK_TIMEOUT",
+        timeout_seconds: timeoutMs / 1000,
+        ...(lastHolder !== undefined && { holder: lastHolder }),
+      },
+    },
     lastHolder
       ? `feature write lease held by live PID ${lastHolder.pid} during ${lastHolder.operation}`
       : `could not acquire feature write lease ${lockPath} within ${timeoutMs}ms`,

@@ -100,12 +100,6 @@ export function registerEvidence(
     helpPrefix: "JSON authoring source (single object OR non-empty array)",
     inlineLabel: "inline JSON",
     helpSuffix: "; internal sidecar refs are rejected",
-    stdinExpectation: "piped input",
-    missing: {
-      message:
-        "loaf evidence add requires --input <src> (or pass --schema to dump the input JSON Schema)",
-      route: "emit-failure",
-    },
   };
 
   const evidenceCmd = program
@@ -218,7 +212,7 @@ export function registerEvidence(
           actor,
         }));
 
-        const result = await mutator.run(featureDir, session, entries, "raw-ctx-failure");
+        const result = await mutator.run(featureDir, session, entries);
         if (!result) return;
 
         // Output preserves single-input bare-EV-id text (back-compat per

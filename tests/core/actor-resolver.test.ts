@@ -44,7 +44,7 @@ describe("resolveHumanActor — Slice 1.0 Cycle 1", () => {
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("unreachable");
     expect(r.code).toBe("NO_HUMAN_ACTOR");
-    expect(r.message).toMatch(/non-interactive/i);
+    expect(r.detail).toEqual({ reason: "non_interactive" });
   });
 
   test("#5 explicit env wins in non-interactive context → human:<value>", () => {
@@ -90,7 +90,7 @@ describe("resolveHumanActor — Slice 1.0 Cycle 1", () => {
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("unreachable");
     expect(r.code).toBe("INVALID_ACTOR_FORMAT");
-    expect(r.message).toMatch(/prefix/i);
+    expect(r.detail).toMatchObject({ reason: "reserved_namespace" });
   });
 
   test("#10b other namespace prefix 'skill:x' → INVALID_ACTOR_FORMAT", () => {

@@ -1,3 +1,5 @@
+import { runtimeStoreDiagnostic } from "../runtime-store-diagnostic.js";
+import { diagnosticMessage } from "../diagnostic-failure.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
@@ -112,7 +114,9 @@ export function registerIntegrations(
           const d = await ctx.dispatchForHookOptional(opts);
           if ("skip" in d) {
             if (d.stale) {
-              process.stderr.write(`warning: closure-check skipped — ${d.stale.message}\n`);
+              process.stderr.write(
+                `warning: closure-check skipped — ${diagnosticMessage(d.stale)}\n`,
+              );
             }
             return;
           }
@@ -156,20 +160,15 @@ export function registerIntegrations(
           try {
             dispatch = await ctx.resolveDispatch();
           } catch (error) {
-            ctx.emitFailure(
-              "SNAPSHOT_STALE_REBUILD_REQUIRED",
-              `scope-track cannot select a trustworthy session: ${(error as Error).message}`,
-              { reason: (error as Error).message },
-            );
+            ctx.diagnosticFailure({
+              code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+              detail: { reason: (error as Error).message },
+            });
             return;
           }
           if (!dispatch.ok) {
             if (dispatch.code === "FEATURE_NOT_FOUND") return; // non-loaf project → silent
-            ctx.emitFailure(
-              dispatch.code,
-              `scope-track cannot select a session: ${dispatch.message}`,
-              dispatch.detail,
-            );
+            ctx.diagnosticFailure(dispatch);
             return;
           }
           opts.feature = dispatch.feature;
@@ -177,11 +176,10 @@ export function registerIntegrations(
           ctx.recordTraceTarget(dispatch.feature, dispatch.featureDir);
           const sessionId = dispatch.sessionId;
           if (sessionId === null) {
-            ctx.emitFailure(
-              "SCHEMA_VALIDATION_FAILED",
-              "scope-track selected a session without a canonical session_id",
-              { source: "scope-track", reason: "selected_session_id_missing" },
-            );
+            ctx.diagnosticFailure({
+              code: "SCHEMA_VALIDATION_FAILED",
+              detail: { source: "scope-track", reason: "selected_session_id_missing" },
+            });
             return;
           }
 
@@ -195,15 +193,13 @@ export function registerIntegrations(
               })
             ).state;
           } catch (error) {
-            const code =
-              error instanceof SnapshotStaleError ? error.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-            ctx.emitFailure(
-              code,
-              `scope-track cannot load selected state: ${(error as Error).message}`,
-              {
-                reason: (error as Error).message,
-              },
-            );
+            ctx.diagnosticFailure({
+              code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+              detail:
+                error instanceof SnapshotStaleError
+                  ? error.detail
+                  : { reason: (error as Error).message },
+            });
             return;
           }
 
@@ -218,27 +214,22 @@ export function registerIntegrations(
               runtime: { runtimeDir, now: runtimeNow },
             });
           } catch (error) {
-            const code =
-              error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_")
-                ? "LOCK_TIMEOUT"
-                : "SCHEMA_VALIDATION_FAILED";
-            ctx.emitFailure(
-              code,
-              `scope-track runtime update failed: ${(error as Error).message}`,
-              {
-                source: "session-runtime",
-                reason: (error as Error).message,
-              },
+            ctx.diagnosticFailure(
+              error instanceof RuntimeStoreError
+                ? runtimeStoreDiagnostic(error, "session-runtime")
+                : {
+                    code: "SCHEMA_VALIDATION_FAILED",
+                    detail: { source: "session-runtime", reason: (error as Error).message },
+                  },
             );
             return;
           }
 
           if (!normalized.ok) {
-            ctx.emitFailure(
-              "SCHEMA_VALIDATION_FAILED",
-              `scope-track rejected path: ${normalized.reason}`,
-              { source: "scope-track", path: target, reason: normalized.reason },
-            );
+            ctx.diagnosticFailure({
+              code: "SCHEMA_VALIDATION_FAILED",
+              detail: { source: "scope-track", path: target, reason: normalized.reason },
+            });
           }
           return;
         }
@@ -250,7 +241,7 @@ export function registerIntegrations(
         const wd = await ctx.resolveDispatchForWriteGuard(opts);
         if ("allow" in wd) return; // no loaf session here → allow, exit 0
         if ("failClosed" in wd) {
-          ctx.emitFailure(wd.code, `write-guard blocked: ${wd.message}`, { reason: wd.message });
+          ctx.diagnosticFailure(wd);
           return;
         }
 
@@ -282,10 +273,10 @@ export function registerIntegrations(
             kinds: ["state", "tasks"] as const,
           });
         } catch (err) {
-          const code =
-            err instanceof SnapshotStaleError ? err.code : "SNAPSHOT_STALE_REBUILD_REQUIRED";
-          ctx.emitFailure(code, `write-guard blocked: ${(err as Error).message}`, {
-            reason: (err as Error).message,
+          ctx.diagnosticFailure({
+            code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
+            detail:
+              err instanceof SnapshotStaleError ? err.detail : { reason: (err as Error).message },
           });
           return;
         }
@@ -562,14 +553,10 @@ export function registerIntegrations(
         // IO-boundary divergence: frontmatter unreadable → exit 2,
         // structured envelope on stderr. Does NOT synthesize a check-1
         // row (codex r302 lock).
-        ctx.emitFailure(diag.code, diag.message, diag.detail);
+        ctx.diagnosticFailure(diag);
         return;
       }
-      const env = buildVerifyStatusEnvelope(
-        diag.checks,
-        session.snapshot.findings,
-        diag.lanes,
-      );
+      const env = buildVerifyStatusEnvelope(diag.checks, session.snapshot.findings, diag.lanes);
       ctx.success(env, (verI18n) => renderVerifyStatusText(env, verI18n));
     });
 }

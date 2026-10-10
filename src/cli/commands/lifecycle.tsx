@@ -1,3 +1,4 @@
+import { runtimeStoreDiagnostic } from "../runtime-store-diagnostic.js";
 import type { Command } from "commander";
 import type { CommandContext } from "../command-context.js";
 import type { CommandMutator } from "../command-mutator.js";
@@ -103,26 +104,21 @@ export function registerLifecycle(
         ctx.recordTraceTarget(feature, featureDir);
         const session = await loadSession(featureDir, { ensureDir: !ctx.dryRun });
         const sessionId = crypto.randomUUID();
-        const result = await mutator.run(
-          featureDir,
-          session,
-          {
-            kind: "session:started",
-            // Phase 15 SC1 (F-019): bucket-C identity fields ride the
-            // session:started payload so state.json is fully journal-derived.
-            payload: {
-              session_id: sessionId,
-              feature,
-              ceremony,
-              ceremony_label: opts.ceremony,
-              workspace: opts.workspace,
-              loaf_version_required: `^${packageJson.version}`,
-              ...(opts.label !== undefined ? { session_label: opts.label } : {}),
-            },
-            actor,
+        const result = await mutator.run(featureDir, session, {
+          kind: "session:started",
+          // Phase 15 SC1 (F-019): bucket-C identity fields ride the
+          // session:started payload so state.json is fully journal-derived.
+          payload: {
+            session_id: sessionId,
+            feature,
+            ceremony,
+            ceremony_label: opts.ceremony,
+            workspace: opts.workspace,
+            loaf_version_required: `^${packageJson.version}`,
+            ...(opts.label !== undefined ? { session_label: opts.label } : {}),
           },
-          "legacy-fail",
-        );
+          actor,
+        });
         if (!result) return;
         const state = result.snapshot.state;
         if (state === null) {
@@ -185,18 +181,15 @@ export function registerLifecycle(
         const state = session.snapshot.state!;
         const repoRoot = path.dirname(path.dirname(featureDir));
         try {
-          const closure = await mutator.runExecuteClosure(
-            {
-              featureDir,
-              session,
-              actor,
-              identity: { session_id: state.session_id, cwd: repoRoot },
-              runtime: { runtimeDir, now: runtimeNow },
-              debug: ctx.debug,
-              ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
-            },
-            "legacy-fail",
-          );
+          const closure = await mutator.runExecuteClosure({
+            featureDir,
+            session,
+            actor,
+            identity: { session_id: state.session_id, cwd: repoRoot },
+            runtime: { runtimeDir, now: runtimeNow },
+            debug: ctx.debug,
+            ...(executeClosureHooks !== undefined && { hooks: executeClosureHooks }),
+          });
           if (closure === null) return;
           if (closure.kind !== "not-committed") {
             const snapshot =
@@ -211,12 +204,7 @@ export function registerLifecycle(
               out,
               () => "",
               (i18n) => {
-                const next = buildNextAdvisoryFromSnapshot(
-                  i18n,
-                  snapshot,
-                  featureDir,
-                  selector,
-                );
+                const next = buildNextAdvisoryFromSnapshot(i18n, snapshot, featureDir, selector);
                 return {
                   stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, {
                     from: closure.from,
@@ -232,34 +220,34 @@ export function registerLifecycle(
           const isRuntimeLockFailure =
             error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_");
           if (!isRuntimeLockFailure && !(error instanceof ExecuteClosureError)) throw error;
-          const code = isRuntimeLockFailure ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";
-          ctx.failure(code, `EXECUTE closure failed: ${(error as Error).message}`, {
-            source: "execute-closure",
-            ...(error instanceof ExecuteClosureError && error.detail !== undefined
-              ? error.detail
-              : {}),
-          });
+          if (error instanceof ExecuteClosureError) {
+            ctx.diagnosticFailure({
+              code: "SCHEMA_VALIDATION_FAILED",
+              detail: {
+                source: "execute-closure",
+                closure_code: error.code,
+                reason: error.code,
+                ...error.detail,
+              },
+            });
+          } else {
+            ctx.diagnosticFailure(runtimeStoreDiagnostic(error, "execute-closure"));
+          }
           return;
         }
       }
-      const result = await mutator.run(
-        featureDir,
-        session,
-        { kind: "event:phase_advanced", payload: { from, to }, actor },
-        "legacy-fail",
-      );
+      const result = await mutator.run(featureDir, session, {
+        kind: "event:phase_advanced",
+        payload: { from, to },
+        actor,
+      });
       if (!result) return;
       const out = { ok: true, from, to, sub_state: result.snapshot.state?.sub_state };
       ctx.success(
         out,
         () => "",
         (i18n) => {
-          const next = buildNextAdvisoryFromSnapshot(
-            i18n,
-            result.snapshot,
-            featureDir,
-            selector,
-          );
+          const next = buildNextAdvisoryFromSnapshot(i18n, result.snapshot, featureDir, selector);
           return {
             stateChange: i18n.t(SUCCESS_KEYS.advanceStateChange, { from, to }),
             ...(next === undefined ? {} : { next }),
@@ -366,9 +354,9 @@ export function registerLifecycle(
       if (loaded.state.sub_state.startsWith("VERIFY.")) {
         const read = await readSpecFrontmatter(featureDir);
         if (!read.ok) {
-          ctx.emitFailure("SPEC_FRONTMATTER_INVALID", read.message, {
-            subcode: read.code,
-            ...(read.detail ?? {}),
+          ctx.diagnosticFailure({
+            code: "SPEC_FRONTMATTER_INVALID",
+            detail: { subcode: read.code, ...read.detail },
           });
           return;
         }

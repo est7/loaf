@@ -1,3 +1,4 @@
+import { diagnosticVariant, type Diagnostic, type CatalogDiagnostic } from "./error-catalog.js";
 // Phase 16 SC-8 — session dispatch resolver.
 //
 // Implements protocol §10.3 5-level precedence:
@@ -68,12 +69,10 @@ export type DispatchFailCode =
   | "SNAPSHOT_STALE_REBUILD_REQUIRED"
   | "USAGE";
 
-export type DispatchFail = {
-  ok: false;
-  code: DispatchFailCode;
-  message: string;
-  detail: Record<string, unknown>;
-};
+export type DispatchFail = { ok: false } & (
+  | Diagnostic<DispatchFailCode>
+  | Extract<CatalogDiagnostic, { code: "USAGE" }>
+);
 
 export type DispatchResult = DispatchOk | DispatchFail;
 
@@ -112,11 +111,7 @@ export async function resolveDispatch(input: DispatchInput): Promise<DispatchRes
 
   // ── USAGE rejection: --session + --feature-dir ──
   if (sessionFlag !== undefined && featureDirFlag !== undefined) {
-    return usageConflict(
-      "--session and --feature-dir are mutually exclusive",
-      ["--session", "--feature-dir"],
-      "session identity comes from the registry; manual --feature-dir is contradictory",
-    );
+    return usageConflict(["--session", "--feature-dir"]);
   }
 
   // Level 1: --session flag
@@ -131,11 +126,7 @@ export async function resolveDispatch(input: DispatchInput): Promise<DispatchRes
 
   // ── USAGE rejection: $LOAF_SESSION + --feature-dir ──
   if (sessionEnv !== undefined && featureDirFlag !== undefined) {
-    return usageConflict(
-      "$LOAF_SESSION and --feature-dir are mutually exclusive",
-      ["$LOAF_SESSION", "--feature-dir"],
-      "session identity comes from the registry; manual --feature-dir is contradictory",
-    );
+    return usageConflict(["$LOAF_SESSION", "--feature-dir"]);
   }
 
   // Level 3: $LOAF_SESSION env
@@ -150,23 +141,22 @@ export async function resolveDispatch(input: DispatchInput): Promise<DispatchRes
 
   // ── USAGE rejection: bare --feature-dir (no feature name) ──
   if (featureDirFlag !== undefined) {
-    return usageConflict(
-      "--feature-dir requires --feature <name> or $LOAF_FEATURE to name the feature",
-      ["--feature-dir"],
-      "pass --feature <name> alongside --feature-dir, or set $LOAF_FEATURE",
-    );
+    return usageConflict(["--feature-dir"]);
   }
 
   // Level 5: auto-pick
   return autoPickFromCwd(input);
 }
 
-function usageConflict(message: string, conflicting: readonly string[], fix: string): DispatchFail {
+function usageConflict(conflicting: readonly string[]): DispatchFail {
   return {
     ok: false,
-    code: "USAGE",
-    message: `${message}. ${fix}`,
-    detail: { conflicting },
+    ...diagnosticVariant(
+      conflicting.length === 1
+        ? "failure.dispatch.feature_dir_requires_feature"
+        : "failure.dispatch.session_feature_dir_conflict",
+      { conflicting },
+    ),
   };
 }
 
@@ -180,10 +170,13 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "USAGE",
-      message:
-        `--session prefix '${uuidOrPrefix}' is too short ` +
-        `(<${MIN_SHORT_UUID_PREFIX} chars). Pass ≥${MIN_SHORT_UUID_PREFIX} chars or the full UUID.`,
-      detail: { uuid_or_prefix: uuidOrPrefix, min_length: MIN_SHORT_UUID_PREFIX, source },
+
+      detail: {
+        reason: "session_prefix_too_short",
+        uuid_or_prefix: uuidOrPrefix,
+        min_length: MIN_SHORT_UUID_PREFIX,
+        source,
+      },
     };
   }
 
@@ -195,7 +188,7 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "SESSION_NOT_FOUND",
-      message: `--session ${uuidOrPrefix} matches no entry in the registry`,
+
       detail: { uuid_or_prefix: uuidOrPrefix, registry_dir: registryDir, source },
     };
   }
@@ -212,7 +205,7 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "SESSION_NOT_FOUND",
-      message: `--session ${uuidOrPrefix} matches no entry in the registry`,
+
       detail: { uuid_or_prefix: uuidOrPrefix, registry_dir: registryDir, source },
     };
   }
@@ -221,9 +214,7 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "SESSION_SHORT_AMBIGUOUS",
-      message:
-        `--session ${uuidOrPrefix} matches ${matches.length} sessions in the registry: ` +
-        matches.join(", "),
+
       detail: {
         prefix: uuidOrPrefix,
         match_count: matches.length,
@@ -242,8 +233,14 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "SESSION_NOT_FOUND",
-      message: `--session ${uuidOrPrefix} registry entry exists but cannot be parsed: ${read.strictDetail}`,
-      detail: { uuid_or_prefix: uuidOrPrefix, session_id: sessionId, source },
+
+      detail: {
+        uuid_or_prefix: uuidOrPrefix,
+        session_id: sessionId,
+        reason: read.reason,
+        cause: read.strictDetail,
+        source,
+      },
     };
   }
   const registryFile = read.file;
@@ -257,9 +254,7 @@ async function resolveBySessionId(
     return {
       ok: false,
       code: "SESSION_CWD_MISMATCH",
-      message:
-        `--session ${uuidOrPrefix} is registered against cwd=${registryFile.cwd}, ` +
-        `but the current cwd is ${input.cwd}`,
+
       detail: {
         uuid: sessionId,
         registered_cwd: registryFile.cwd,
@@ -307,7 +302,7 @@ async function resolveByFeatureName(
       return {
         ok: false,
         code: "FEATURE_NOT_FOUND",
-        message: `feature '${name}' has no session at ${featureDir}`,
+
         detail: { feature: name, feature_dir: featureDir, source },
       };
     }
@@ -318,8 +313,13 @@ async function resolveByFeatureName(
       return {
         ok: false,
         code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-        message: `feature '${name}' projection is stale at ${featureDir} (reason: ${err.reason})`,
-        detail: { ...err.detail, reason: err.reason, dispatch_source: source },
+
+        detail: {
+          ...err.detail,
+          feature_dir: featureDir,
+          reason: err.reason,
+          dispatch_source: source,
+        },
       };
     }
     throw err;
@@ -335,7 +335,7 @@ async function autoPickFromCwd(input: DispatchInput): Promise<DispatchResult> {
     return {
       ok: false,
       code: "FEATURE_NOT_FOUND",
-      message: "no feature found in cwd (.loaf/ is empty or missing)",
+
       detail: { cwd: input.cwd },
     };
   }
@@ -366,9 +366,7 @@ async function autoPickFromCwd(input: DispatchInput): Promise<DispatchResult> {
         return {
           ok: false,
           code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
-          message:
-            `auto-pick aborted: '${candidate}' projection is stale (reason: ${err.reason}). ` +
-            `Run 'loaf doctor --rebuild --feature ${candidate}' to resync.`,
+
           detail: {
             feature: candidate,
             feature_dir: featureDir,
@@ -386,7 +384,7 @@ async function autoPickFromCwd(input: DispatchInput): Promise<DispatchResult> {
     return {
       ok: false,
       code: "FEATURE_NOT_FOUND",
-      message: "no feature found in cwd (.loaf/ is empty, missing, or all features are DONE)",
+
       detail: { cwd: input.cwd, candidate_count: candidates.length },
     };
   }
@@ -395,9 +393,7 @@ async function autoPickFromCwd(input: DispatchInput): Promise<DispatchResult> {
     return {
       ok: false,
       code: "FEATURE_AMBIGUOUS",
-      message:
-        `current working directory has ${active.length} active features and no dispatch context: ` +
-        active.map((a) => a.feature).join(", "),
+
       detail: {
         count: active.length,
         feature_list: active.map((a) => a.feature),

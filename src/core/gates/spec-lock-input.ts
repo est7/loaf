@@ -56,7 +56,7 @@ export function buildSpecLockCheckInput(snapshot: Snapshot): SpecLockCheckInputR
       failure: {
         check: 1,
         code: "SPEC_FRONTMATTER_INVALID",
-        message: "snapshot has no projected spec; submit a spec before evaluating spec-lock",
+
         detail: {
           source: "snapshot",
           subcode: "SPEC_NOT_FOUND",
@@ -83,7 +83,7 @@ export function buildSpecLockCheckInput(snapshot: Snapshot): SpecLockCheckInputR
       failure: {
         check: 1,
         code: "SPEC_FRONTMATTER_INVALID",
-        message: "snapshot spec projection failed SpecFrontmatter schema validation",
+
         detail: {
           source: "snapshot",
           subcode: "SPEC_FRONTMATTER_INVALID",

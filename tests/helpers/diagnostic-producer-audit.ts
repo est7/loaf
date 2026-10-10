@@ -51,6 +51,32 @@ export function auditDiagnosticSource(fileName: string, text: string): Diagnosti
       if (
         ts.isPropertyAccessExpression(node.expression) &&
         node.expression.expression.getText(source) === "ctx" &&
+        node.expression.name.text === "diagnosticFailure"
+      ) {
+        const record = node.arguments[0];
+        if (record !== undefined) {
+          const fields = ts.isObjectLiteralExpression(record)
+            ? new Map(
+                record.properties
+                  .filter(ts.isPropertyAssignment)
+                  .map((prop) => [prop.name.getText(source), prop.initializer]),
+              )
+            : undefined;
+          const code = fields?.get("code");
+          if (code !== undefined) add(node, "outlet", code, fields?.get("detail"));
+          else
+            records.push({
+              file: fileName,
+              line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+              boundary: "outlet",
+              code: null,
+              codeExpression: record.getText(source),
+              detailKeys: null,
+            });
+        }
+      } else if (
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.expression.getText(source) === "ctx" &&
         ["failure", "failureKeyed", "fail", "emitFailure", "emitNoSessionFailure"].includes(
           node.expression.name.text,
         )

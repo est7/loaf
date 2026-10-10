@@ -36,8 +36,7 @@ export type ReadSpecResult =
   | {
       ok: false;
       code: ReadSpecFailureCode;
-      message: string;
-      detail?: Record<string, unknown>;
+      detail: Record<string, unknown>;
     };
 
 // Frontmatter block must be the first non-empty content. Opening `---`
@@ -77,7 +76,7 @@ export async function readSpecFrontmatter(featureDir: string): Promise<ReadSpecR
       return {
         ok: false,
         code: "SPEC_NOT_FOUND",
-        message: `spec.md not found at ${specPath}`,
+
         detail: { path: specPath },
       };
     }
@@ -89,8 +88,8 @@ export async function readSpecFrontmatter(featureDir: string): Promise<ReadSpecR
     return {
       ok: false,
       code: "SPEC_YAML_INVALID",
-      message: "spec.md is missing a YAML frontmatter block fenced by `---` on the first line",
-      detail: { path: specPath },
+
+      detail: { path: specPath, reason: "frontmatter_fence_missing" },
     };
   }
 
@@ -101,7 +100,7 @@ export async function readSpecFrontmatter(featureDir: string): Promise<ReadSpecR
     return {
       ok: false,
       code: "SPEC_YAML_INVALID",
-      message: `spec.md frontmatter YAML failed to parse: ${(err as Error).message}`,
+
       detail: { path: specPath, error: (err as Error).message },
     };
   }
@@ -111,7 +110,7 @@ export async function readSpecFrontmatter(featureDir: string): Promise<ReadSpecR
     return {
       ok: false,
       code: "SPEC_FRONTMATTER_INVALID",
-      message: "spec.md frontmatter failed SpecFrontmatter schema validation",
+
       detail: { path: specPath, issues: validated.error.issues },
     };
   }

@@ -44,6 +44,16 @@ describe("diagnostic producer audit", () => {
       "task-graph.ts",
       "reducer/preflight.ts",
       "reducer/transition.ts",
+      "journal-mutate.ts",
+      "scope-closure-policy.ts",
+      "pending-scope.ts",
+      "actor-resolver.ts",
+      "session-dispatch.ts",
+      "gates/spec-lock-check.ts",
+      "gates/verify-accept-check.ts",
+      "gates/gate-eval.ts",
+      "gates/spec-lock-input.ts",
+      "gates/verify-accept-eval.ts",
       ...["common", "spec", "task", "workflow"].map(
         (name) => `reducer/preflight/checks-${name}.ts`,
       ),
@@ -63,6 +73,12 @@ describe("diagnostic producer audit", () => {
       for (const record of records) {
         if (record.code === null || record.detailKeys === null) continue;
         const entry = ERROR_CATALOG[record.code as keyof typeof ERROR_CATALOG];
+        if (entry === undefined && file === "pending-scope.ts") {
+          expect(["EXECUTE_CLOSURE_STATE_CHANGED", "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS"]).toContain(
+            record.code,
+          );
+          continue;
+        }
         expect(entry, `${file}:${record.line}`).toBeDefined();
         expect(
           entry.detail_keys.filter((key) => !record.detailKeys!.includes(key)),
@@ -78,6 +94,32 @@ describe("diagnostic producer audit", () => {
           "TASK_DEP_ABANDONED",
         ]);
     }
+  });
+
+  test("mutation failures cannot select a legacy outlet or failure route", async () => {
+    const source = await readFile(
+      new URL("../../src/cli/command-mutator.ts", import.meta.url),
+      "utf8",
+    );
+    expect(
+      /\bFailureRoute\b|routeMutateFailure|ctx\.(?:fail|failure|emitFailure)\(/.test(source),
+    ).toBe(false);
+  });
+
+  test("structured outlet records and opaque record propagation stay visible", () => {
+    const rows = auditDiagnosticSource(
+      "probe.ts",
+      `
+      ctx.diagnosticFailure({code: "TASK_DEP_SELF", detail: {task_id: "T-001"}});
+      ctx.diagnosticFailure(result);
+    `,
+    );
+    expect(
+      rows.filter((row) => row.boundary === "outlet").map((row) => [row.code, row.detailKeys]),
+    ).toEqual([
+      ["TASK_DEP_SELF", ["task_id"]],
+      [null, null],
+    ]);
   });
 
   test("spreads, dynamic codes and existing site adapters cannot silently disappear from the inventory", () => {

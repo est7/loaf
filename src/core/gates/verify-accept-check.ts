@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../error-catalog.js";
 // verify-accept gate evaluator (protocol §5.2, all 5 checks).
 //
 // Slice 1.C sub-cycle 3 (codex r33 lock):
@@ -56,29 +57,26 @@ export const VERIFY_ACCEPT_CHECKS = [
   "spec_reviewer_independence_if_deep",
 ] as const;
 
-export type FailedCheck = {
-  check: 1 | 2 | 3 | 4 | 5;
-  code: // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures
+export type FailedCheck = { check: 1 | 2 | 3 | 4 | 5 } & Diagnostic<
+  // Slice 1.C sub-cycle 4: caller's responsibility (spec.md read failures
   // map to check 1 via verify-accept-eval.ts), parallel to spec-lock-check
   // structure. Pure verifyAcceptCheck() never returns this code itself.
-    | "SPEC_FRONTMATTER_INVALID"
-    | "VERIFY_LANE_NOT_PASSED"
-    | "OPEN_FINDINGS_PRESENT"
-    | "COVERAGE_NOT_SATISFIED"
-    | "TASKS_NOT_PLANNED"
-    | "TASKS_BASED_ON_STALE"
-    | "TASK_DONE_NO_EVIDENCE"
-    // Slice C SC-C4 (R2) — defense-in-depth: a done behavioral bug task
-    // that never registered its RED test. Preflight's BUG_TASK_REQUIRES_RED
-    // protects new legal writes; this catches migration / raw-API / pre-
-    // guard historical journals at the verify-accept gate.
-    | "BUG_TASK_RED_NOT_REGISTERED"
-    | "SPEC_REVIEW_MISSING"
-    | "SPEC_REVIEW_IMPLEMENTER_CONFLICT"
-    | "SPEC_REVIEW_IMPLEMENTER_UNKNOWN";
-  message: string;
-  detail?: Record<string, unknown>;
-};
+  | "SPEC_FRONTMATTER_INVALID"
+  | "VERIFY_LANE_NOT_PASSED"
+  | "OPEN_FINDINGS_PRESENT"
+  | "COVERAGE_NOT_SATISFIED"
+  | "TASKS_NOT_PLANNED"
+  | "TASKS_BASED_ON_STALE"
+  | "TASK_DONE_NO_EVIDENCE"
+  // Slice C SC-C4 (R2) — defense-in-depth: a done behavioral bug task
+  // that never registered its RED test. Preflight's BUG_TASK_REQUIRES_RED
+  // protects new legal writes; this catches migration / raw-API / pre-
+  // guard historical journals at the verify-accept gate.
+  | "BUG_TASK_RED_NOT_REGISTERED"
+  | "SPEC_REVIEW_MISSING"
+  | "SPEC_REVIEW_IMPLEMENTER_CONFLICT"
+  | "SPEC_REVIEW_IMPLEMENTER_UNKNOWN"
+>;
 
 export type VerifyAcceptResult = { ok: true } | { ok: false; checks: FailedCheck[] };
 
@@ -107,8 +105,12 @@ export type PerCheckResult = {
   failures: FailedCheck[]; // empty iff status ∈ {pass, na}
 };
 
-export const VERIFY_LANES = ["run", "review", "acceptance", "visual"] as const satisfies
-  ReadonlyArray<VerifyCheckKind>;
+export const VERIFY_LANES = [
+  "run",
+  "review",
+  "acceptance",
+  "visual",
+] as const satisfies ReadonlyArray<VerifyCheckKind>;
 
 export type VerifyLaneNaReason =
   | "no_done_tasks"
@@ -258,7 +260,7 @@ function evalLaneStatus(snapshot: Snapshot, frontmatter: SpecFrontmatter): Faile
       failures.push({
         check: 1,
         code: "VERIFY_LANE_NOT_PASSED",
-        message: `applicable VERIFY lane=${lane} has no evidence with passing/approved/waived result; add evidence with check=${lane} or a matching kind`,
+
         detail: { lane },
       });
     }
@@ -275,7 +277,7 @@ function evalOpenFindings(snapshot: Snapshot): FailedCheck[] {
     {
       check: 2,
       code: "OPEN_FINDINGS_PRESENT",
-      message: `${open.length} actionable finding(s) still open; resolve or close before verify-accept`,
+
       detail: { count: open.length, open_ids: open.map((f) => f.id) },
     },
   ];
@@ -291,7 +293,7 @@ function evalCoverage(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedC
       failures.push({
         check: 3,
         code: "COVERAGE_NOT_SATISFIED",
-        message: `${req.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind in REQ-allowed list (task-summary/verify-review/spec-review/manual/waiver) covering this id`,
+
         detail: { covered_id: req.id, covered_kind: "REQ" },
       });
     }
@@ -303,7 +305,7 @@ function evalCoverage(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedC
       failures.push({
         check: 3,
         code: "COVERAGE_NOT_SATISFIED",
-        message: `${scen.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=acceptance / manual+reason / waiver+reason covering this id`,
+
         detail: { covered_id: scen.id, covered_kind: "SCEN" },
       });
     }
@@ -314,7 +316,7 @@ function evalCoverage(snapshot: Snapshot, frontmatter: SpecFrontmatter): FailedC
       failures.push({
         check: 3,
         code: "COVERAGE_NOT_SATISFIED",
-        message: `${vis.id} has no evidence passing canSatisfy() + result ∈ {passed, approved, waived} — add evidence with kind=visual-review+attachment / manual+reason / waiver+reason covering this id`,
+
         detail: { covered_id: vis.id, covered_kind: "VIS" },
       });
     }
@@ -328,7 +330,7 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
     failures.push({
       check: 4,
       code: "TASKS_NOT_PLANNED",
-      message: `tasks have not been planned yet; verify-accept check 4 requires a task graph (tasks_based_on=null in snapshot)`,
+      detail: {},
     });
     return failures;
   }
@@ -336,7 +338,7 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
     failures.push({
       check: 4,
       code: "TASKS_BASED_ON_STALE",
-      message: `tasks_based_on.spec=${snapshot.tasks_based_on.spec} does not match frontmatter.spec_version=${frontmatter.spec_version}; verify-accept check 4 cannot evaluate a stale task graph`,
+
       detail: {
         tasks_based_on_spec: snapshot.tasks_based_on.spec,
         current_spec_version: frontmatter.spec_version,
@@ -353,7 +355,7 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
         failures.push({
           check: 4,
           code: "TASK_DONE_NO_EVIDENCE",
-          message: `task ${task.id} is status=done but has no PASSING evidence (result ∈ {passed, approved, waived}; kind ∈ {task-summary, local-check, manual, waiver}) covering it`,
+
           detail: { task_id: task.id },
         });
       } else {
@@ -361,7 +363,7 @@ function evalTaskEvidence(snapshot: Snapshot, frontmatter: SpecFrontmatter): Fai
         failures.push({
           check: 4,
           code: "BUG_TASK_RED_NOT_REGISTERED",
-          message: `behavioral bug task ${task.id} is status=done but never registered its RED test (red_test_registered≠true)`,
+
           detail: { task_id: task.id },
         });
       }
@@ -383,7 +385,7 @@ function evalSpecReview(snapshot: Snapshot): FailedCheck[] {
       {
         check: 5,
         code: "SPEC_REVIEW_MISSING",
-        message: `ceremony.strict_spec_review=true requires ≥1 evidence kind=spec-review from an actor ≠ implementer; none found`,
+        detail: {},
       },
     ];
   }
@@ -393,7 +395,7 @@ function evalSpecReview(snapshot: Snapshot): FailedCheck[] {
       {
         check: 5,
         code: "SPEC_REVIEW_IMPLEMENTER_UNKNOWN",
-        message: `ceremony.strict_spec_review=true requires actor ≠ implementer comparison, but no implementer actor can be established (done-task evidence actors all cli:*); fail-closed`,
+        detail: {},
       },
     ];
   }
@@ -403,7 +405,7 @@ function evalSpecReview(snapshot: Snapshot): FailedCheck[] {
       {
         check: 5,
         code: "SPEC_REVIEW_IMPLEMENTER_CONFLICT",
-        message: `every spec-review evidence has actor ∈ implementer set; require ≥1 spec-review from an actor that did not implement done tasks`,
+
         detail: {
           spec_review_actors: specReviews.map((ev) => ev.actor),
           implementers: [...implementers],

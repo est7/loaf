@@ -147,8 +147,8 @@ describe("pending scope closure preparation", () => {
       ok: false,
       failure: {
         code: "EXECUTE_CLOSURE_STATE_CHANGED",
-        message: "runtime pending scope is from future iteration 3, ahead of journal iteration 2",
-        detail: { pending_iteration: 3, current_iteration: 2 },
+
+        detail: { reason: "pending_iteration_ahead", pending_iteration: 3, current_iteration: 2 },
       },
     });
     expect(JSON.stringify(current)).toBe(before);
@@ -294,9 +294,8 @@ describe("pending scope settlement", () => {
         ok: false,
         failure: {
           code: "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS",
-          message:
-            "post-append journal proof does not cover all pending scope paths; refusing to clear",
-          detail: { iteration: 2 },
+
+          detail: { reason: "pending_paths_not_covered", iteration: 2 },
         },
       });
     } else {
@@ -319,9 +318,8 @@ describe("pending scope settlement", () => {
       ok: false,
       failure: {
         code: "EXECUTE_CLOSURE_STATE_CHANGED",
-        message:
-          "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",
-        detail: { pending_iteration: 3, iteration: 2 },
+
+        detail: { reason: "pending_iteration_ahead", pending_iteration: 3, iteration: 2 },
       },
     });
     expect(JSON.stringify(current)).toBe(before);

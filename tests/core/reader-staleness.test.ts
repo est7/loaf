@@ -147,7 +147,7 @@ describe("checkSnapshotFresh — Gate #5", () => {
     if (!result.fresh) {
       expect(result.code).toBe("SNAPSHOT_STALE_REBUILD_REQUIRED");
       expect(result.reason).toBe("tail_hash_mismatch");
-      expect((result.detail as { actual: string }).actual).toBe(computeLineHash(line));
+      expect(result.detail.actual).toBe(computeLineHash(line));
     }
   });
 

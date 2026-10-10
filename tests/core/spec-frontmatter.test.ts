@@ -55,7 +55,7 @@ describe("readSpecFrontmatter — disk + YAML + zod boundary", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("SPEC_NOT_FOUND");
-      expect(result.message).toMatch(/spec\.md not found/);
+      expect(result.detail).toEqual({ path: path.join(dir, "spec.md") });
       expect(result.detail?.path).toMatch(/spec\.md$/);
     }
   });
@@ -67,7 +67,7 @@ describe("readSpecFrontmatter — disk + YAML + zod boundary", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe("SPEC_YAML_INVALID");
-      expect(result.message).toMatch(/missing.*frontmatter/i);
+      expect(result.detail).toMatchObject({ reason: "frontmatter_fence_missing" });
     }
   });
 

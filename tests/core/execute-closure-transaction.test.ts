@@ -194,10 +194,7 @@ describe("EXECUTE closure transaction", () => {
       expect(result).toMatchObject({ exit: 2, stdout: "" });
       expect(JSON.parse(result.stderr)).toMatchObject({
         code: "SCHEMA_VALIDATION_FAILED",
-        message: phase === "preparing"
-          ? "EXECUTE closure failed: runtime pending scope is from future iteration 2, ahead of journal iteration 1"
-          : "EXECUTE closure failed: runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",
-        detail: phase === "preparing" ? { pending_iteration: 2, current_iteration: 1 } : { pending_iteration: 2, iteration: 1 },
+        detail: { source: "execute-closure", reason: "pending_iteration_ahead", ...(phase === "preparing" ? { pending_iteration: 2, current_iteration: 1 } : { pending_iteration: 2, iteration: 1 }) },
       });
       expect(await fs.readFile(file, "utf8")).toBe(before);
       expect(await fs.readFile(path.join(seed.featureDir, "journal.jsonl"), "utf8")).toBe(journalBytes);
@@ -258,8 +255,7 @@ describe("EXECUTE closure transaction", () => {
       expect(failed).toMatchObject({ exit: 2, stdout: "" });
       expect(JSON.parse(failed.stderr)).toMatchObject({
         code: "SCHEMA_VALIDATION_FAILED",
-        message: "EXECUTE closure failed: post-append journal proof does not cover all pending scope paths; refusing to clear",
-        detail: { iteration: 2 },
+        detail: { source: "execute-closure", reason: "pending_paths_not_covered", iteration: 2 },
       });
       expect((await journal(seed)).at(-2)?.payload).toEqual({ iteration: 2, paths: ["src/late.ts"] });
       expect(await fs.readFile(file, "utf8")).toBe(before);

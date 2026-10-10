@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../error-catalog.js";
 // spec-lock gate evaluator (protocol §5.1, all 8 checks).
 //
 // Slice 1.B sub-cycles 2 + 3b land the full 8-check surface:
@@ -46,21 +47,17 @@ export const SPEC_LOCK_CHECKS = [
   "task_kind_schema_valid",
 ] as const;
 
-export type FailedCheck = {
-  check: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
-  code:
-    | "SPEC_FRONTMATTER_INVALID"
-    | "SPEC_HAS_UNCLARIFIED"
-    | "TASKS_NOT_PLANNED"
-    | "TASKS_BASED_ON_STALE"
-    | "REQ_NOT_DRIVEN"
-    | "MISSING_VERIFIABILITY"
-    | "E2E_SCENARIO_UNBOUND"
-    | "VISUAL_CONTRACT_UNBOUND"
-    | "TASK_KIND_SCHEMA_VIOLATION";
-  message: string;
-  detail?: Record<string, unknown>;
-};
+export type FailedCheck = { check: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 } & Diagnostic<
+  | "SPEC_FRONTMATTER_INVALID"
+  | "SPEC_HAS_UNCLARIFIED"
+  | "TASKS_NOT_PLANNED"
+  | "TASKS_BASED_ON_STALE"
+  | "REQ_NOT_DRIVEN"
+  | "MISSING_VERIFIABILITY"
+  | "E2E_SCENARIO_UNBOUND"
+  | "VISUAL_CONTRACT_UNBOUND"
+  | "TASK_KIND_SCHEMA_VIOLATION"
+>;
 
 export type SpecLockResult = { ok: true } | { ok: false; checks: FailedCheck[] };
 
@@ -85,7 +82,6 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
         count: frontmatter.needs_clarification.length,
         ids: frontmatter.needs_clarification.map((nc) => nc.id),
       }),
-      message: `spec has ${frontmatter.needs_clarification.length} unresolved needs_clarification entries; resolve or remove them before spec-lock`,
     });
   }
 
@@ -95,14 +91,14 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
     failures.push({
       check: 3,
       code: "TASKS_NOT_PLANNED",
-      message: `tasks have not been planned yet; spec-lock requires a task graph (tasks_based_on=null in snapshot)`,
+      detail: {},
     });
     check3Failed = true;
   } else if (snapshot.tasks_based_on.spec !== frontmatter.spec_version) {
     failures.push({
       check: 3,
       code: "TASKS_BASED_ON_STALE",
-      message: `tasks_based_on.spec=${snapshot.tasks_based_on.spec} does not match frontmatter.spec_version=${frontmatter.spec_version}; the task graph was planned against an older spec`,
+
       detail: {
         tasks_based_on_spec: snapshot.tasks_based_on.spec,
         current_spec_version: frontmatter.spec_version,
@@ -119,7 +115,7 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
         failures.push({
           check: 4,
           code: "REQ_NOT_DRIVEN",
-          message: `${req.id} is not referenced by any task.drives[]; add a task that drives this requirement before spec-lock`,
+
           detail: { req_id: req.id },
         });
       }
@@ -132,7 +128,7 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
       failures.push({
         check: 5,
         code: "MISSING_VERIFIABILITY",
-        message: `${req.id} must declare measurable, verified_by_scenarios[], or acceptance_na+acceptance_na_reason (≥10 chars)`,
+
         detail: { req_id: req.id, req_type: req.type },
       });
     }
@@ -152,7 +148,7 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
         failures.push({
           check: 6,
           code: "E2E_SCENARIO_UNBOUND",
-          message: `e2e scenario ${scenario.id} has no binding task (requires_acceptance=true AND drives includes ${scenario.id}); either add a binding task or mark scenario with acceptance_na+reason`,
+
           detail: { scenario_id: scenario.id },
         });
       }
@@ -172,7 +168,7 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
         failures.push({
           check: 7,
           code: "VISUAL_CONTRACT_UNBOUND",
-          message: `visual_contract ${visual.id} has no visual-ui task with visual_contract_refs containing it; add a binding visual-ui task or mark contract with visual_na+reason`,
+
           detail: { visual_id: visual.id },
         });
       }
@@ -205,7 +201,7 @@ export function specLockCheck(snapshot: Snapshot, frontmatter: SpecFrontmatter):
         failures.push({
           check: 8,
           code: "TASK_KIND_SCHEMA_VIOLATION",
-          message: `task ${task.id} (kind=${task.kind}) violates projected kind-specific obligations: ${reasons.join("; ")}`,
+
           detail: { task_id: task.id, kind: task.kind, reasons },
         });
       }

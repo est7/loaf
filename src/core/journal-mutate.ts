@@ -155,20 +155,10 @@ export type MutationCommitState = (typeof MUTATION_COMMIT_STATES)[number];
 export const POST_APPEND_COMMIT_FAILURE_CODES = ["PROJECTION_WRITE_FAILED"] as const;
 export type PostAppendCommitFailureCode = (typeof POST_APPEND_COMMIT_FAILURE_CODES)[number];
 
-interface LegacyMutationFailureFields {
-  code: MutateFailureCode;
-  message: string;
-  /** 0-based index of the entry that failed, when applicable */
+type MutationFailureFields = Diagnostic<MutateFailureCode> & {
+  /** 0-based index of the entry that failed, when applicable. */
   failed_index?: number;
-  detail?: Record<string, unknown>;
-}
-
-// Intermediate family migration: unmigrated IO/gate failures still own prose.
-type MutationFailureFields =
-  | LegacyMutationFailureFields
-  | (Diagnostic<PreflightFailureCode | TaskGraphFailureCode | "REDUCER_ERROR"> & {
-      failed_index?: number;
-    });
+};
 
 interface MutationBatchState {
   snapshot: Snapshot;
@@ -186,8 +176,7 @@ export type MutateBatchResult =
       ok: false;
       commit_state: "committed";
       code: PostAppendCommitFailureCode;
-    } & Omit<LegacyMutationFailureFields, "code"> &
-      MutationBatchState);
+    } & Diagnostic<PostAppendCommitFailureCode> & { failed_index?: number } & MutationBatchState);
 
 export type MutateResult =
   | {
@@ -205,7 +194,7 @@ export type MutateResult =
       snapshot: Snapshot;
       entry: JournalEntry;
       meta: SnapshotMeta;
-    } & Omit<LegacyMutationFailureFields, "code">);
+    } & Diagnostic<PostAppendCommitFailureCode> & { failed_index?: number });
 
 type InternalMutateBatchResult =
   | ({
@@ -217,8 +206,7 @@ type InternalMutateBatchResult =
       ok: false;
       commit_state: "committed";
       code: PostAppendCommitFailureCode;
-    } & Omit<LegacyMutationFailureFields, "code"> &
-      MutationBatchState);
+    } & Diagnostic<PostAppendCommitFailureCode> & { failed_index?: number } & MutationBatchState);
 
 function classifyCommitState(
   result: InternalMutateBatchResult,
@@ -266,7 +254,7 @@ export async function mutateBatch(
       {
         ok: false,
         code: "INVALID_BATCH",
-        message: "mutateBatch called with empty partials array; pass at least one entry",
+
         detail: { partials_length: 0 },
       },
       ctx.dryRun ?? false,
@@ -322,13 +310,7 @@ async function withMutationLease(
       return classifyCommitState(
         {
           ok: false,
-          code: error.code,
-          message: error.message,
-          detail: {
-            lock_path: error.lockPath,
-            lease_code: error.code,
-            ...(error.holder !== undefined && { holder: error.holder }),
-          },
+          ...error.diagnostic,
         },
         ctx.dryRun ?? false,
       );
@@ -351,7 +333,7 @@ async function mutateBatchUnderLease(
     return {
       ok: false,
       code: "INVALID_BATCH",
-      message: "mutateBatch called with empty partials array; pass at least one entry",
+
       detail: { partials_length: 0 },
     };
   }
@@ -382,7 +364,7 @@ async function mutateBatchUnderLease(
         return {
           ok: false,
           code: "INVALID_BATCH",
-          message: `partial at index ${i} contains forbidden field '${f}'; mutateBatch owns seq/entry_id/batch envelope`,
+
           failed_index: i,
           detail: { forbidden_field: f, index: i },
         };
@@ -484,7 +466,7 @@ async function mutateBatchUnderLease(
     return {
       ok: false,
       code: "MULTIPLE_GATE_DECISIONS",
-      message: `batch contains ${gateApprovals.length} approved gate:decided entries; protocol §10.8 requires one gate decision per atomic operation`,
+
       detail: {
         count: gateApprovals.length,
         gate_kinds: gateApprovals.map((c) => (c.payload as { gate_kind?: string }).gate_kind),
@@ -500,7 +482,7 @@ async function mutateBatchUnderLease(
         return {
           ok: false,
           code: "GATE_PRECONDITION_VIOLATION",
-          message: `gate:decided spec-lock approval failed ${gateResult.checks.length} spec-lock check(s); see detail.checks`,
+
           detail: {
             gate: "spec-lock",
             failure_count: gateResult.checks.length,
@@ -521,7 +503,7 @@ async function mutateBatchUnderLease(
         return {
           ok: false,
           code: "GATE_PRECONDITION_VIOLATION",
-          message: `gate:decided verify-accept approval failed ${gateResult.checks.length} verify-accept check(s); see detail.checks`,
+
           detail: {
             gate: "verify-accept",
             failure_count: gateResult.checks.length,
@@ -558,11 +540,7 @@ async function mutateBatchUnderLease(
     return {
       ok: false,
       code: "INVALID_BATCH",
-      message:
-        `MutateContext is internally inconsistent: tail_seq=${ctx.tail_seq} but ` +
-        `entries tail seq=${ctxEntriesTailSeq}, meta.last_applied_seq=${ctx.meta.last_applied_seq}` +
-        (emptyPrefixMetaBad ? ", and meta is not the empty sentinel for an empty prefix" : "") +
-        `; entries + meta must describe the same journal prefix as tail_seq`,
+
       detail: {
         tail_seq: ctx.tail_seq,
         entries_tail_seq: ctxEntriesTailSeq,
@@ -578,16 +556,14 @@ async function mutateBatchUnderLease(
     return {
       ok: false,
       code: "APPEND_ERROR",
-      message:
-        error instanceof AppendError
-          ? error.message
-          : `journal tail check failed: ${(error as Error).message}`,
+
       detail: {
         code:
           error instanceof AppendError
             ? error.code
             : ((error as NodeJS.ErrnoException).code ?? "TAIL_READ_FAILED"),
         ...(error instanceof AppendError ? (error.detail ?? {}) : {}),
+        cause: error instanceof AppendError ? error.message : String(error),
         phase: "lease-tail-check",
       },
     };
@@ -622,7 +598,7 @@ async function mutateBatchUnderLease(
       return {
         ok: false,
         code: "SIDECAR_ERROR",
-        message: `sidecar finalize failed: ${String(err)}`,
+
         failed_index: i,
         detail: { err: String(err) },
       };
@@ -666,8 +642,7 @@ async function mutateBatchUnderLease(
     return {
       ok: false,
       code: "REDUCER_ERROR",
-      message:
-        "snapshot drift between unpromoted and promoted dry-runs — a reducer is reading LongTextField content; the batch is unsafe to append",
+
       detail: { phase: "drift-check" },
     };
   }
@@ -687,14 +662,14 @@ async function mutateBatchUnderLease(
       return {
         ok: false,
         code: "APPEND_ERROR",
-        message: err.message,
-        detail: { code: err.code, ...(err.detail ?? {}) },
+
+        detail: { code: err.code, ...(err.detail ?? {}), cause: err.message },
       };
     }
     return {
       ok: false,
       code: "APPEND_ERROR",
-      message: `append failed: ${String(err)}`,
+
       detail: { err: String(err) },
     };
   }
@@ -714,12 +689,11 @@ async function mutateBatchUnderLease(
       await writeDerivedSpecMd(finalSnapshot, ctx.feature_dir);
     } catch (err) {
       const lastSeq = promoted[promoted.length - 1]!.seq;
-      const failSpecVer = finalSnapshot.state?.spec_version ?? "unknown";
       return {
         ok: false,
         commit_state: "committed",
         code: "PROJECTION_WRITE_FAILED",
-        message: `spec.md projection write failed after journal append at last_seq=${lastSeq} (spec_version=${failSpecVer}); journal is authoritative — run 'loaf doctor --rebuild' to resync. Cause: ${(err as Error).message}`,
+
         snapshot: finalSnapshot,
         entries: promoted,
         meta: appendMeta,
@@ -768,10 +742,7 @@ async function mutateBatchUnderLease(
       ok: false,
       commit_state: "committed",
       code: "PROJECTION_WRITE_FAILED",
-      message:
-        `snapshot projection write failed after journal append at last_seq=${lastSeq}; ` +
-        `journal is authoritative — run 'loaf doctor --rebuild' to resync. ` +
-        `Cause: ${(err as Error).message}`,
+
       snapshot: finalSnapshot,
       entries: promoted,
       meta: appendMeta,
@@ -780,6 +751,7 @@ async function mutateBatchUnderLease(
         path: path.join(ctx.feature_dir, "snapshots"),
         last_seq: lastSeq,
         error: (err as Error).message,
+        spec_version: finalSnapshot.state?.spec_version ?? null,
       },
     };
   }
@@ -812,15 +784,14 @@ async function mutateBatchUnderLease(
         ok: false,
         commit_state: "committed",
         code: "PROJECTION_WRITE_FAILED",
-        message:
-          `registry derivation failed after journal append; ` +
-          `journal is authoritative; reload registry projections after correcting the defect. ` +
-          `Cause: ${(err as Error).message}`,
+
         snapshot: finalSnapshot,
         entries: promoted,
         meta: appendMeta,
         detail: {
           projection: "registry",
+          last_seq: promoted[promoted.length - 1]!.seq,
+          spec_version: finalSnapshot.state?.spec_version ?? null,
           phase: "derivation",
           error: (err as Error).message,
         },
@@ -861,19 +832,8 @@ export async function mutate(
   const batch = await mutateBatch([partial], ctx);
   if (!batch.ok) {
     if (batch.commit_state === "committed") {
-      return {
-        ok: false,
-        commit_state: "committed",
-        code: batch.code,
-        message: batch.message,
-        ...(batch.failed_index !== undefined && {
-          failed_index: batch.failed_index,
-        }),
-        ...(batch.detail !== undefined && { detail: batch.detail }),
-        snapshot: batch.snapshot,
-        entry: batch.entries[0]!,
-        meta: batch.meta,
-      };
+      const { entries, ...failure } = batch;
+      return { ...failure, entry: entries[0]! };
     }
     return batch;
   }

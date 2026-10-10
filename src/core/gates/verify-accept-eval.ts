@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../error-catalog.js";
 // verify-accept gate evaluator — IO + spec.md frontmatter mapping wire.
 //
 // Slice 1.C sub-cycle 4: composes `readSpecFrontmatter` (disk I/O) with
@@ -63,12 +64,7 @@ export async function evaluateVerifyAccept(
 // caller (src/cli/verify-status.ts) renders exit-2 stderr envelope.
 export type VerifyDiagnosticResult =
   | { ok: true; checks: PerCheckResult[]; lanes: VerifyLaneApplicability[] }
-  | {
-      ok: false;
-      code: "SPEC_FRONTMATTER_INVALID";
-      message: string;
-      detail: Record<string, unknown>;
-    };
+  | ({ ok: false } & Diagnostic<"SPEC_FRONTMATTER_INVALID">);
 
 export async function evaluateVerifyAcceptDiagnostic(
   snapshot: Snapshot,
@@ -79,8 +75,8 @@ export async function evaluateVerifyAcceptDiagnostic(
     return {
       ok: false,
       code: "SPEC_FRONTMATTER_INVALID",
-      message: read.message,
-      detail: { subcode: read.code, ...(read.detail ?? {}) },
+
+      detail: { subcode: read.code, ...read.detail },
     };
   }
   return {

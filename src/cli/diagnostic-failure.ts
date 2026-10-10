@@ -126,6 +126,16 @@ function catalogVars(template: DiagnosticTemplate, detail: Record<string, unknow
   return vars;
 }
 
+/** Project nested domain check records only at the presentation boundary. */
+function presentedDetail(detail: Record<string, unknown>, i18n: I18n): Record<string, unknown> {
+  if (!Array.isArray(detail["checks"])) return detail;
+  const checks = detail["checks"] as Array<CatalogDiagnostic & { check: number }>;
+  return {
+    ...detail,
+    checks: checks.map((check) => ({ ...check, message: diagnosticMessage(check, i18n) })),
+  };
+}
+
 function diagnosticContextRows(detail: Record<string, unknown>): string {
   const lines: string[] = [];
   const checks = detail["checks"];
@@ -180,14 +190,13 @@ export function writeDiagnosticFailure(
 ): 2 {
   const i18n = presentation.format === "json" ? DEFAULT_I18N : presentation.i18n;
   const { parent, context, template, vars, message } = renderDiagnostic(diagnostic, i18n);
+  const detail = presentedDetail(diagnostic.detail, i18n);
   if (presentation.format === "json") {
     presentation.writeStderr(
-      JSON.stringify({ ok: false, code: diagnostic.code, message, detail: diagnostic.detail }) +
-        "\n",
+      JSON.stringify({ ok: false, code: diagnostic.code, message, detail }) + "\n",
     );
   } else {
-    let output =
-      `error: ${diagnostic.code} — ${message}\n` + diagnosticContextRows(diagnostic.detail);
+    let output = `error: ${diagnostic.code} — ${message}\n` + diagnosticContextRows(detail);
     if (template.fix_template !== undefined) {
       const fixKey =
         context === undefined

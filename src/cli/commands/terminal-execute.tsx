@@ -63,12 +63,11 @@ export function registerTerminalExecute(
 
       // (4) Mutate. preflight step 5c enforces all delivery preconditions;
       //     reducer flips cursor to DONE.delivered.
-      const result = await mutator.run(
-        featureDir,
-        session,
-        { kind: "session:delivered", payload, actor: humanActor },
-        "raw-ctx-failure",
-      );
+      const result = await mutator.run(featureDir, session, {
+        kind: "session:delivered",
+        payload,
+        actor: humanActor,
+      });
       if (!result) return;
 
       // (5) Success output via ctx.success — stateChange + next routed to

@@ -144,7 +144,7 @@ describe("mutate step 8 — snapshot projection sync (Phase 15 SC2)", () => {
     expect(r.detail).not.toHaveProperty("journal_appended");
     expect(typeof r.detail!["last_seq"]).toBe("number");
     // Recovery text points the operator at `loaf doctor --rebuild`.
-    expect(r.message).toContain("doctor --rebuild");
+    expect(r.detail).toMatchObject({ projection: "snapshots", last_seq: 0, spec_version: 0 });
 
     // Critical: the journal already carries the appended entry — journal is
     // truth even though the projection write failed.

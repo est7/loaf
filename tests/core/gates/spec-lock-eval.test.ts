@@ -119,7 +119,7 @@ describe("evaluateSpecLock — gate IO boundary mapping", () => {
         {
           check: 1,
           code: "SPEC_FRONTMATTER_INVALID",
-          message: `spec.md not found at ${specPath}`,
+
           detail: { subcode: "SPEC_NOT_FOUND", path: specPath },
         },
       ],
@@ -172,8 +172,8 @@ describe("evaluateSpecLock — eight-check characterization before replay-input 
         {
           check: 3,
           code: "TASKS_NOT_PLANNED",
-          message:
-            "tasks have not been planned yet; spec-lock requires a task graph (tasks_based_on=null in snapshot)",
+          detail: {},
+
         },
       ],
     });
@@ -233,43 +233,37 @@ describe("evaluateSpecLock — eight-check characterization before replay-input 
         {
           check: 2,
           code: "SPEC_HAS_UNCLARIFIED",
-          message:
-            "spec has 1 unresolved needs_clarification entries; resolve or remove them before spec-lock",
+
           detail: { count: 1, ids: ["NC-001"] },
         },
         {
           check: 4,
           code: "REQ_NOT_DRIVEN",
-          message:
-            "REQ-AUTH-099 is not referenced by any task.drives[]; add a task that drives this requirement before spec-lock",
+
           detail: { req_id: "REQ-AUTH-099" },
         },
         {
           check: 5,
           code: "MISSING_VERIFIABILITY",
-          message:
-            "REQ-AUTH-099 must declare measurable, verified_by_scenarios[], or acceptance_na+acceptance_na_reason (≥10 chars)",
+
           detail: { req_id: "REQ-AUTH-099", req_type: "ubiquitous" },
         },
         {
           check: 6,
           code: "E2E_SCENARIO_UNBOUND",
-          message:
-            "e2e scenario SCEN-AUTH-E2E-001 has no binding task (requires_acceptance=true AND drives includes SCEN-AUTH-E2E-001); either add a binding task or mark scenario with acceptance_na+reason",
+
           detail: { scenario_id: "SCEN-AUTH-E2E-001" },
         },
         {
           check: 7,
           code: "VISUAL_CONTRACT_UNBOUND",
-          message:
-            "visual_contract VIS-AUTH-001 has no visual-ui task with visual_contract_refs containing it; add a binding visual-ui task or mark contract with visual_na+reason",
+
           detail: { visual_id: "VIS-AUTH-001" },
         },
         {
           check: 8,
           code: "TASK_KIND_SCHEMA_VIOLATION",
-          message:
-            "task T-200 (kind=visual-ui) violates projected kind-specific obligations: visual-ui task requires visual_contract_refs[] with ≥1 entry",
+
           detail: {
             task_id: "T-200",
             kind: "visual-ui",

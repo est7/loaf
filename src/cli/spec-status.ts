@@ -1,3 +1,5 @@
+import type { CatalogDiagnostic } from "../core/error-catalog.js";
+import { diagnosticMessage } from "./diagnostic-failure.js";
 import type { SpecLockResult } from "../core/gates/spec-lock-check.js";
 import type { I18n } from "./i18n.js";
 import { CHROME_KEYS } from "./runtime-i18n-keys.js";
@@ -33,8 +35,8 @@ export function buildSpecStatusEnvelope(result: SpecLockResult): SpecStatusEnvel
   const failures = checks.map((failure) => ({
     check: failure.check,
     code: failure.code,
-    message: failure.message,
-    detail: failure.detail ?? null,
+    message: diagnosticMessage(failure),
+    detail: Object.keys(failure.detail).length === 0 ? null : failure.detail,
   }));
   const suppressedChecks = checks.some((failure) => failure.check === 3)
     ? CHECK_3_SUPPRESSION.map((row) => ({ ...row }))
@@ -54,7 +56,10 @@ export function renderSpecStatusText(env: SpecStatusEnvelope, i18n: I18n): strin
       i18n.t(CHROME_KEYS.specStatusFailureRow, {
         check: failure.check,
         code: failure.code,
-        message: failure.message,
+        message: diagnosticMessage(
+          { code: failure.code, detail: failure.detail ?? {} } as CatalogDiagnostic,
+          i18n,
+        ),
       }) + "\n",
   );
   const suppressedLines = env.suppressed_checks.map(

@@ -1,3 +1,5 @@
+import path from "node:path";
+import type { DiagnosticDetail } from "./error-catalog.js";
 // snapshot-reader.ts — Gate #5 (ADR-0005 §3.6 reader contract).
 //
 // Any CLI command that consumes snapshots/<projection>.json MUST first call
@@ -27,7 +29,7 @@ export type SnapshotReaderResult =
         | "tail_offset_mismatch"
         | "tail_hash_mismatch"
         | "trailing_partial_line";
-      detail: Record<string, unknown>;
+      detail: DiagnosticDetail<"SNAPSHOT_STALE_REBUILD_REQUIRED">;
     };
 
 /**
@@ -48,7 +50,11 @@ export async function checkSnapshotFresh(
         fresh: false,
         code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
         reason: "journal_missing",
-        detail: { journal_path: journalPath },
+        detail: {
+          feature_dir: path.dirname(journalPath),
+          reason: "journal_missing",
+          journal_path: journalPath,
+        },
       };
     }
     throw err;
@@ -62,7 +68,11 @@ export async function checkSnapshotFresh(
       fresh: false,
       code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
       reason: "journal_empty",
-      detail: { meta_last_applied_seq: meta.last_applied_seq },
+      detail: {
+        feature_dir: path.dirname(journalPath),
+        reason: "journal_empty",
+        meta_last_applied_seq: meta.last_applied_seq,
+      },
     };
   }
 
@@ -82,7 +92,11 @@ export async function checkSnapshotFresh(
         fresh: false,
         code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
         reason: "trailing_partial_line",
-        detail: { tail_bytes: trailingText.length },
+        detail: {
+          feature_dir: path.dirname(journalPath),
+          reason: "trailing_partial_line",
+          tail_bytes: trailingText.length,
+        },
       };
     }
 
@@ -99,6 +113,8 @@ export async function checkSnapshotFresh(
         code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
         reason: "tail_offset_mismatch",
         detail: {
+          feature_dir: path.dirname(journalPath),
+          reason: "tail_offset_mismatch",
           journal_tail_offset: tailLineOffset,
           meta_last_entry_offset: meta.last_entry_offset,
         },
@@ -112,6 +128,8 @@ export async function checkSnapshotFresh(
         code: "SNAPSHOT_STALE_REBUILD_REQUIRED",
         reason: "tail_hash_mismatch",
         detail: {
+          feature_dir: path.dirname(journalPath),
+          reason: "tail_hash_mismatch",
           actual: actualHash,
           expected: meta.last_entry_line_hash,
         },

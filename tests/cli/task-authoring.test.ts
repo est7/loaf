@@ -83,8 +83,8 @@ describe("strict task authoring contract", () => {
     expect(allocateTaskAuthoringInputs(inputs, [])).toEqual({
       ok: false,
       code: "SCHEMA_VALIDATION_FAILED",
-      message: "task local_key=dependent depends on unknown local_key=missing",
       detail: {
+        reason: "unknown_dependency_local_key",
         local_key: "dependent",
         dependency_local_key: "missing",
       },

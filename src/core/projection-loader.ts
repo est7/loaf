@@ -1,3 +1,4 @@
+import type { DiagnosticDetail } from "./error-catalog.js";
 // projection-loader — Phase 15 SC3 read-side bootstrap for snapshot-
 // consuming CLI commands (status / tasks list / pending list / finding list /
 // evidence list). Parallel to `loadSession` (full replay) but reads the
@@ -79,7 +80,7 @@ export type SnapshotStaleReason =
 export class SnapshotStaleError extends Error {
   readonly code = "SNAPSHOT_STALE_REBUILD_REQUIRED" as const;
   readonly reason: SnapshotStaleReason;
-  readonly detail: Record<string, unknown>;
+  readonly detail: DiagnosticDetail<"SNAPSHOT_STALE_REBUILD_REQUIRED">;
   constructor(reason: SnapshotStaleReason, detail: Record<string, unknown>) {
     super(`${reason}: ${JSON.stringify(detail)}`);
     this.name = "SnapshotStaleError";
@@ -167,9 +168,9 @@ function staleFromReader(
 ): SnapshotStaleError | null {
   if (result.fresh) return null;
   return new SnapshotStaleError(result.reason, {
+    ...result.detail,
     feature_dir: featureDir,
     fix: fixForFeatureDir(featureDir),
-    ...result.detail,
   });
 }
 

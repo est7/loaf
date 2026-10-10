@@ -109,7 +109,6 @@ export interface PendingScopeClosureContext {
 
 export type PendingScopeClosureFailure = {
   code: "EXECUTE_CLOSURE_STATE_CHANGED" | "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS";
-  message: string;
   detail: Record<string, unknown>;
 };
 
@@ -160,8 +159,12 @@ export async function preparePendingScopeClosure(
       ok: false,
       failure: {
         code: "EXECUTE_CLOSURE_STATE_CHANGED",
-        message: `runtime pending scope is from future iteration ${pending.iteration}, ahead of journal iteration ${context.iteration}`,
-        detail: { pending_iteration: pending.iteration, current_iteration: context.iteration },
+
+        detail: {
+          reason: "pending_iteration_ahead",
+          pending_iteration: pending.iteration,
+          current_iteration: context.iteration,
+        },
       },
     };
   }
@@ -193,9 +196,12 @@ export async function settlePendingScope(
       ok: false,
       failure: {
         code: "EXECUTE_CLOSURE_STATE_CHANGED",
-        message:
-          "runtime pending scope is ahead of the committed journal iteration; refusing to rewrite causal order",
-        detail: { pending_iteration: pending.iteration, iteration: context.iteration },
+
+        detail: {
+          reason: "pending_iteration_ahead",
+          pending_iteration: pending.iteration,
+          iteration: context.iteration,
+        },
       },
     };
   }
@@ -210,9 +216,8 @@ export async function settlePendingScope(
       ok: false,
       failure: {
         code: "EXECUTE_CLOSURE_COMMIT_AMBIGUOUS",
-        message:
-          "post-append journal proof does not cover all pending scope paths; refusing to clear",
-        detail: { iteration: context.iteration },
+
+        detail: { reason: "pending_paths_not_covered", iteration: context.iteration },
       },
     };
   }

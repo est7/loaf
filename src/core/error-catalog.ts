@@ -253,12 +253,12 @@ export const ERROR_CATALOG = {
   },
   SCHEMA_VALIDATION_FAILED: {
     exit_code: 2,
-    message_template: "input does not satisfy schema for {command}: {zod_path}: {zod_message}",
+    message_template: "validation failed: {reason}",
     fix_template:
-      "for the 6 schema-capable authoring commands (spec add-req / spec add-scenario / spec add-visual / tasks submit / tasks add / evidence add), run `loaf {command} --schema --format=json` to dump the input JSON Schema; for artifact projection files, run `loaf <kind> schema --format=json` (kind ∈ spec / tasks / evidence / finding / state). Fix the offending field and retry",
-    template_keys: ["command", "zod_message", "zod_path"],
+      "inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract",
+    template_keys: ["reason"],
     doc_anchor: "protocol.md#§10.5",
-    detail_keys: ["command", "zod_message", "zod_path"],
+    detail_keys: ["reason"],
     variants: {
       "failure.hook.stdin_parse_failed": {
         message_template: "{reason}",
@@ -632,7 +632,7 @@ export const ERROR_CATALOG = {
   },
   LOCK_TIMEOUT: {
     exit_code: 2,
-    message_template: "could not acquire .loaf/<feature>/.lock within {timeout_seconds}s",
+    message_template: "could not acquire the write lock within {timeout_seconds}s",
     fix_template:
       "another loaf process is holding the feature lease; wait for it to release. A later writer automatically reclaims a lease only when its PID is verifiably dead and the owner generation is unchanged; malformed leases fail closed and require inspection.",
     template_keys: ["timeout_seconds"],
@@ -1163,6 +1163,7 @@ export const ERROR_CATALOG = {
     template_keys: ["kind", "reasons", "task_id"],
     doc_anchor: "protocol.md#§5.1",
     detail_keys: ["kind", "reasons", "task_id"],
+    list_separator: { reasons: "; " },
   },
   GATE_PRECONDITION_VIOLATION: {
     exit_code: 2,
@@ -1652,14 +1653,14 @@ export const ERROR_CATALOG = {
   SNAPSHOT_STALE_REBUILD_REQUIRED: {
     exit_code: 2,
     message_template:
-      "snapshot stale (reason={reason}) at {feature_dir}; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
+      "snapshot stale (reason={reason}); run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth",
     zh_message_template:
-      "snapshot 失效(reason={reason}) at {feature_dir};跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
+      "snapshot 失效(reason={reason});跑 `loaf doctor --rebuild --feature <feature>` 从 journal 重建",
     fix_template:
       "snapshot meta/leaves no longer agree with the journal tail; run `loaf doctor --rebuild --feature <feature>` to re-serialize from journal truth, then retry. Inspect detail.reason + reason-specific fields (meta_path / projection_kind / cause) to triage corruption source before rebuilding.",
-    template_keys: ["feature_dir", "reason"],
+    template_keys: ["reason"],
     doc_anchor: "protocol.md#§10.15",
-    detail_keys: ["feature_dir", "reason"],
+    detail_keys: ["reason"],
   },
   JOURNAL_TAIL_REQUIRES_NEWER_LOAF: {
     exit_code: 2,
@@ -1986,7 +1987,7 @@ export const ERROR_CATALOG = {
   INVALID_BATCH: {
     // Empty input, forbidden caller-owned fields, and stale MutateContext
     // carry disjoint details. The catalog records their common stable
-    // contract; journal-mutate's emitted message retains the exact reason.
+    // contract; reason-specific fields remain in journal-mutate's detail.
     exit_code: 2,
     message_template: "mutation batch is invalid",
     fix_template:

@@ -1,8 +1,6 @@
+import type { Diagnostic } from "./error-catalog.js";
 import { ENTRY_SCHEMA_VERSIONS } from "./kind-registry.js";
-import {
-  ScopeRecordedPayload,
-  type JournalEntry,
-} from "./journal-entry.js";
+import { ScopeRecordedPayload, type JournalEntry } from "./journal-entry.js";
 
 export type ScopeClosureFact = {
   scope: JournalEntry;
@@ -10,13 +8,9 @@ export type ScopeClosureFact = {
   iteration: number;
 };
 
-export type ScopeClosureFailure = {
-  code:
-    | "SCOPE_RECORDED_BATCH_INVALID"
-    | "SCOPE_RECORDED_ITERATION_DUPLICATE";
-  message: string;
-  detail: Record<string, unknown>;
-};
+export type ScopeClosureFailure = Diagnostic<
+  "SCOPE_RECORDED_BATCH_INVALID" | "SCOPE_RECORDED_ITERATION_DUPLICATE"
+>;
 
 function isExecuteClosure(entry: JournalEntry): boolean {
   const payload = entry.payload as { from?: unknown; to?: unknown };
@@ -27,10 +21,7 @@ function isExecuteClosure(entry: JournalEntry): boolean {
   );
 }
 
-function parseAdjacentFact(
-  scope: JournalEntry,
-  transition: JournalEntry,
-): ScopeClosureFact | null {
+function parseAdjacentFact(scope: JournalEntry, transition: JournalEntry): ScopeClosureFact | null {
   if (scope.kind !== "scope:recorded" || !isExecuteClosure(transition)) {
     return null;
   }
@@ -54,9 +45,7 @@ function parseAdjacentFact(
  * Parse canonical closure facts from journal history. Only the exact
  * two-entry batch emitted by the closure writer is accepted as a fact.
  */
-export function parseScopeClosureFacts(
-  entries: readonly JournalEntry[],
-): {
+export function parseScopeClosureFacts(entries: readonly JournalEntry[]): {
   facts: ScopeClosureFact[];
   incompleteTransitionSeqs: number[];
 } {
@@ -100,8 +89,7 @@ export function validateScopeClosureBatch(
   ) {
     return {
       code: "SCOPE_RECORDED_BATCH_INVALID",
-      message:
-        "scope:recorded must sit immediately before exactly one EXECUTE.work → EXECUTE.done transition in the same batch",
+
       detail: {
         reason: "missing_or_non_adjacent_execute_closure",
         scope_indexes: scopeIndexes,
@@ -110,22 +98,18 @@ export function validateScopeClosureBatch(
     };
   }
 
-  const fact = parseAdjacentFact(
-    candidates[scopeIndexes[0]!]!,
-    candidates[closureIndexes[0]!]!,
-  );
+  const fact = parseAdjacentFact(candidates[scopeIndexes[0]!]!, candidates[closureIndexes[0]!]!);
   if (fact === null) {
     return {
       code: "SCOPE_RECORDED_BATCH_INVALID",
-      message:
-        "scope:recorded closure must be an actor-matched two-entry batch with indexes 0/1 and count 2",
+
       detail: { reason: "invalid_batch_envelope_or_actor" },
     };
   }
   if (fact.iteration !== expectedIteration) {
     return {
       code: "SCOPE_RECORDED_BATCH_INVALID",
-      message: `scope:recorded iteration ${fact.iteration} does not match closing iteration ${expectedIteration}`,
+
       detail: {
         reason: "iteration_mismatch",
         iteration: fact.iteration,
@@ -138,7 +122,7 @@ export function validateScopeClosureBatch(
   if (history.facts.some((prior) => prior.iteration === expectedIteration)) {
     return {
       code: "SCOPE_RECORDED_ITERATION_DUPLICATE",
-      message: `scope:recorded already exists for iteration ${expectedIteration}`,
+
       detail: { iteration: expectedIteration },
     };
   }
@@ -149,11 +133,7 @@ export function findScopeClosureFact(
   entries: readonly JournalEntry[],
   iteration: number,
 ): ScopeClosureFact | null {
-  return (
-    parseScopeClosureFacts(entries).facts.find(
-      (fact) => fact.iteration === iteration,
-    ) ?? null
-  );
+  return parseScopeClosureFacts(entries).facts.find((fact) => fact.iteration === iteration) ?? null;
 }
 
 export function buildScopeClosureEntries(
@@ -161,12 +141,7 @@ export function buildScopeClosureEntries(
   iteration: number,
   paths: readonly string[],
   at: string,
-): Array<
-  Omit<
-    JournalEntry,
-    "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count"
-  >
-> {
+): Array<Omit<JournalEntry, "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count">> {
   return [
     {
       at,

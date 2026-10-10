@@ -240,7 +240,7 @@ describe("loaf spec init — SC4 scaffold", () => {
     const result = await readSpecFrontmatter(dir);
     if (!result.ok) {
       throw new Error(
-        `readSpecFrontmatter rejected init scaffold: ${result.code} ${result.message}`,
+        `readSpecFrontmatter rejected init scaffold: ${result.code} ${JSON.stringify(result)}`,
       );
     }
     expect(result.frontmatter.feature.id).toBe("F-001");
@@ -261,7 +261,7 @@ describe("loaf spec init — SC4 scaffold", () => {
     const result = await readSpecFrontmatter(dir);
     if (!result.ok) {
       throw new Error(
-        `readSpecFrontmatter rejected init scaffold: ${result.code} ${result.message}`,
+        `readSpecFrontmatter rejected init scaffold: ${result.code} ${JSON.stringify(result)}`,
       );
     }
     expect(result.frontmatter.spec_version).toBe(1);
