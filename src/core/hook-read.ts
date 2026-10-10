@@ -13,7 +13,7 @@ import type {
   StateProjection,
   TasksJson,
 } from "./projection-schema.js";
-import { isFindingDeferralAction } from "./finding-schema.js";
+import { isFindingDeferralAction } from "./intervention-policy.js";
 import { promptInjectFor } from "./sub-state-contracts.js";
 
 // ── session-start ──────────────────────────────────────────────────────

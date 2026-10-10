@@ -1,4 +1,4 @@
-import { FIX_ACTION_STEP } from "../../finding-schema.js";
+import { FIX_ACTION_STEP } from "../../intervention-policy.js";
 import {
   firstAddFreshnessViolation,
   firstFrozenViolation,

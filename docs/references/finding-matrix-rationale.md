@@ -1,7 +1,7 @@
 # Finding Action Grid — per-cell rationale (rev 4.3)
 
 > **Status**: normative reference for the 6×6 `FINDING_ACTION_GRID`
-> defined in `src/core/finding-schema.ts` and surfaced as protocol behavior in
+> defined in `src/core/intervention-policy.ts` and surfaced as protocol behavior in
 > `protocol.md` §4.5. Each of the 36 cells is classified as
 > `typical` / `unusual` / `incoherent`; this document justifies the
 > classification cell-by-cell.
@@ -152,7 +152,7 @@ A workflow skill (Wang / GSD / openspec / ad-hoc) about to call
 1. Determine the intended `category` and `action` from the LLM's
    reasoning.
 2. Look up the cell in `FINDING_ACTION_GRID`
-   (`src/core/finding-schema.ts` or this document's matrix).
+   (`src/core/intervention-policy.ts` or this document's matrix).
 3. If `typical`: invoke `loaf finding raise` directly.
 4. If `unusual`: invoke `loaf finding raise --reason "<≥20 chars
    explaining why this non-typical combination applies>"`.
@@ -171,8 +171,9 @@ one round-trip per incoherent attempt.
 
 - Decision: `adr/0004-moni-audit-resolution.md` §A7 (the grid
   itself) + §R3 (rejection of the "all warn, no block" alternative)
-- Machine binding: `src/core/finding-schema.ts` `FindingActionRisk` enum +
-  `FINDING_ACTION_GRID` const + `FINDING_UNUSUAL_REASON_MIN_LENGTH`
+- Schema vocabulary: `src/core/finding-schema.ts` `FindingActionRisk` enum.
+- Policy binding: `src/core/intervention-policy.ts` `FINDING_ACTION_GRID`
+  const + `FINDING_UNUSUAL_REASON_MIN_LENGTH`.
 - Protocol behavior: `protocol.md` §4.5 (raise enforcement) +
   §4.6 (`reconcile.json.unusual_findings_count`)
 - Companion reference: `references/incremental-construction.md`

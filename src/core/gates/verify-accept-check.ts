@@ -45,7 +45,7 @@ import type { EvidenceState, Snapshot } from "../projection-types.js";
 import type { SpecFrontmatter } from "../spec-schema.js";
 import type { VerifyCheckKind } from "../evidence-schema.js";
 import { canSatisfy } from "../evidence-compat.js";
-import { isFindingDeferralAction } from "../finding-schema.js";
+import { isFindingDeferralAction } from "../intervention-policy.js";
 import { isPassingResult } from "./evidence-result.js";
 import { evaluateTaskProof, verifyAcceptPolicy } from "./task-proof.js";
 

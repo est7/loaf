@@ -4,7 +4,7 @@ import {
   FINDING_UNUSUAL_REASON_MIN_LENGTH,
   FIX_ACTION_STEP,
   cellRisk,
-} from "../../finding-schema.js";
+} from "../../intervention-policy.js";
 import { evaluateTaskProof, verifyMinPolicy } from "../../gates/task-proof.js";
 import type { Ceremony } from "../../journal-entry.js";
 import type { PreflightCheckCtx, PreflightFailure } from "../preflight.js";

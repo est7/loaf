@@ -267,6 +267,11 @@ export function backEdgeSourceStates(action: BackEdgeAction): readonly SubState[
   return [...BACK_EDGE_FROM[action].allowed_from];
 }
 
+/** Target query for intervention assembly; the transition table remains the sole owner. */
+export function backEdgeTarget(action: BackEdgeAction): SubState {
+  return BACK_EDGE_FROM[action].expected_target;
+}
+
 export interface TransitionContext {
   ceremony: Ceremony;
   actor: string;

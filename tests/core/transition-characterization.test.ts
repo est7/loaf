@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { SubState, type Ceremony } from "../../src/core/journal-entry.js";
 import {
   backEdgeSourceStates,
+  backEdgeTarget,
   nextLegalTargets,
   type TransitionContext,
   type TransitionResult,
@@ -113,6 +114,7 @@ const BACK_EDGE_CASES = [
 describe("validateTransition characterization — back-edge error surface", () => {
   test.each(BACK_EDGE_CASES)("$action accepts exactly its literal source set", (row) => {
     expect(backEdgeSourceStates(row.action)).toEqual(row.allowedFrom);
+    expect(backEdgeTarget(row.action)).toBe(row.expectedTarget);
     for (const source of SubState.options) {
       const result = validateTransition(source, row.expectedTarget, {
         ceremony: STANDARD,

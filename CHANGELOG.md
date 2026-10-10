@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Finding action metadata (risk grid, reason threshold, target modes, reset
+  steps and deferral disposition) now has one core intervention policy owner.
+  CLI finding batches derive effects from that owner; back-edge source/target
+  rules remain owned by transition policy. Schema vocabulary, batch payloads,
+  actor/order, and admission decisions are unchanged.
+
 - Added the catalog diagnostic renderer foundation: every diagnostic declares
   required detail keys, English message/fix bundles cover the complete catalog,
   and existing failure-site variants retain their shipped translations with

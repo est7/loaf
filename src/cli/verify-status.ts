@@ -30,7 +30,7 @@ import type {
   VerifyLaneApplicability,
   VerifyLaneNaReason,
 } from "../core/gates/verify-accept-check.js";
-import { isFindingDeferralAction, type FindingDeferralAction } from "../core/finding-schema.js";
+import { isFindingDeferralAction, type FindingDeferralAction } from "../core/intervention-policy.js";
 import type { FindingState } from "../core/projection-types.js";
 import { DEFAULT_I18N, type I18n } from "./i18n.js";
 import { applicabilityKey, CHROME_KEYS, verifyCheckKindKey } from "./runtime-i18n-keys.js";

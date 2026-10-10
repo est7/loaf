@@ -1,3 +1,4 @@
+import { findingActionEffect } from "../core/intervention-policy.js";
 import type { SubState } from "../core/journal-entry.js";
 import type { MutatorEntry } from "./mutator-entry.js";
 
@@ -68,15 +69,6 @@ export type FindingRaiseBatch =
   | { kind: "fix-reset"; entries: MutatorEntry[]; backEdgeTo: SubState }
   | { kind: "back-edge"; entries: MutatorEntry[]; backEdgeTo: SubState };
 
-const FIX_RESET_STEP: Record<string, string> = {
-  "fix-impl": "implement",
-  "fix-test": "red",
-};
-const BACK_EDGE_TARGET: Record<string, SubState> = {
-  "amend-spec": "SPEC.spec",
-  "amend-tasks": "EXECUTE.work",
-};
-
 /**
  * finding raise co-emission shape, by `action`:
  * - fix-impl/fix-test WITH a target → 3-entry reset batch (→ EXECUTE.work).
@@ -97,7 +89,7 @@ export function buildFindingRaiseBatch(args: {
   currentSubState: SubState;
   findingActor: string;
   // Only `taskId` is consumed: the reset `step` is derived from `action` via
-  // FIX_RESET_STEP, NOT taken from the caller's target. The finding payload's
+  // core action policy, NOT taken from the caller's target. The finding payload's
   // own `target.step` is built separately at the call site.
   target?: { taskId: string };
 }): FindingRaiseBatch {
@@ -107,18 +99,18 @@ export function buildFindingRaiseBatch(args: {
     actor: args.findingActor,
   };
 
-  const fixResetStep = FIX_RESET_STEP[args.action];
-  if (fixResetStep !== undefined && args.target !== undefined) {
+  const effect = findingActionEffect(args.action);
+  if (effect.kind === "fix-reset" && args.target !== undefined) {
     return {
       kind: "fix-reset",
-      backEdgeTo: "EXECUTE.work",
+      backEdgeTo: effect.target,
       entries: [
         findingRaised,
         {
           kind: "event:task_step_reset",
           payload: {
             task_id: args.target.taskId,
-            step: fixResetStep,
+            step: effect.step,
             finding_id: args.findingId,
           },
           actor: "cli:loaf",
@@ -127,7 +119,7 @@ export function buildFindingRaiseBatch(args: {
           kind: "event:phase_advanced",
           payload: {
             from: args.currentSubState,
-            to: "EXECUTE.work",
+            to: effect.target,
             back_edge: { action: args.action, finding_id: args.findingId },
           },
           actor: "cli:loaf",
@@ -136,18 +128,17 @@ export function buildFindingRaiseBatch(args: {
     };
   }
 
-  const backEdgeTarget = BACK_EDGE_TARGET[args.action];
-  if (backEdgeTarget !== undefined) {
+  if (effect.kind === "back-edge") {
     return {
       kind: "back-edge",
-      backEdgeTo: backEdgeTarget,
+      backEdgeTo: effect.target,
       entries: [
         findingRaised,
         {
           kind: "event:phase_advanced",
           payload: {
             from: args.currentSubState,
-            to: backEdgeTarget,
+            to: effect.target,
             back_edge: { action: args.action, finding_id: args.findingId },
           },
           actor: "cli:loaf",

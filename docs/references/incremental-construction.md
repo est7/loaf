@@ -274,7 +274,7 @@ Fix-templates would be misleading there.
 - Decision: `adr/0004-moni-audit-resolution.md` (whole ADR;
   especially A2 / A3 / A5 / A6 / A8 / A10 / A11)
 - Machine bindings:
-  - `src/core/finding-schema.ts` `FINDING_ACTION_GRID`
+  - `src/core/intervention-policy.ts` `FINDING_ACTION_GRID`
   - the retired §38 `CONTEXT_PACK_TEMPLATES` proposal
   - `src/core/error-catalog.ts` `ERROR_CATALOG`
   - `src/cli/input-schemas.ts` `INPUT_SCHEMAS` +

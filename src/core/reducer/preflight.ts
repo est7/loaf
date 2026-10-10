@@ -143,7 +143,7 @@ export type PreflightFailureCode =
   // boundary unenforced (verify-accept check 4 only scans done tasks).
   | "EXECUTE_DONE_TASKS_NOT_FINAL"
   // Slice 3 SC3 — FINDING_ACTION_GRID + target_payload preflight
-  // (protocol §4.5 / src/core/finding-schema.ts / codex r68 sign-off).
+  // (protocol §4.5 / src/core/intervention-policy.ts / codex r68 sign-off).
   // INCOHERENT: 4 grid cells where structure offers no transition
   // target (spec-gap × {fix-impl,fix-test}, new-scope × same).
   // UNUSUAL_REASON_REQUIRED: unusual cells require --reason ≥20 chars.

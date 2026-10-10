@@ -885,7 +885,7 @@ opened/closed jsonl schema 已删除。Projection 只包含当前 FindingState �
 
 #### 3-tier ActionRisk + `FINDING_ACTION_GRID`(rev 4.3,ADR-0004 A7)
 
-`loaf finding raise --category X --action Y` 的 6×6 组合不再「全 legal」,按 `src/core/finding-schema.ts::FINDING_ACTION_GRID` 分三档行为:
+`loaf finding raise --category X --action Y` 的 6×6 组合不再「全 legal」,按 `src/core/intervention-policy.ts::FINDING_ACTION_GRID` 分三档行为:
 
 | Risk | 行为 |
 |---|---|
@@ -1242,7 +1242,7 @@ predicate（含 manual/waiver actor+reason、VIS visual-review attachment）；�
 | `defer` | 留 VERIFY | — | 0 | 0 | 0 | 否 |
 | `backlog` | 留 VERIFY | — | 0 | 0 | 0 | 否 |
 
-> **rev 4.1 表头重画**:`target payload` 列把 `step` 从 sub_state 括号里抠出来。step 是 **finding resolution payload**,不是 session cursor —— 它写入 `tasks.<T-N>.execution.<step>.status="pending"` 让该 step 重跑;session state 只有 `phase=EXECUTE, sub_state=EXECUTE.work`,**不携带** step。rev 4 砍 `current_step` 后,旧表 `EXECUTE.work(step=X)` 写法把已砍字段视觉上塞回去,内部不一致,本轮修。`fix-impl` / `fix-test` action enum 保留(intent 不同 / 诊断模板不同 / 默认 prompt 不同,不合并成 redo-work,见 ADR-0003 Rejected #11)。机器表达见 `src/core/finding-schema.ts::FINDING_ACTION_TARGET_MODE` + `FindingTarget`。
+> **rev 4.1 表头重画**:`target payload` 列把 `step` 从 sub_state 括号里抠出来。step 是 **finding resolution payload**,不是 session cursor —— 它写入 `tasks.<T-N>.execution.<step>.status="pending"` 让该 step 重跑;session state 只有 `phase=EXECUTE, sub_state=EXECUTE.work`,**不携带** step。rev 4 砍 `current_step` 后,旧表 `EXECUTE.work(step=X)` 写法把已砍字段视觉上塞回去,内部不一致,本轮修。`fix-impl` / `fix-test` action enum 保留(intent 不同 / 诊断模板不同 / 默认 prompt 不同,不合并成 redo-work,见 ADR-0003 Rejected #11)。机器表达见 `src/core/intervention-policy.ts::FINDING_ACTION_TARGET_MODE` + `src/core/finding-schema.ts::FindingTarget`。
 
 ### 6.3 典型组合
 

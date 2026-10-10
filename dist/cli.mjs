@@ -4148,98 +4148,11 @@ const FindingAction = z.enum([
 	"defer",
 	"backlog"
 ]);
-/** Actions whose selection is itself a non-blocking disposition. */
-const FINDING_DEFERRAL_ACTIONS = ["defer", "backlog"];
-/**
-* Derive disposition from the persisted action without widening the journal
-* or projection schema. Accepts string because historical slim snapshots type
-* FindingState.action loosely, while validated new entries use FindingAction.
-*/
-function isFindingDeferralAction(action) {
-	return FINDING_DEFERRAL_ACTIONS.includes(action);
-}
 z.enum([
 	"typical",
 	"unusual",
 	"incoherent"
 ]);
-/**
-* FINDING_ACTION_GRID — per-cell risk classification.
-* 4 `incoherent` cells (rev 4.3 ADR-0004 A7): structurally there is no
-* task target a transition can land on, so block early at preflight.
-* Implements the `docs/protocol.md §4.5` finding matrix.
-*/
-const FINDING_ACTION_GRID = {
-	"spec-gap": {
-		"amend-spec": "typical",
-		"amend-tasks": "unusual",
-		"fix-impl": "incoherent",
-		"fix-test": "incoherent",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"spec-defect": {
-		"amend-spec": "typical",
-		"amend-tasks": "unusual",
-		"fix-impl": "unusual",
-		"fix-test": "unusual",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"impl-defect": {
-		"amend-spec": "unusual",
-		"amend-tasks": "typical",
-		"fix-impl": "typical",
-		"fix-test": "unusual",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"test-defect": {
-		"amend-spec": "unusual",
-		"amend-tasks": "typical",
-		"fix-impl": "unusual",
-		"fix-test": "typical",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"new-scope": {
-		"amend-spec": "typical",
-		"amend-tasks": "typical",
-		"fix-impl": "incoherent",
-		"fix-test": "incoherent",
-		defer: "typical",
-		backlog: "typical"
-	},
-	"risk-escalation": {
-		"amend-spec": "unusual",
-		"amend-tasks": "typical",
-		"fix-impl": "unusual",
-		"fix-test": "unusual",
-		defer: "typical",
-		backlog: "typical"
-	}
-};
-/** Look up the (category, action) cell risk in O(1). */
-function cellRisk(category, action) {
-	return FINDING_ACTION_GRID[category][action];
-}
-const FINDING_ACTION_TARGET_MODE = {
-	"amend-spec": "none",
-	"amend-tasks": "task_id_optional",
-	"fix-impl": "task_id_step",
-	"fix-test": "task_id_step",
-	defer: "none",
-	backlog: "none"
-};
-/**
-* For `task_id_step` actions only, the canonical step that the action's
-* back-edge mutation targets. fix-impl drives the `implement` step;
-* fix-test drives the `red` step (TDD failure-first lane).
-*/
-const FIX_ACTION_STEP = {
-	"fix-impl": "implement",
-	"fix-test": "red"
-};
 const FindingTarget = z.object({
 	task_id: TaskIdPayload,
 	step: z.string().min(1)
@@ -6020,6 +5933,10 @@ const BACK_EDGE_FROM = {
 function backEdgeSourceStates(action) {
 	return [...BACK_EDGE_FROM[action].allowed_from];
 }
+/** Target query for intervention assembly; the transition table remains the sole owner. */
+function backEdgeTarget(action) {
+	return BACK_EDGE_FROM[action].expected_target;
+}
 const TRANSITION_GUARDS = {
 	spec_phase_required: {
 		passes: (ctx) => ctx.ceremony.spec_phase,
@@ -6619,6 +6536,110 @@ function checkSpecVersion(c) {
 		}
 	}
 	return null;
+}
+//#endregion
+//#region src/core/intervention-policy.ts
+/** Actions whose selection is itself a non-blocking disposition. */
+const FINDING_DEFERRAL_ACTIONS = ["defer", "backlog"];
+/**
+* Derive disposition from the persisted action without widening the journal
+* or projection schema. Accepts string because historical slim snapshots type
+* FindingState.action loosely, while validated new entries use FindingAction.
+*/
+function isFindingDeferralAction(action) {
+	return FINDING_DEFERRAL_ACTIONS.includes(action);
+}
+/**
+* FINDING_ACTION_GRID — per-cell risk classification.
+* 4 `incoherent` cells (rev 4.3 ADR-0004 A7): structurally there is no
+* task target a transition can land on, so block early at preflight.
+* Implements the `docs/protocol.md §4.5` finding matrix.
+*/
+const FINDING_ACTION_GRID = {
+	"spec-gap": {
+		"amend-spec": "typical",
+		"amend-tasks": "unusual",
+		"fix-impl": "incoherent",
+		"fix-test": "incoherent",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"spec-defect": {
+		"amend-spec": "typical",
+		"amend-tasks": "unusual",
+		"fix-impl": "unusual",
+		"fix-test": "unusual",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"impl-defect": {
+		"amend-spec": "unusual",
+		"amend-tasks": "typical",
+		"fix-impl": "typical",
+		"fix-test": "unusual",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"test-defect": {
+		"amend-spec": "unusual",
+		"amend-tasks": "typical",
+		"fix-impl": "unusual",
+		"fix-test": "typical",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"new-scope": {
+		"amend-spec": "typical",
+		"amend-tasks": "typical",
+		"fix-impl": "incoherent",
+		"fix-test": "incoherent",
+		defer: "typical",
+		backlog: "typical"
+	},
+	"risk-escalation": {
+		"amend-spec": "unusual",
+		"amend-tasks": "typical",
+		"fix-impl": "unusual",
+		"fix-test": "unusual",
+		defer: "typical",
+		backlog: "typical"
+	}
+};
+/** Look up the (category, action) cell risk in O(1). */
+function cellRisk(category, action) {
+	return FINDING_ACTION_GRID[category][action];
+}
+const FINDING_ACTION_TARGET_MODE = {
+	"amend-spec": "none",
+	"amend-tasks": "task_id_optional",
+	"fix-impl": "task_id_step",
+	"fix-test": "task_id_step",
+	defer: "none",
+	backlog: "none"
+};
+/**
+* For `task_id_step` actions only, the canonical step that the action's
+* back-edge mutation targets. fix-impl drives the `implement` step;
+* fix-test drives the `red` step (TDD failure-first lane).
+*/
+const FIX_ACTION_STEP = {
+	"fix-impl": "implement",
+	"fix-test": "red"
+};
+/** Action effect for batch assembly; admission still verifies authorization.
+* Unknown action strings have no mechanical siblings, preserving the loose
+* input surface used by CLI builders before payload admission. */
+function findingActionEffect(action) {
+	if (action === "fix-impl" || action === "fix-test") return {
+		kind: "fix-reset",
+		target: backEdgeTarget(action),
+		step: FIX_ACTION_STEP[action]
+	};
+	if (action === "amend-spec" || action === "amend-tasks") return {
+		kind: "back-edge",
+		target: backEdgeTarget(action)
+	};
+	return { kind: "none" };
 }
 //#endregion
 //#region src/core/task-amend-policy.ts
@@ -13155,14 +13176,6 @@ function buildGateApprovalBatch(args) {
 	});
 	return entries;
 }
-const FIX_RESET_STEP = {
-	"fix-impl": "implement",
-	"fix-test": "red"
-};
-const BACK_EDGE_TARGET = {
-	"amend-spec": "SPEC.spec",
-	"amend-tasks": "EXECUTE.work"
-};
 /**
 * finding raise co-emission shape, by `action`:
 * - fix-impl/fix-test WITH a target → 3-entry reset batch (→ EXECUTE.work).
@@ -13182,17 +13195,17 @@ function buildFindingRaiseBatch(args) {
 		payload: args.findingPayload,
 		actor: args.findingActor
 	};
-	const fixResetStep = FIX_RESET_STEP[args.action];
-	if (fixResetStep !== void 0 && args.target !== void 0) return {
+	const effect = findingActionEffect(args.action);
+	if (effect.kind === "fix-reset" && args.target !== void 0) return {
 		kind: "fix-reset",
-		backEdgeTo: "EXECUTE.work",
+		backEdgeTo: effect.target,
 		entries: [
 			findingRaised,
 			{
 				kind: "event:task_step_reset",
 				payload: {
 					task_id: args.target.taskId,
-					step: fixResetStep,
+					step: effect.step,
 					finding_id: args.findingId
 				},
 				actor: "cli:loaf"
@@ -13201,7 +13214,7 @@ function buildFindingRaiseBatch(args) {
 				kind: "event:phase_advanced",
 				payload: {
 					from: args.currentSubState,
-					to: "EXECUTE.work",
+					to: effect.target,
 					back_edge: {
 						action: args.action,
 						finding_id: args.findingId
@@ -13211,15 +13224,14 @@ function buildFindingRaiseBatch(args) {
 			}
 		]
 	};
-	const backEdgeTarget = BACK_EDGE_TARGET[args.action];
-	if (backEdgeTarget !== void 0) return {
+	if (effect.kind === "back-edge") return {
 		kind: "back-edge",
-		backEdgeTo: backEdgeTarget,
+		backEdgeTo: effect.target,
 		entries: [findingRaised, {
 			kind: "event:phase_advanced",
 			payload: {
 				from: args.currentSubState,
-				to: backEdgeTarget,
+				to: effect.target,
 				back_edge: {
 					action: args.action,
 					finding_id: args.findingId
