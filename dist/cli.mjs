@@ -15135,6 +15135,52 @@ async function normalizeScopePath(targetPath, repoRoot) {
 	};
 }
 //#endregion
+//#region src/core/pending-scope.ts
+function runtimeOrInitial(current, identity, debug, heartbeatAt) {
+	return current ?? {
+		schema_version: 2,
+		session_id: identity.session_id,
+		cwd: identity.cwd,
+		debug,
+		heartbeat_at: heartbeatAt,
+		pending_scope: null
+	};
+}
+/** Normalize and accumulate a PostToolUse path, publishing heartbeat even on
+* path rejection. Storage failures propagate before the caller renders that
+* rejection; the lock still owns the complete read-modify-write operation. */
+async function trackPendingScope(options) {
+	let normalized;
+	try {
+		normalized = await normalizeScopePath(options.targetPath, options.identity.cwd);
+	} catch {
+		normalized = {
+			ok: false,
+			reason: "invalid_scope_path",
+			path: options.targetPath
+		};
+	}
+	const heartbeatAt = options.runtime.now().toISOString();
+	await withRuntimeLock(options.identity, "scope-track", (current) => {
+		const base = runtimeOrInitial(current, options.identity, options.debug, heartbeatAt);
+		if (!normalized.ok || normalized.kind === "internal" || options.cursor.sub_state !== "EXECUTE.work") return {
+			...base,
+			heartbeat_at: heartbeatAt
+		};
+		const paths = new Set(base.pending_scope?.iteration === options.cursor.iteration ? base.pending_scope.paths : []);
+		paths.add(normalized.path);
+		return {
+			...base,
+			heartbeat_at: heartbeatAt,
+			pending_scope: {
+				iteration: options.cursor.iteration,
+				paths: [...paths].sort(compareScopePathBytes)
+			}
+		};
+	}, options.runtime);
+	return normalized;
+}
+//#endregion
 //#region src/core/hook-read.ts
 /**
 * Compose the `additionalContext` string injected into a Claude Code
@@ -16043,45 +16089,21 @@ function registerIntegrations(program, ctx, _mutator, _actor, i18n, isStdinTty, 
 			}
 			let normalized;
 			try {
-				normalized = await normalizeScopePath(target, repoRoot);
-			} catch {
-				normalized = {
-					ok: false,
-					reason: "invalid_scope_path",
-					path: target
-				};
-			}
-			const heartbeatAt = runtimeNow().toISOString();
-			try {
-				await withRuntimeLock({
-					session_id: sessionId,
-					cwd: repoRoot
-				}, "scope-track", (current) => {
-					const base = current ?? {
-						schema_version: 2,
+				normalized = await trackPendingScope({
+					targetPath: target,
+					identity: {
 						session_id: sessionId,
-						cwd: repoRoot,
-						debug: ctx.debug,
-						heartbeat_at: heartbeatAt,
-						pending_scope: null
-					};
-					if (!normalized.ok || normalized.kind === "internal" || state.sub_state !== "EXECUTE.work") return {
-						...base,
-						heartbeat_at: heartbeatAt
-					};
-					const paths = new Set(base.pending_scope?.iteration === state.iteration ? base.pending_scope.paths : []);
-					paths.add(normalized.path);
-					return {
-						...base,
-						heartbeat_at: heartbeatAt,
-						pending_scope: {
-							iteration: state.iteration,
-							paths: [...paths].sort(compareScopePathBytes)
-						}
-					};
-				}, {
-					runtimeDir,
-					now: runtimeNow
+						cwd: repoRoot
+					},
+					debug: ctx.debug,
+					cursor: {
+						sub_state: state.sub_state,
+						iteration: state.iteration
+					},
+					runtime: {
+						runtimeDir,
+						now: runtimeNow
+					}
 				});
 			} catch (error) {
 				const code = error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_") ? "LOCK_TIMEOUT" : "SCHEMA_VALIDATION_FAILED";

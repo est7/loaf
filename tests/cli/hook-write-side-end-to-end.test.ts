@@ -6,7 +6,7 @@
 // unit-tested in tests/core/write-guard.test.ts; this covers the IO wiring:
 // dispatch (fail-closed polarity) + config load + projection load + envelope.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -15,7 +15,14 @@ import { once } from "node:events";
 
 import { main, type MainDeps } from "../../src/cli.js";
 import { loadProjections } from "../../src/core/projection-loader.js";
-import { readSessionRuntimeFile } from "../../src/core/session-runtime.js";
+import {
+  readSessionRuntimeFile,
+  writeSessionRuntimeFile,
+  sessionRuntimeFilePath,
+  RuntimeStoreError,
+} from "../../src/core/session-runtime.js";
+import * as runtimeStore from "../../src/core/session-runtime.js";
+import * as scopePaths from "../../src/core/scope-track.js";
 
 const CLI_SOURCE = path.resolve("src/cli.tsx");
 
@@ -409,6 +416,157 @@ describe("ticket #11 SC3 — scope-track runtime accumulator", () => {
     expect((await runtimeState(repoRoot, featureDir, runtimeDir))?.pending_scope?.paths).toEqual([
       "stdin.ts",
     ]);
+  });
+
+  test("scope-track preserves complete runtime bytes, deduplication and UTF-8 ordering", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      const runtimeDir = path.join(repoRoot, "runtime");
+      await startAtExecuteWork(featureDir);
+      const at = "2026-07-20T11:10:00.000Z";
+      const deps = { runtimeDir, now: () => new Date(at) };
+      for (const target of ["src/𐀀.ts", "src/é.ts", "src/a.ts", "src/\uE000.ts", "src/A.ts", "src/z.ts", "src/a.ts"]) {
+        expect(await runCli(scope(featureDir, target), deps)).toEqual({ exit: 0, stdout: "", stderr: "" });
+      }
+      const state = (await loadProjections({ feature_dir: featureDir, kinds: ["state"] as const })).state;
+      const expected = {
+        schema_version: 2, session_id: state.session_id, cwd: await fs.realpath(repoRoot), debug: false,
+        heartbeat_at: at, pending_scope: { iteration: 1, paths: ["src/A.ts", "src/a.ts", "src/z.ts", "src/é.ts", "src/\uE000.ts", "src/𐀀.ts"] },
+      };
+      expect(await fs.readFile(sessionRuntimeFilePath(state.session_id, deps), "utf8")).toBe(JSON.stringify(expected));
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("scope-track iteration mismatch resets paths and preserves existing debug bytes", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      const runtimeDir = path.join(repoRoot, "runtime");
+      await startAtExecuteWork(featureDir);
+      const state = (await loadProjections({ feature_dir: featureDir, kinds: ["state"] as const })).state;
+      const identity = { session_id: state.session_id, cwd: repoRoot };
+      const at = "2026-07-20T11:11:00.000Z";
+      const deps = { runtimeDir, now: () => new Date(at) };
+      await writeSessionRuntimeFile(identity, {
+        schema_version: 2, ...identity, debug: true, heartbeat_at: "2026-07-20T11:00:00.000Z",
+        pending_scope: { iteration: 2, paths: ["src/previous.ts"] },
+      }, deps);
+      expect(await runCli(scope(featureDir, "src/current.ts"), deps)).toEqual({ exit: 0, stdout: "", stderr: "" });
+      expect(await fs.readFile(sessionRuntimeFilePath(state.session_id, deps), "utf8")).toBe(JSON.stringify({
+        schema_version: 2, session_id: state.session_id, cwd: await fs.realpath(repoRoot), debug: true,
+        heartbeat_at: at, pending_scope: { iteration: 1, paths: ["src/current.ts"] },
+      }));
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["internal", "non-work", "outside"])("scope-track %s preserves pending bytes and only updates heartbeat", async (kind) => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      const runtimeDir = path.join(repoRoot, "runtime");
+      if (kind === "non-work") await start(featureDir);
+      else await startAtExecuteWork(featureDir);
+      const state = (await loadProjections({ feature_dir: featureDir, kinds: ["state"] as const })).state;
+      const identity = { session_id: state.session_id, cwd: repoRoot };
+      const at = "2026-07-20T11:12:00.000Z";
+      const deps = { runtimeDir, now: () => new Date(at) };
+      await writeSessionRuntimeFile(identity, {
+        schema_version: 2, ...identity, debug: true, heartbeat_at: "2026-07-20T11:00:00.000Z",
+        pending_scope: { iteration: 4, paths: ["src/kept.ts"] },
+      }, deps);
+      const target = kind === "internal" ? ".loaf/kept.json" : kind === "outside" ? "../outside.ts" : "src/ignored.ts";
+      const result = await runCli([...scope(featureDir, target), "--format", "json"], deps);
+      if (kind === "outside") {
+        expect(result.exit).toBe(2);
+        expect(result.stdout).toBe("");
+        expect(JSON.parse(result.stderr)).toMatchObject({ code: "SCHEMA_VALIDATION_FAILED", detail: { source: "scope-track", path: target, reason: "outside_repo_root" } });
+      } else {
+        expect(result).toEqual({ exit: 0, stdout: "", stderr: "" });
+      }
+      expect(await fs.readFile(sessionRuntimeFilePath(state.session_id, deps), "utf8")).toBe(JSON.stringify({
+        schema_version: 2, session_id: state.session_id, cwd: await fs.realpath(repoRoot), debug: true,
+        heartbeat_at: at, pending_scope: { iteration: 4, paths: ["src/kept.ts"] },
+      }));
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("scope normalization exception reports invalid_scope_path after writing heartbeat", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      await startAtExecuteWork(featureDir);
+      const runtimeDir = path.join(repoRoot, "runtime");
+      const deps = { runtimeDir, now: () => new Date("2026-07-20T11:13:00.000Z") };
+      const spy = vi.spyOn(scopePaths, "normalizeScopePath").mockRejectedValueOnce(new Error("resolver unavailable"));
+      let result: Awaited<ReturnType<typeof runCli>>;
+      try {
+        result = await runCli([...scope(featureDir, "src/failed.ts"), "--format", "json"], deps);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(result.exit).toBe(2);
+      expect(JSON.parse(result.stderr)).toMatchObject({ code: "SCHEMA_VALIDATION_FAILED", detail: { source: "scope-track", path: "src/failed.ts", reason: "invalid_scope_path" } });
+      expect(await runtimeState(repoRoot, featureDir, runtimeDir)).toMatchObject({ heartbeat_at: "2026-07-20T11:13:00.000Z", pending_scope: null });
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("malformed runtime failure wins over rejected path and preserves the invalid bytes", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      await startAtExecuteWork(featureDir);
+      const runtimeDir = path.join(repoRoot, "runtime");
+      const deps = { runtimeDir, now: () => new Date("2026-07-20T11:14:00.000Z") };
+      await runCli(scope(featureDir, "src/seed.ts"), deps);
+      const state = (await loadProjections({ feature_dir: featureDir, kinds: ["state"] as const })).state;
+      const file = sessionRuntimeFilePath(state.session_id, deps);
+      await fs.writeFile(file, "{broken");
+      const result = await runCli([...scope(featureDir, "../outside.ts"), "--format", "json"], deps);
+      expect(result.exit).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(JSON.parse(result.stderr)).toMatchObject({ code: "SCHEMA_VALIDATION_FAILED", detail: { source: "session-runtime", reason: expect.stringContaining("runtime file is not valid JSON") } });
+      expect(await fs.readFile(file, "utf8")).toBe("{broken");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime lock failure wins over path rejection with the existing LOCK_TIMEOUT mapping", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      await startAtExecuteWork(featureDir);
+      const spy = vi.spyOn(runtimeStore, "withRuntimeLock").mockRejectedValueOnce(new RuntimeStoreError("RUNTIME_LOCK_TIMEOUT", "held by live owner"));
+      let result: Awaited<ReturnType<typeof runCli>>;
+      try {
+        result = await runCli([...scope(featureDir, "../outside.ts"), "--format", "json"], { runtimeDir: path.join(repoRoot, "runtime") });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(result).toMatchObject({ exit: 2, stdout: "" });
+      expect(JSON.parse(result.stderr)).toMatchObject({ code: "LOCK_TIMEOUT", detail: { source: "session-runtime", reason: "held by live owner" } });
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("injected scope heartbeat clock failure uses the runtime error boundary", async () => {
+    const { repoRoot, featureDir } = await tmpRepo();
+    try {
+      await startAtExecuteWork(featureDir);
+      const result = await runCli([...scope(featureDir, "src/clock.ts"), "--format", "json"], {
+        runtimeDir: path.join(repoRoot, "runtime"),
+        now: () => { throw new Error("heartbeat clock unavailable"); },
+      });
+      // Production uses new Date(); only an injected throwing clock changes this mapping.
+      expect(result).toMatchObject({ exit: 2, stdout: "" });
+      expect(JSON.parse(result.stderr)).toMatchObject({ code: "SCHEMA_VALIDATION_FAILED" });
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
   });
 
   test("concurrent cross-process scope-track invocations retain every path", async () => {

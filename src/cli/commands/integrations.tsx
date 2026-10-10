@@ -32,9 +32,8 @@ import {
 } from "../../core/step-write-paths.js";
 import { SUB_STATE_CONTRACT_BY_STATE } from "../../core/sub-state-contracts.js";
 import { evaluateWritePath } from "../../core/write-guard.js";
-import { normalizeScopePath } from "../../core/scope-track.js";
-import { compareScopePathBytes } from "../../core/journal-entry.js";
-import { RuntimeStoreError, withRuntimeLock } from "../../core/session-runtime.js";
+import { trackPendingScope } from "../../core/pending-scope.js";
+import { RuntimeStoreError } from "../../core/session-runtime.js";
 import {
   composeSessionStartContext,
   runClosureWarnings,
@@ -208,54 +207,15 @@ export function registerIntegrations(
             return;
           }
 
-          let normalized: Awaited<ReturnType<typeof normalizeScopePath>>;
+          let normalized: Awaited<ReturnType<typeof trackPendingScope>>;
           try {
-            normalized = await normalizeScopePath(target, repoRoot);
-          } catch {
-            normalized = {
-              ok: false,
-              reason: "invalid_scope_path",
-              path: target,
-            };
-          }
-          const heartbeatAt = runtimeNow().toISOString();
-          try {
-            await withRuntimeLock(
-              { session_id: sessionId, cwd: repoRoot },
-              "scope-track",
-              (current) => {
-                const base =
-                  current ??
-                  ({
-                    schema_version: 2,
-                    session_id: sessionId,
-                    cwd: repoRoot,
-                    debug: ctx.debug,
-                    heartbeat_at: heartbeatAt,
-                    pending_scope: null,
-                  } as const);
-                if (
-                  !normalized.ok ||
-                  normalized.kind === "internal" ||
-                  state.sub_state !== "EXECUTE.work"
-                ) {
-                  return { ...base, heartbeat_at: heartbeatAt };
-                }
-                const paths = new Set(
-                  base.pending_scope?.iteration === state.iteration ? base.pending_scope.paths : [],
-                );
-                paths.add(normalized.path);
-                return {
-                  ...base,
-                  heartbeat_at: heartbeatAt,
-                  pending_scope: {
-                    iteration: state.iteration,
-                    paths: [...paths].sort(compareScopePathBytes),
-                  },
-                };
-              },
-              { runtimeDir, now: runtimeNow },
-            );
+            normalized = await trackPendingScope({
+              targetPath: target,
+              identity: { session_id: sessionId, cwd: repoRoot },
+              debug: ctx.debug,
+              cursor: { sub_state: state.sub_state, iteration: state.iteration },
+              runtime: { runtimeDir, now: runtimeNow },
+            });
           } catch (error) {
             const code =
               error instanceof RuntimeStoreError && error.code.startsWith("RUNTIME_LOCK_")
