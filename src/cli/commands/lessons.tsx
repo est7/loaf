@@ -20,8 +20,8 @@ export function registerLessons(
   // ── loaf lessons add ────────────────────────────────────────────────
   // Records an independent `lesson:recorded` entry. Human authority lives
   // on the envelope; the payload carries the LSN id and lesson content.
-  // Every mutate rebuilds `.loaf/<feature>/lessons.md` from new and legacy
-  // lesson entries through the single compatibility selector.
+  // Every mutate rebuilds `.loaf/<feature>/lessons.md` exclusively from
+  // lesson:recorded entries through the dedicated lesson selector.
   // LongTextField sidecar promotion fires when lesson body bytes >
   // SIDECAR_THRESHOLD_BYTES (Pass 2 sidecar promote); the lessons.md
   // writer resolves those sidecars back inline.

@@ -402,7 +402,7 @@ export function checkTaskLifecycle(c: PreflightCheckCtx): PreflightFailure | nul
 // (5e.3) Item 1 — event:task_abandoned refines.
 //
 // `loaf tasks abandon <T-N> --reason "..."` emits event:task_abandoned.
-// Per-kind already gates actor (ALL_NON_MIGRATION) + sub_state
+// Per-kind already gates actor (ALL_ACTOR_PREFIXES) + sub_state
 // (EXECUTE.work) — this step adds the task-graph refines the reducer
 // never enforced (the reducer flips status→abandoned unconditionally):
 //   - task exists in snapshot.tasks → else TASK_NOT_FOUND

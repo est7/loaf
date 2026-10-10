@@ -409,3 +409,102 @@ describe("carryForwardStepProgress — Phase 11 Item 3 SC1b", () => {
     ).toBeUndefined();
   });
 });
+
+test("every current replayed task has a canonical body across plan, removal, add and replace", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loaf-current-task-bodies-"));
+  const file = path.join(dir, "journal.jsonl");
+  let meta = emptyMeta();
+  let seq = 0;
+  const body = (id: string, marker: string) => ({
+    id,
+    kind: "chore",
+    status: "pending",
+    depends_on: [],
+    labels: [],
+    no_test_rationale: marker,
+    execution: { execute: { applicability: "must", status: "pending" } },
+  });
+  async function append(kind: JournalEntry["kind"], payload: unknown, actor = "cli:loaf") {
+    meta = await appendEntry(file, { ...entry(seq++, kind, payload), actor }, meta, {
+      fsync: false,
+    });
+  }
+  async function witness(expected: Record<string, string>) {
+    const loaded = await loadSession(dir);
+    expect(loaded.snapshot.tasks.map((t) => t.id).sort()).toEqual(Object.keys(expected).sort());
+    for (const task of loaded.snapshot.tasks) {
+      const canonical = latestCanonicalTaskBody(loaded.entries, task.id);
+      expect(canonical).toBeDefined();
+      expect(canonical!.id).toBe(task.id);
+      expect(canonical!.kind).toBe("chore");
+      if (canonical?.kind !== "chore") throw new Error("current fixture task must stay chore");
+      expect(canonical.no_test_rationale).toBe(expected[task.id]);
+    }
+  }
+  try {
+    await append("session:started", {
+      session_id: "550e8400-e29b-41d4-a716-446655440000",
+      feature: "current-task-bodies",
+      ceremony: STANDARD,
+      ceremony_label: "standard",
+      workspace: "default",
+      loaf_version_required: "^0.8.0",
+    });
+    for (const [from, to] of [
+      ["TRIAGE.score", "TRIAGE.confirm"],
+      ["TRIAGE.confirm", "SPEC.proposal"],
+      ["SPEC.proposal", "SPEC.spec"],
+      ["SPEC.spec", "SPEC.plan"],
+      ["SPEC.plan", "SPEC.design"],
+    ])
+      await append("event:phase_advanced", { from, to });
+    await append("event:tasks_planned", {
+      based_on: { spec: 1 },
+      tasks: [
+        body("T-001", "First canonical task body"),
+        body("T-002", "Second canonical task body"),
+      ],
+    });
+    await witness({ "T-001": "First canonical task body", "T-002": "Second canonical task body" });
+    await append("event:tasks_planned", {
+      based_on: { spec: 1 },
+      tasks: [body("T-002", "Replanned canonical task body")],
+    });
+    await witness({ "T-002": "Replanned canonical task body" });
+    expect(latestCanonicalTaskBody((await loadSession(dir)).entries, "T-001")).toBeUndefined();
+    await append(
+      "gate:decided",
+      { gate_kind: "spec-lock", decision: "approved", reason: "current fixture approval" },
+      "human:fixture",
+    );
+    await append("event:phase_advanced", { from: "SPEC.design", to: "EXECUTE.plan" });
+    await append("event:phase_advanced", { from: "EXECUTE.plan", to: "EXECUTE.work" });
+    await append("finding:raised", {
+      id: "FND-001",
+      category: "new-scope",
+      action: "amend-tasks",
+      summary: "Execution needs another current maintenance task",
+    });
+    await append("event:tasks_amended", {
+      mode: "add",
+      sponsored_by_finding_id: "FND-001",
+      task: body("T-003", "Added canonical task body"),
+    });
+    await witness({
+      "T-002": "Replanned canonical task body",
+      "T-003": "Added canonical task body",
+    });
+    await append("event:tasks_amended", {
+      mode: "replace",
+      sponsored_by_finding_id: "FND-001",
+      task: body("T-003", "Replaced canonical task body"),
+    });
+    await witness({
+      "T-002": "Replanned canonical task body",
+      "T-003": "Replaced canonical task body",
+    });
+    expect(latestCanonicalTaskBody((await loadSession(dir)).entries, "T-999")).toBeUndefined();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

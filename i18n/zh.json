@@ -264,7 +264,6 @@
     "SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
     "SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
     "TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
-    "CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
     "BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
     "BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
     "BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",

@@ -6,9 +6,10 @@
 // The full command/preflight suite is the behavior-outcome proof; this file is
 // the direct table-content lock.
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 import {
+  ActorString,
   EntryKind,
   SubState,
   CeremonyPayload,
@@ -45,7 +46,12 @@ import {
   PER_KIND_SUB_STATE,
   SPEC_EMITTING_KINDS,
 } from "../../src/core/kind-registry.js";
-import { ANY_NON_DONE, ANY_SUB_STATE } from "../../src/core/kind-guards.js";
+import {
+  actorPrefix,
+  type ActorPrefix,
+  ANY_NON_DONE,
+  ANY_SUB_STATE,
+} from "../../src/core/kind-guards.js";
 
 const sorted = (s: Iterable<string>): string[] => [...s].sort();
 
@@ -112,30 +118,30 @@ describe("preservation — PER_KIND_PAYLOAD reference identity (all 27)", () => 
 });
 
 describe("preservation — PER_KIND_ACTOR (exact arrays, all 27)", () => {
-  const ALL_NON_MIGRATION = ["human", "skill", "ci", "cli"];
+  const ALL_ACTOR_PREFIXES = ["human", "skill", "ci", "cli"];
   const EXPECTED: Record<string, string[]> = {
-    "event:phase_advanced": ALL_NON_MIGRATION,
-    "event:ceremony_set": ALL_NON_MIGRATION,
-    "event:tasks_planned": ALL_NON_MIGRATION,
-    "event:tasks_amended": ALL_NON_MIGRATION,
-    "event:task_claimed": ALL_NON_MIGRATION,
-    "event:task_step_started": ALL_NON_MIGRATION,
-    "event:task_step_done": ALL_NON_MIGRATION,
+    "event:phase_advanced": ALL_ACTOR_PREFIXES,
+    "event:ceremony_set": ALL_ACTOR_PREFIXES,
+    "event:tasks_planned": ALL_ACTOR_PREFIXES,
+    "event:tasks_amended": ALL_ACTOR_PREFIXES,
+    "event:task_claimed": ALL_ACTOR_PREFIXES,
+    "event:task_step_started": ALL_ACTOR_PREFIXES,
+    "event:task_step_done": ALL_ACTOR_PREFIXES,
     "event:task_step_reset": ["cli"],
-    "event:task_abandoned": ALL_NON_MIGRATION,
-    "event:spec_req_added": ALL_NON_MIGRATION,
-    "event:spec_scenario_added": ALL_NON_MIGRATION,
-    "event:spec_visual_added": ALL_NON_MIGRATION,
-    "event:spec_submitted": ALL_NON_MIGRATION,
-    "evidence:added": ALL_NON_MIGRATION,
+    "event:task_abandoned": ALL_ACTOR_PREFIXES,
+    "event:spec_req_added": ALL_ACTOR_PREFIXES,
+    "event:spec_scenario_added": ALL_ACTOR_PREFIXES,
+    "event:spec_visual_added": ALL_ACTOR_PREFIXES,
+    "event:spec_submitted": ALL_ACTOR_PREFIXES,
+    "evidence:added": ALL_ACTOR_PREFIXES,
     "lesson:recorded": ["human"],
-    "finding:raised": ALL_NON_MIGRATION,
-    "finding:closed": ALL_NON_MIGRATION,
-    "pending:added": ALL_NON_MIGRATION,
-    "pending:resolved": ALL_NON_MIGRATION,
+    "finding:raised": ALL_ACTOR_PREFIXES,
+    "finding:closed": ALL_ACTOR_PREFIXES,
+    "pending:added": ALL_ACTOR_PREFIXES,
+    "pending:resolved": ALL_ACTOR_PREFIXES,
     "gate:decided": ["human"],
-    "session:started": ALL_NON_MIGRATION,
-    "session:resumed": ALL_NON_MIGRATION,
+    "session:started": ALL_ACTOR_PREFIXES,
+    "session:resumed": ALL_ACTOR_PREFIXES,
     "session:delivered": ["human"],
     "session:archived": ["human"],
     "session:abandoned": ["human"],
@@ -251,4 +257,10 @@ describe("back-edge source authority preservation", () => {
       );
     }
   });
+});
+
+test("permission prefixes exclude migration while the stable envelope still recognizes it", () => {
+  expectTypeOf<ActorPrefix>().toEqualTypeOf<"human" | "skill" | "ci" | "cli">();
+  expect(actorPrefix("migration:retired")).toBeNull();
+  expect(ActorString.safeParse("migration:retired").success).toBe(true);
 });

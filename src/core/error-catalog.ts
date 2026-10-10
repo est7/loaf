@@ -1350,18 +1350,6 @@ export const ERROR_CATALOG = {
     template_keys: ["blocking_steps", "status", "task_id"],
     doc_anchor: "protocol.md#§10.8",
   },
-  // ── Slice C SC-C2c — `loaf tasks amend` canonical body recovery ──
-  CANONICAL_TASK_BODY_UNAVAILABLE: {
-    exit_code: 2,
-    message_template:
-      "task {task_id} is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed",
-    zh_message_template:
-      "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
-    fix_template:
-      "the projection lacks a corresponding journal tasks_planned/tasks_amended body. Rebuild the snapshots via `loaf doctor --rebuild`; if the journal itself is incomplete, restore it from a valid backup.",
-    template_keys: ["task_id"],
-    doc_anchor: "protocol.md#§10.8",
-  },
   // ── Slice C SC-C4 — bug-task RED registration (R2 invariant relocation) ──
   BUG_TASK_REQUIRES_RED: {
     exit_code: 2,

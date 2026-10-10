@@ -863,17 +863,25 @@ another entry's bucket, unregistered
 filenames, symlinked path components, and non-regular files. Readers verify
 size and SHA-256 from the same open file handle.
 
-### 4.5 findings.jsonl(6 category × 6 action + EV-id refs)
+### 4.5 findings.json(6 category × 6 action)
 
 > **Authority**: 派生投影(reducer 从 `finding:raised` / `finding:closed` entries 重建,落 `snapshots/findings.json`)。
 
 **只能在 VERIFY.\*** sub-state raise(标准情况),**或** spec_locked=true 的 EXECUTE.* sub-state raise(post-lock 漂移)。Quick profile 完全不允许。
 
-```jsonl
-{"schema_version":2,"id":"FND-001","event":"opened","at":"2026-05-12T09:32Z","raised_in":"VERIFY.visual","raised_by":"skill:loaf-cli/sdd-verify","iteration":1,"category":"spec-gap","action":"amend-spec","summary":"按钮 hover 状态 spec 沉默","refs":["REQ-AUTH-007"],"evidence_refs":["EV-000125"]}
-{"schema_version":2,"id":"FND-001","event":"closed","at":"2026-05-12T09:55Z","iteration":2,"resolution":"REQ-AUTH-008 added in spec v3 + AuthButton hover state implemented","evidence_refs":["EV-000132"]}
-{"schema_version":2,"id":"FND-002","event":"opened","at":"2026-05-12T10:01Z","raised_in":"VERIFY.review","raised_by":"skill:loaf-cli/sdd-verify","iteration":2,"category":"risk-escalation","action":"amend-tasks","summary":"实现中发现需要改 PublicAuthAPI;触发 standard→deep 升级","refs":["T-005"],"evidence_refs":["EV-000130"]}
+```json
+{
+  "schema_version": 2,
+  "findings": [
+    { "id": "FND-001", "category": "spec-gap", "action": "amend-spec", "status": "closed", "summary": "按钮 hover 状态 spec 沉默" },
+    { "id": "FND-002", "category": "risk-escalation", "action": "amend-tasks", "status": "open", "summary": "实现中发现需要改 PublicAuthAPI" }
+  ]
+}
 ```
+
+当前 journal 使用 `finding:raised` / `finding:closed`；旧 `FindingsEvent`
+opened/closed jsonl schema 已删除。Projection 只包含当前 FindingState 字段，
+不从旧 event shape 推断状态。
 
 #### 3-tier ActionRisk + `FINDING_ACTION_GRID`(rev 4.3,ADR-0004 A7)
 
@@ -1865,7 +1873,6 @@ error: <one-line human description>
 | <code>SPEC_VERSION_NOT_MONOTONIC</code> | 2 | <code>&#123;kind&#125;: spec_version must be &#123;expected_spec_version&#125; (current+1), got &#123;payload_spec_version&#125;</code> | <code>set spec_version to &#123;expected_spec_version&#125; in the input payload (or omit it and let `loaf spec submit` fill the current+1 default).</code> | <code>protocol.md#§4.2</code> |
 | <code>SPEC_VERSION_BATCH_MISMATCH</code> | 2 | <code>&#123;kind&#125;: spec_version must be &#123;current_spec_version&#125; at batch_index=&#123;batch_index&#125;, got &#123;payload_spec_version&#125;</code> | <code>in a multi-entry spec batch, the head (batch_index=0) bumps spec_version to current+1 and all continuation entries (batch_index≥1) must set spec_version to that same value. Check the head entry's payload.spec_version and align companions.</code> | <code>protocol.md#§4.2</code> |
 | <code>TASK_COMPLETE_PRECONDITION_VIOLATED</code> | 2 | <code>task &#123;task_id&#125; is not complete (status=&#123;status&#125;); must-applicable steps not terminal-positive: &#123;blocking_steps&#125;</code> | <code>finish each blocking step via `loaf tasks step start/done`; a task auto-promotes to status=done once every must-applicable step is passed/waived/na, and `loaf tasks complete` then confirms it. Run `loaf tasks list` to inspect step status.</code> | <code>protocol.md#§10.8</code> |
-| <code>CANONICAL_TASK_BODY_UNAVAILABLE</code> | 2 | <code>task &#123;task_id&#125; is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed</code> | <code>the projection lacks a corresponding journal tasks_planned/tasks_amended body. Rebuild the snapshots via `loaf doctor --rebuild`; if the journal itself is incomplete, restore it from a valid backup.</code> | <code>protocol.md#§10.8</code> |
 | <code>BUG_TASK_REQUIRES_RED</code> | 2 | <code>behavioral bug task &#123;task_id&#125; cannot start or complete its implement step before its RED test is registered</code> | <code>run `loaf tasks register-red &#123;task_id&#125;` once the failing RED test is in place; protocol §9.3 requires RED registration before the implement step of a behavioral task labelled `bug`.</code> | <code>protocol.md#§9.3</code> |
 | <code>BUG_TASK_FLAG_MISUSE</code> | 2 | <code>task &#123;task_id&#125;: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry</code> | <code>do not set red_test_registered in a planned task or on a non-red step; the flag is owned by `loaf tasks register-red`, which the reducer promotes to task-level registration.</code> | <code>protocol.md#§9.3</code> |
 | <code>BUG_TASK_RED_NOT_REGISTERED</code> | 2 | <code>behavioral bug task &#123;task_id&#125; is done but never registered its RED test (red_test_registered≠true)</code> | <code>a done behavioral bug task must have registered its RED test via `loaf tasks register-red`; this is a verify-accept defense-in-depth check for raw-API journals — rebuild the journal or register RED retroactively before re-running the gate.</code> | <code>protocol.md#§9.3</code> |

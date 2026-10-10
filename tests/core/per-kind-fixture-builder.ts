@@ -5,7 +5,7 @@
 // positive + one negative anchor per EntryKind — enough to assert the
 // PER_KIND_SUB_STATE / PER_KIND_ACTOR tables are wired into preflight, but
 // NOT a guarantee that every (kind × sub_state × actor) combination is
-// observed. The 27×20 sub_state matrix + 27×5 actor matrix is left as a
+// observed. The 27×20 sub_state matrix + 27×4 actor matrix is left as a
 // follow-up — to be added if a regression surfaces a coverage hole.
 //
 // For each EntryKind we emit:
@@ -91,7 +91,7 @@ export interface KindActorFixture {
   expected: "legal" | "illegal";
 }
 
-const ALL_PREFIXES: ActorPrefix[] = ["human", "skill", "ci", "cli", "migration"];
+const ALL_PREFIXES: ActorPrefix[] = ["human", "skill", "ci", "cli"];
 
 export function kindActorFixtures(): KindActorFixture[] {
   const out: KindActorFixture[] = [];
@@ -103,9 +103,12 @@ export function kindActorFixtures(): KindActorFixture[] {
       out.push({ kind, actor: `${allowedPrefix}:tester`, expected: "legal" });
     }
     const disallowedPrefix = ALL_PREFIXES.find((p) => !allowed.has(p));
-    if (disallowedPrefix !== undefined) {
-      out.push({ kind, actor: `${disallowedPrefix}:tester`, expected: "illegal" });
-    }
+    // Keep one forbidden-actor witness for every kind even when all current
+    // prefixes are allowed. migration remains a recognized envelope prefix
+    // but grants no permission to any current kind.
+    const forbiddenActor =
+      disallowedPrefix === undefined ? "migration:tester" : `${disallowedPrefix}:tester`;
+    out.push({ kind, actor: forbiddenActor, expected: "illegal" });
   }
   return out;
 }

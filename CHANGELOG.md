@@ -29,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The unused legacy `FindingsEvent` schema and unreachable CLI
+  `CANONICAL_TASK_BODY_UNAVAILABLE` diagnostic. Current task-body recovery relies
+  on the shared replayed snapshot/history invariant.
+- `migration` from the current actor permission vocabulary; the stable envelope
+  grammar still recognizes it to preserve the newer-writer tail guard.
+  The permission-list export is now `ALL_ACTOR_PREFIXES`; `ALL_NON_MIGRATION`
+  has been removed without an alias.
+
 - Historical v0.0.x snapshot import: `migration:snapshot_imported`, its payload
   schema and sidecar slots, the migration module, replay rehydration, and five
   migration-only diagnostics. Old import entries now fail envelope validation;

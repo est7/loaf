@@ -25,13 +25,13 @@ export const ALL_EXECUTE: SubState[] = ["EXECUTE.plan", "EXECUTE.work", "EXECUTE
 export const FIX_BACK_EDGE_FROM = backEdgeSourceStates("fix-impl");
 
 // ── actor authority vocabulary (ADR-0005 §3.4) ───────────────────────────────
-export type ActorPrefix = "human" | "skill" | "ci" | "cli" | "migration";
+export type ActorPrefix = "human" | "skill" | "ci" | "cli";
 
-export const ALL_NON_MIGRATION: readonly ActorPrefix[] = ["human", "skill", "ci", "cli"];
+export const ALL_ACTOR_PREFIXES: readonly ActorPrefix[] = ["human", "skill", "ci", "cli"];
 export const HUMAN_ONLY: readonly ActorPrefix[] = ["human"];
 export const CLI_ONLY: readonly ActorPrefix[] = ["cli"];
 
 export function actorPrefix(actor: string): ActorPrefix | null {
-  const m = /^(human|skill|ci|cli|migration):/.exec(actor);
+  const m = /^(human|skill|ci|cli):/.exec(actor);
   return m ? (m[1] as ActorPrefix) : null;
 }

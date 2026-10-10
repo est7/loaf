@@ -1851,7 +1851,7 @@ describe("preflight — bug-task RED registration (Slice C SC-C4)", () => {
 
 describe("preflight — event:task_abandoned refines (Item 1)", () => {
   // `loaf tasks abandon <T-N> --reason "..."` emits `event:task_abandoned`.
-  // Per-kind already gates actor (ALL_NON_MIGRATION) + sub_state
+  // Per-kind already gates actor (ALL_ACTOR_PREFIXES) + sub_state
   // (EXECUTE.work). These tests cover the new (5e.3) refine:
   //   - task must exist in snapshot.tasks → else TASK_NOT_FOUND
   //   - task.status ∉ {done, abandoned} → else TASK_NOT_ABANDONABLE
@@ -2158,7 +2158,7 @@ describe("preflight — evidence:added payload semantic refine (§5.4 manual≠w
   // surfaces at preflight step 4b as INVALID_PAYLOAD regardless of ceremony —
   // the stable-core code, no presentation-layer localization (see
   // docs/references/loaf-cli-i18n.md). evidence:added authority is ceremony-
-  // independent (actors=ALL_NON_MIGRATION, subStates⊇ALL_EXECUTE). A valid
+  // independent (actors=ALL_ACTOR_PREFIXES, subStates⊇ALL_EXECUTE). A valid
   // payload.id avoids a missing-id parse failure; actor=human:* + reason≥10
   // isolate the waived refine from the manual/waiver human-actor refine.
   function evidenceManual(overrides: Record<string, unknown>): Record<string, unknown> {

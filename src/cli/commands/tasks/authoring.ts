@@ -355,15 +355,8 @@ export function registerTaskAdd(tasksCmd: Command, deps: TasksRegistrationDeps):
         // would erase body fields.
         const existingFull: TaskFullPayload[] = [];
         for (const t of session.snapshot.tasks) {
-          const base = latestCanonicalTaskBody(session.entries, t.id);
-          if (!base) {
-            ctx.failure(
-              "CANONICAL_TASK_BODY_UNAVAILABLE",
-              `task ${t.id} is in the projection but has no canonical body in the journal; cannot rebuild the graph to append`,
-              { task_id: t.id, source: "journal" },
-            );
-            return;
-          }
+          // Current-task selection and shared replay history guarantee this body.
+          const base = latestCanonicalTaskBody(session.entries, t.id)!;
           existingFull.push(materializeTaskForAmend(base, t));
         }
 
@@ -523,15 +516,8 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
             return;
           }
           // (b4) Recover the current canonical body from the journal.
-          const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId);
-          if (!sCanonical) {
-            ctx.emitFailure(
-              "CANONICAL_TASK_BODY_UNAVAILABLE",
-              `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`,
-              { task_id: taskId, source: "journal" },
-            );
-            return;
-          }
+          // Current-task selection and shared replay history guarantee this body.
+          const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId)!;
           // (b5) Materialize the input under the EXISTING task id, carry the
           // body-only execution progress forward from the canonical body for
           // retained steps, then overlay live runtime status/applicability.
@@ -665,15 +651,8 @@ export function registerTaskAmend(tasksCmd: Command, deps: TasksRegistrationDeps
         }
 
         // (4) Recover the canonical full body from the journal.
-        const base = latestCanonicalTaskBody(session.entries, taskId);
-        if (!base) {
-          ctx.emitFailure(
-            "CANONICAL_TASK_BODY_UNAVAILABLE",
-            `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`,
-            { task_id: taskId, source: "journal" },
-          );
-          return;
-        }
+        // Current-task selection and shared replay history guarantee this body.
+        const base = latestCanonicalTaskBody(session.entries, taskId)!;
 
         // (5) Materialize (canonical body + live runtime status) then apply
         // the --policy applicability deltas.

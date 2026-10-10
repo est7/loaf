@@ -214,8 +214,7 @@ export function composeEvidenceJson(entries: readonly JournalEntry[]): EvidenceJ
  *
  * The slim `FindingState[]` IS the projection shape — the reducer already
  * projects every reader-relevant field (id / category / action / status +
- * payload-derived summary / reason / target). NOT the legacy §17
- * `FindingsEvent` jsonl event schema. Validated against `FindingsJson`.
+ * payload-derived summary / reason / target). Validated against FindingsJson.
  */
 export function composeFindingsJson(snapshot: Snapshot): FindingsJson {
   return FindingsJson.parse({

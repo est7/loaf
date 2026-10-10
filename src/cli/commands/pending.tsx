@@ -77,9 +77,8 @@ export function registerPending(
         }
         // Single-writer PEND-id allocator: max-serial+1, zero-padded to ≥4
         // digits to match `^PEND-\d{4,}$` (src/core/journal-entry.ts PendingId,
-        // protocol §10.7 rev 4.1). Parser is intentionally permissive on
-        // older/legacy unpadded ids so a v0.0.x journal can replay; the
-        // allocator only emits canonical form (codex r64 BLOCK 2).
+        // protocol §10.7 rev 4.1). Journal payload schemas require this
+        // canonical form; numeric extraction recovers the current serial.
         const maxSerial = session.snapshot.pending.reduce((max, p) => {
           const m = /^PEND-(\d+)$/.exec(p.id);
           if (!m) return max;

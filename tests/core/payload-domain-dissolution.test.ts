@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import { FindingsEvent } from "../../src/core/finding-schema.js";
 import { EarsType } from "../../src/core/spec-schema.js";
 import {
   AnyStep,
@@ -47,24 +46,6 @@ describe("payload-domain dissolution", () => {
     expect(TaskInputBatched.safeParse(input).success).toBe(true);
     expect(TaskInputBatched.safeParse([input]).success).toBe(true);
     expect(TaskInputBatched.safeParse([]).success).toBe(false);
-  });
-
-  test("finding legacy event accepts only EXECUTE/VERIFY raised_in states", () => {
-    const opened = {
-      schema_version: 2,
-      id: "FND-001",
-      event: "opened" as const,
-      at: "2026-07-16T08:55:00.000Z",
-      raised_in: "VERIFY.review",
-      raised_by: "skill:reviewer",
-      iteration: 1,
-      category: "impl-defect" as const,
-      action: "fix-impl" as const,
-      summary: "Runtime schema owns this event.",
-    };
-
-    expect(FindingsEvent.safeParse(opened).success).toBe(true);
-    expect(FindingsEvent.safeParse({ ...opened, raised_in: "SPEC.spec" }).success).toBe(false);
   });
 
   test("spec domain owns the closed EARS discriminator", () => {

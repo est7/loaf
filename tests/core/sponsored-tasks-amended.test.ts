@@ -18,6 +18,7 @@ import os from "node:os";
 
 import { main } from "../../src/cli.js";
 import { loadSession } from "../../src/core/cli-runtime.js";
+import { latestCanonicalTaskBody } from "../../src/core/task-history.js";
 import { mutate } from "../../src/core/journal-mutate.js";
 import { taskAuthoringFixture } from "../helpers/task-authoring-fixture.js";
 
@@ -74,6 +75,12 @@ function makeCli(dir: string, env: Record<string, string | undefined>) {
           `  argv: ${argv.join(" ")}\n` +
           `  stderr: ${r.stderr.trim()}\n  stdout: ${r.stdout.trim()}`,
       );
+    }
+    const loaded = await loadSession(dir);
+    for (const task of loaded.snapshot.tasks) {
+      const canonical = latestCanonicalTaskBody(loaded.entries, task.id);
+      expect(canonical, `${label}: current task ${task.id} must have a journal body`).toBeDefined();
+      expect(canonical!.id).toBe(task.id);
     }
     return r.stdout.trim() ? JSON.parse(r.stdout) : null;
   };

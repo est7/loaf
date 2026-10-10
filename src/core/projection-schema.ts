@@ -102,10 +102,8 @@ export type EvidenceJson = z.infer<typeof EvidenceJson>;
 //
 // The slim `FindingState` projection IS the findings.json item shape —
 // the reducer already projects every field a reader needs (id / category /
-// action / status + payload-derived summary / reason / target). NOT the
-// legacy `FindingsEvent` jsonl event schema: that is the per-event
-// journal/jsonl form; this is the
-// finding-STATE list a `--rebuild` materializes.
+// action / status + payload-derived summary / reason / target). This is the
+// finding-state list that a rebuild materializes from current journal entries.
 //
 // category / action use the closed `FindingCategory` / `FindingAction`
 // enums — the disk projection mirrors the public §5 contract, not the

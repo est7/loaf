@@ -882,47 +882,6 @@ const FindingTarget = z.object({
 	task_id: TaskIdPayload,
 	step: z.string().min(1)
 }).strict();
-const FindingRaisedIn = z.enum([
-	"EXECUTE.plan",
-	"EXECUTE.work",
-	"EXECUTE.done",
-	"VERIFY.plan",
-	"VERIFY.run",
-	"VERIFY.review",
-	"VERIFY.acceptance",
-	"VERIFY.visual",
-	"VERIFY.accept"
-]);
-z.discriminatedUnion("event", [z.object({
-	schema_version: SchemaVersionPayload,
-	id: FindingId,
-	event: z.literal("opened"),
-	at: z.string().datetime(),
-	raised_in: FindingRaisedIn,
-	raised_by: z.string(),
-	iteration: z.number().int().positive(),
-	category: FindingCategory,
-	action: FindingAction,
-	summary: z.string().min(5),
-	refs: z.array(z.union([
-		ReqIdPayload,
-		ScenIdPayload,
-		VisIdPayload,
-		TaskIdPayload,
-		FeatureIdPayload
-	])).default([]),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([]),
-	cause: z.string().optional()
-}), z.object({
-	schema_version: SchemaVersionPayload,
-	id: FindingId,
-	event: z.literal("closed"),
-	at: z.string().datetime(),
-	iteration: z.number().int().positive(),
-	resolution: z.string().min(3),
-	drift_index: z.number().int().nonnegative().optional(),
-	evidence_refs: z.array(z.string().regex(/^EV-\d{6,}$/)).default([])
-})]);
 //#endregion
 //#region src/core/journal-entry.ts
 const ENTRY_BYTE_LIMIT = 64e3;
@@ -2651,14 +2610,6 @@ const ERROR_CATALOG = {
 		],
 		doc_anchor: "protocol.md#§10.8"
 	},
-	CANONICAL_TASK_BODY_UNAVAILABLE: {
-		exit_code: 2,
-		message_template: "task {task_id} is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed",
-		zh_message_template: "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
-		fix_template: "the projection lacks a corresponding journal tasks_planned/tasks_amended body. Rebuild the snapshots via `loaf doctor --rebuild`; if the journal itself is incomplete, restore it from a valid backup.",
-		template_keys: ["task_id"],
-		doc_anchor: "protocol.md#§10.8"
-	},
 	BUG_TASK_REQUIRES_RED: {
 		exit_code: 2,
 		message_template: "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
@@ -3995,7 +3946,7 @@ const ALL_EXECUTE = [
 	"EXECUTE.done"
 ];
 const FIX_BACK_EDGE_FROM = backEdgeSourceStates("fix-impl");
-const ALL_NON_MIGRATION = [
+const ALL_ACTOR_PREFIXES = [
 	"human",
 	"skill",
 	"ci",
@@ -4004,7 +3955,7 @@ const ALL_NON_MIGRATION = [
 const HUMAN_ONLY = ["human"];
 const CLI_ONLY = ["cli"];
 function actorPrefix(actor) {
-	const m = /^(human|skill|ci|cli|migration):/.exec(actor);
+	const m = /^(human|skill|ci|cli):/.exec(actor);
 	return m ? m[1] : null;
 }
 //#endregion
@@ -4014,7 +3965,7 @@ const KIND_REGISTRY = {
 		payload: PhaseAdvancedPayload,
 		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:ceremony_set": {
@@ -4026,42 +3977,42 @@ const KIND_REGISTRY = {
 			...ALL_SPEC,
 			...ALL_EXECUTE
 		]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:tasks_planned": {
 		payload: TasksPlannedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(["SPEC.design", "EXECUTE.plan"]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:tasks_amended": {
 		payload: TasksAmendedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:task_claimed": {
 		payload: TaskRefPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:task_step_started": {
 		payload: TaskStepRefPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:task_step_done": {
 		payload: TaskStepDonePayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:task_step_reset": {
@@ -4075,42 +4026,42 @@ const KIND_REGISTRY = {
 		payload: TaskAbandonedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(["EXECUTE.work"]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"event:spec_req_added": {
 		payload: SpecReqAddedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: true
 	},
 	"event:spec_scenario_added": {
 		payload: SpecScenarioAddedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: true
 	},
 	"event:spec_visual_added": {
 		payload: SpecVisualAddedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: true
 	},
 	"event:spec_submitted": {
 		payload: SpecSubmittedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(ALL_SPEC),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: true
 	},
 	"evidence:added": {
 		payload: EvidenceAddedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set([...ALL_EXECUTE, ...VERIFY_OR_POST_LOCK_EXECUTE.filter((s) => s.startsWith("VERIFY"))]),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"lesson:recorded": {
@@ -4131,28 +4082,28 @@ const KIND_REGISTRY = {
 		payload: FindingRaisedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"finding:closed": {
 		payload: FindingClosedPayload,
 		entrySchemaVersion: 1,
 		subStates: new Set(VERIFY_OR_POST_LOCK_EXECUTE),
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"pending:added": {
 		payload: PendingAddedPayload,
 		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"pending:resolved": {
 		payload: PendingResolvedPayload,
 		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"gate:decided": {
@@ -4166,14 +4117,14 @@ const KIND_REGISTRY = {
 		payload: SessionStartedPayload,
 		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"session:resumed": {
 		payload: SessionResumedPayload,
 		entrySchemaVersion: 1,
 		subStates: ANY_SUB_STATE,
-		actors: ALL_NON_MIGRATION,
+		actors: ALL_ACTOR_PREFIXES,
 		emitsSpec: false
 	},
 	"session:delivered": {
@@ -6038,7 +5989,6 @@ var en_default = {
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version must be {expected_spec_version} (current+1), got {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: spec_version must be {current_spec_version} at batch_index={batch_index}, got {payload_spec_version}",
 		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} is not complete (status={status}); must-applicable steps not terminal-positive: {blocking_steps}",
-		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} is in the projection but has no canonical body in the journal; a whole-task amend cannot be reconstructed",
 		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} cannot start or complete its implement step before its RED test is registered",
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}: red_test_registered=true is valid only on a red-step task_step_done for a behavioral bug task (passed/waived result) — not on this entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} is done but never registered its RED test (red_test_registered≠true)",
@@ -6651,7 +6601,6 @@ var zh_default = {
 		"SPEC_VERSION_NOT_MONOTONIC": "{kind}: spec_version 必须等于 {expected_spec_version}(current+1),实际为 {payload_spec_version}",
 		"SPEC_VERSION_BATCH_MISMATCH": "{kind}: batch_index={batch_index} 处 spec_version 必须等于 {current_spec_version},实际为 {payload_spec_version}",
 		"TASK_COMPLETE_PRECONDITION_VIOLATED": "task {task_id} 尚未完成(status={status});以下 must 级 step 未达 terminal-positive:{blocking_steps}",
-		"CANONICAL_TASK_BODY_UNAVAILABLE": "task {task_id} 在投影中存在,但 journal 里没有 canonical body;无法重建整 task 的 amend",
 		"BUG_TASK_REQUIRES_RED": "behavioral bug task {task_id} 在注册 RED 测试前不能开始或完成 implement step",
 		"BUG_TASK_FLAG_MISUSE": "task {task_id}:red_test_registered=true 只在 behavioral bug task 的 red-step task_step_done(passed/waived)上有效 —— 不能用在本 entry",
 		"BUG_TASK_RED_NOT_REGISTERED": "behavioral bug task {task_id} 已 done 但从未注册 RED 测试(red_test_registered≠true)",
@@ -7572,8 +7521,7 @@ function composeEvidenceJson(entries) {
 *
 * The slim `FindingState[]` IS the projection shape — the reducer already
 * projects every reader-relevant field (id / category / action / status +
-* payload-derived summary / reason / target). NOT the legacy §17
-* `FindingsEvent` jsonl event schema. Validated against `FindingsJson`.
+* payload-derived summary / reason / target). Validated against FindingsJson.
 */
 function composeFindingsJson(snapshot) {
 	return FindingsJson.parse({
@@ -13234,13 +13182,6 @@ function registerTaskAdd(tasksCmd, deps) {
 		const existingFull = [];
 		for (const t of session.snapshot.tasks) {
 			const base = latestCanonicalTaskBody(session.entries, t.id);
-			if (!base) {
-				ctx.failure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${t.id} is in the projection but has no canonical body in the journal; cannot rebuild the graph to append`, {
-					task_id: t.id,
-					source: "journal"
-				});
-				return;
-			}
 			existingFull.push(materializeTaskForAmend(base, t));
 		}
 		const result = await mutator.runPlannedBatch(featureDir, session, (snapshot) => {
@@ -13322,13 +13263,6 @@ function registerTaskAmend(tasksCmd, deps) {
 				return;
 			}
 			const sCanonical = latestCanonicalTaskBody(sSession.entries, taskId);
-			if (!sCanonical) {
-				ctx.emitFailure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`, {
-					task_id: taskId,
-					source: "journal"
-				});
-				return;
-			}
 			const sNewGraph = materializeTaskInput(inTask.data, taskId);
 			const sNewSteps = new Set(Object.keys(sNewGraph.execution));
 			const sPriorExec = sCanonical.execution;
@@ -13403,15 +13337,7 @@ function registerTaskAmend(tasksCmd, deps) {
 			ctx.emitFailure("TASK_NOT_FOUND", `task ${taskId} is not in the current tasks projection`, { task_id: taskId });
 			return;
 		}
-		const base = latestCanonicalTaskBody(session.entries, taskId);
-		if (!base) {
-			ctx.emitFailure("CANONICAL_TASK_BODY_UNAVAILABLE", `task ${taskId} is in the projection but has no canonical body in the journal; cannot amend in place`, {
-				task_id: taskId,
-				source: "journal"
-			});
-			return;
-		}
-		const materialized = materializeTaskForAmend(base, current);
+		const materialized = materializeTaskForAmend(latestCanonicalTaskBody(session.entries, taskId), current);
 		const execution = materialized.execution;
 		for (const [step, applicability] of policyMap) {
 			const seeded = execution[step];
