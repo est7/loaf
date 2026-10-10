@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-10
+
 ### Changed
 
 - Admission now passes schema output to projection application: omitted
@@ -18,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `red_test_registered: true` with `BUG_TASK_FLAG_MISUSE`, matching the existing
   planned-task input boundary. This deliberately tightens amended input;
   false or absent flags retain their prior behavior.
+
+### Architecture
+
+- Journal entries are admitted as a kind-discriminated `AdmittedEntry` whose
+  payload is the schema output, parsed once per admission; the reducer and
+  preflight checks read typed payloads instead of 49 hand-written casts.
 
 ## [0.9.0] — 2026-10-10
 
@@ -460,6 +468,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.10.0]: https://github.com/est7/loaf/releases/tag/v0.10.0
 [0.9.0]: https://github.com/est7/loaf/releases/tag/v0.9.0
 [0.8.0]: https://github.com/est7/loaf/releases/tag/v0.8.0
 [0.7.0]: https://github.com/est7/loaf/releases/tag/v0.7.0

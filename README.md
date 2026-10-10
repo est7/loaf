@@ -26,15 +26,15 @@ manufacture gate decisions, terminal choices, waivers, or manual attestations.
 Run directly from a GitHub release tag via `bunx` or `npx`:
 
 ```bash
-bunx github:est7/loaf#v0.9.0 --version
-npx  github:est7/loaf#v0.9.0 --version
+bunx github:est7/loaf#v0.10.0 --version
+npx  github:est7/loaf#v0.10.0 --version
 ```
 
 Or add as a dependency:
 
 ```bash
-bun add github:est7/loaf#v0.9.0
-npm install github:est7/loaf#v0.9.0
+bun add github:est7/loaf#v0.10.0
+npm install github:est7/loaf#v0.10.0
 ```
 
 The built `dist/cli.mjs` is committed for github-install support — consumers do not need bun, tsdown, or any post-install build step. Requires Node ≥ 22 to run.
