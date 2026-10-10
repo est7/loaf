@@ -5346,11 +5346,12 @@ function buildGateDecideAction(gate) {
 		reason: gate === "spec-lock" ? "SPEC_LOCK_GATE_DECISION_REQUIRED" : "VERIFY_ACCEPT_GATE_DECISION_REQUIRED"
 	};
 }
-function nextLegalTargets(prev, ceremony, verifyAccepted = false) {
+function nextLegalTargets(prev, ceremony, verifyAccepted = false, specLocked = false) {
 	return (LEGAL_TRANSITIONS[prev] ?? []).filter((target) => validateTransition(prev, target, {
 		ceremony,
 		actor: "cli:loaf",
-		verify_accepted: verifyAccepted
+		verify_accepted: verifyAccepted,
+		spec_locked: specLocked
 	}).ok);
 }
 function transitionOwnerFor(input) {
@@ -5396,7 +5397,7 @@ function transitionOwnerFor(input) {
 		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
 	};
 	if (sub_state.startsWith("DONE.")) return null;
-	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
+	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted, spec_locked);
 	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
 	if (target === void 0) throw new Error(`No legal next action for non-terminal sub_state=${sub_state}`);
 	return {

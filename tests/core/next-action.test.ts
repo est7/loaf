@@ -178,6 +178,22 @@ describe("buildNextOutput — VERIFY.accept gate / settle / deliver fork", () =>
 });
 
 describe("buildNextOutput — pending precedence and forks", () => {
+  test("approved SPEC.design without pending recommends phase advance and preserves the gate path when unlocked", () => {
+    expect(run("SPEC.design", { spec_locked: true }).next_action).toEqual({
+      command: "loaf advance EXECUTE.plan",
+      owner_verb: "advance",
+      target: "EXECUTE.plan",
+      blocking: false,
+      reason: "ADVANCE_TO_NEXT_SUB_STATE",
+    });
+    expect(run("SPEC.design", { spec_locked: false }).next_action).toEqual({
+      command: 'loaf gate decide spec-lock --approve|--reject --reason "<reason>"',
+      owner_verb: "gate decide",
+      target: "spec-lock",
+      blocking: true,
+      reason: "SPEC_LOCK_GATE_DECISION_REQUIRED",
+    });
+  });
   test("ask_user_question head recommends the FIFO pending-resolve command (no positional id)", () => {
     const out = run("SPEC.design", { pending: [makePending("ask_user_question")] });
     expect(out.blocked).toBe(true);

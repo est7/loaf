@@ -45,29 +45,33 @@ production source and contains failing synthetic counterexamples. Literal
 policy, precedence, stage, byte differential and real CLI/journal witnesses
 provide independent behavioral evidence. No exception baseline was added.
 
-## Existing next-action reachability finding (unfixed)
+## Next-action reachability finding (fixed in the separate S01 slice)
 
 A real journal can reach SPEC.design with spec_locked=true and no pending:
 eight built CLI commands establish a standard ceremony, submit a valid empty
 spec and a docs task graph, then the real spec-lock evaluator passes. A normal
 single-entry `mutate()` of a human approved spec-lock gate commits; replay of
 all nine entries yields that state. No append/admission/evaluator bypass or
-snapshot flag injection is used. The built `loaf next --format=json --quiet`
-then exits 1 with UNEXPECTED_ERROR and preserves journal bytes.
+snapshot flag injection is used. Before S01, built `loaf next --format=json --quiet`
+exited 1 with UNEXPECTED_ERROR and preserves journal bytes.
 
-Cause: transitionOwnerFor skips the gate prompt when spec_locked is true, then
-calls nextLegalTargets without passing that flag. That helper evaluates the
-SPEC.design -> EXECUTE.plan guard without spec_locked, returns no targets, and
-the non-terminal invariant throws. Ordinary CLI gate assembly also emits phase
+Original cause: transitionOwnerFor skipped the gate prompt when spec_locked is true, then
+called nextLegalTargets without passing that flag. That helper evaluated the
+SPEC.design -> EXECUTE.plan guard without spec_locked, returned no targets, and
+the non-terminal invariant threw. Ordinary CLI gate assembly also emits phase
 advance in its atomic batch; this witness proves accepted core single-entry
 mutation/replay reachability, not that normal completed CLI gate approval
 leaves the intermediate cursor. This behavior predates the intervention refactor
-and is a separate finding, intentionally not fixed by this change. The pre-C5
+and was reported separately from the behavior-preserving intervention refactor.
+The pre-C5
 next builder at f866979 throws the identical exception on the same replayed
-state; transition routing/guard behavior is unchanged by this refactor.
+state; the original intervention refactor did not change that routing/guard behavior.
 
 Session evidence: `/tmp/c5-slice4-invariant-reachability.json` and the retained
 agent-created directory recorded there, containing journal, projections,
-CLI setup transcript and crash log. Repair needs a separately authorized
-next-action contract change; do not weaken the ownership/refactor checks or
-silently change gate batching to hide this result.
+CLI setup transcript and crash log. The separately authorized S01 fix passes
+the actual spec_locked flag from
+transitionOwnerFor through nextLegalTargets into guard evaluation. The admitted
+state now recommends EXECUTE.plan with exit 0; unlocked gate routing and the
+transition rules remain unchanged. The original evidence above records the
+pre-fix failure, rather than a remaining open issue.

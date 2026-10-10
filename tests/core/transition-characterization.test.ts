@@ -402,4 +402,14 @@ describe("validateTransition characterization — forward and guard error surfac
   ])("nextLegalTargets keeps SPEC.design blocked without spec_locked", (ceremony) => {
     expect(nextLegalTargets("SPEC.design", ceremony)).toEqual([]);
   });
+
+  test.each([
+    QUICK,
+    LIGHT,
+    STANDARD,
+    DEEP,
+  ])("nextLegalTargets uses the actual SPEC.design lock flag", (ceremony) => {
+    expect(nextLegalTargets("SPEC.design", ceremony, false, false)).toEqual([]);
+    expect(nextLegalTargets("SPEC.design", ceremony, false, true)).toEqual(["EXECUTE.plan"]);
+  });
 });

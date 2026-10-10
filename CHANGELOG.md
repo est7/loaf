@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `loaf next` now recommends advancing to EXECUTE.plan for an admitted
+  SPEC.design journal with an approved spec-lock and no pending prompt.
+  Next-target guard evaluation uses the actual spec_locked flag instead of
+  crashing with UNEXPECTED_ERROR; unlocked spec-lock prompts are unchanged.
+
 - Scope tracking in a new EXECUTE iteration now retains uncovered paths from
   the previous iteration alongside newly tracked paths, so a late hook cannot
   lose its path before the next scope closure. Already recorded paths are

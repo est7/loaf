@@ -120,6 +120,7 @@ export function nextLegalTargets(
   prev: SubState,
   ceremony: Ceremony,
   verifyAccepted = false,
+  specLocked = false,
 ): SubState[] {
   const allowed = LEGAL_TRANSITIONS[prev] ?? [];
   return allowed.filter(
@@ -128,6 +129,7 @@ export function nextLegalTargets(
         ceremony,
         actor: "cli:loaf",
         verify_accepted: verifyAccepted,
+        spec_locked: specLocked,
       }).ok,
   );
 }
@@ -200,7 +202,7 @@ export function transitionOwnerFor(input: TransitionOwnerInput): NextAction | nu
 
   if (sub_state.startsWith("DONE.")) return null;
 
-  const targets = nextLegalTargets(sub_state, ceremony, verify_accepted);
+  const targets = nextLegalTargets(sub_state, ceremony, verify_accepted, spec_locked);
   const target =
     verify_next_target !== undefined && targets.includes(verify_next_target)
       ? verify_next_target
