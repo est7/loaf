@@ -3190,7 +3190,7 @@ function installCommandActionPolicy(program, ctx) {
 }
 //#endregion
 //#region package.json
-var version = "0.12.0";
+var version = "0.13.0";
 //#endregion
 //#region src/core/attachment-authority.ts
 const LONG_TEXT_SLOTS = {

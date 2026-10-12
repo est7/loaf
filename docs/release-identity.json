@@ -1,15 +1,19 @@
 {
   "schema": 1,
-  "baseline_tag": "v0.11.0",
-  "target_version": "0.12.0",
+  "baseline_tag": "v0.12.0",
+  "target_version": "0.13.0",
   "breaking_changes": [
     {
-      "task": "cleanup C",
-      "contract": "all journal payload objects reject undeclared keys (including visual contracts); public artifact schemas expose closed objects; old journal lines with newly disallowed keys fail replay"
+      "task": "G2",
+      "contract": "deep delivery (lessons_required=must) rejects DELIVER_LESSONS_REQUIRED until a lesson:recorded entry exists; loaf next adds the blocking `lessons add` verb with reason LESSONS_REQUIRED_BEFORE_DELIVER; zero-lesson deep deliveries fail replay"
     },
     {
-      "task": "cleanup C",
-      "contract": "non-behavioral tasks carrying red_test_registered fail with INVALID_PAYLOAD instead of BUG_TASK_FLAG_MISUSE"
+      "task": "G3",
+      "contract": "evidence attachments accept only {path, mime?}; caller-supplied sha256/bytes and historical external attachment refs are rejected; the CLI copies bytes into attachments/<JE-id>/ and derives integrity"
+    },
+    {
+      "task": "retire target-design promises",
+      "contract": "Ceremony has five required fields without strict_drift_check; complexity_score is removed from state projections, schemas and TUI; payloads carrying retired fields are rejected"
     }
   ]
 }
