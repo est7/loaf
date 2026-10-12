@@ -50,14 +50,14 @@ export const MACHINE = defineMachine({
   "TRIAGE.score": {
     entry: "loaf start <desc> invoked",
     exit: "complexity_score computed (0-100)",
-    write_paths: [".loaf/<feature>/state.json"],
+    write_paths: [],
     edges: [{ target: "TRIAGE.confirm", owner_kind: "event:phase_advanced" }],
     prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile.",
   },
   "TRIAGE.confirm": {
     entry: "score computed",
     exit: "user accepts or overrides profile",
-    write_paths: [".loaf/<feature>/state.json"],
+    write_paths: [],
     edges: [
       {
         target: "SPEC.proposal",
@@ -204,7 +204,7 @@ export const MACHINE = defineMachine({
   "VERIFY.plan": {
     entry: "EXECUTE.done && ceremony.verify_phase=true",
     exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
-    write_paths: [".loaf/<feature>/state.json"],
+    write_paths: [],
     edges: [
       { target: "VERIFY.run", owner_kind: "event:phase_advanced" },
       { target: "VERIFY.review", owner_kind: "contract:next" },

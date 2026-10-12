@@ -2380,6 +2380,107 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     expect(afterDone.evidence_count).toBe(1);
   });
 
+  test.each([
+    { ceremony: "standard", covers: undefined, proven: true },
+    { ceremony: "light", covers: undefined, proven: true },
+    { ceremony: "light", covers: "REQ-CORE-001", proven: false },
+    { ceremony: "light", covers: "", proven: false },
+  ])("step evidence coverage: $ceremony / $covers proves task=$proven", async ({
+    ceremony,
+    covers,
+    proven,
+  }) => {
+    const dir = await tmpFeatureDir();
+    const F = "step-proof";
+    const ENV = { LOAF_USER: "tester" };
+    const { step: cliStep, writeInput } = makeCli(dir, ENV);
+    const step = (label: string, argv: string[]) =>
+      cliStep(label, argv[0] === "start" ? argv : [...argv, "--feature", F]);
+    await step("start", ["start", F, "--ceremony", ceremony]);
+    await step("triage", ["advance", "TRIAGE.confirm"]);
+    await step("proposal", ["advance", "SPEC.proposal"]);
+    const spec = await writeInput("spec-input.json", {
+      feature: { id: "F-001", name: "Step evidence proof" },
+      intent: "Prove task evidence through the real CLI",
+      adr_refs: [],
+      needs_clarification: [],
+    });
+    await step("submit spec", ["spec", "submit", "--input", spec]);
+    const req = await writeInput("req-input.json", {
+      id_namespace: "REQ-CORE",
+      type: "ubiquitous",
+      response: "the system shall preserve explicit evidence coverage",
+      acceptance_na: true,
+      acceptance_na_reason: "this regression asserts task proof rather than requirement coverage",
+    });
+    await step("add requirement", ["spec", "add-req", "--input", req]);
+    for (const target of ["SPEC.spec", "SPEC.plan", "SPEC.design"]) {
+      await step(target, ["advance", target]);
+    }
+    const tasks = await writeInput("task-input.json", {
+      tasks: [
+        {
+          local_key: "proof",
+          kind: "chore",
+          drives: ["REQ-CORE-001"],
+          no_test_rationale: "the integration regression is the proof",
+          depends_on: [],
+          labels: [],
+        },
+      ],
+    });
+    await step("plan task", ["tasks", "submit", "--input", tasks]);
+    await step("lock", [
+      "gate",
+      "decide",
+      "spec-lock",
+      "--approve",
+      "--reason",
+      "task graph is ready",
+    ]);
+    await step("work", ["advance", "EXECUTE.work"]);
+    await step("claim", ["tasks", "claim", "T-001"]);
+    await step("start execute", ["tasks", "step", "start", "--task", "T-001", "--step", "execute"]);
+    await step("done with evidence", [
+      "tasks",
+      "step",
+      "done",
+      "--task",
+      "T-001",
+      "--step",
+      "execute",
+      "--evidence-kind",
+      "local-check",
+      "--evidence-summary",
+      "the task check passed",
+      ...(covers === undefined ? [] : ["--evidence-covers", covers]),
+    ]);
+    await step("close work", ["advance", "EXECUTE.done"]);
+    const verified = await step("task proof", ["verify", "status"]);
+    const taskProof = verified.checks.find(
+      (check: { check: string }) => check.check === "task_evidence",
+    );
+    expect(taskProof.status).toBe(proven ? "pass" : "fail");
+    expect(taskProof.failures.map((failure: { code: string }) => failure.code)).toEqual(
+      proven ? [] : ["TASK_DONE_NO_EVIDENCE"],
+    );
+    const projection = JSON.parse(
+      await fs.readFile(path.join(dir, "snapshots", "evidence.json"), "utf8"),
+    );
+    expect(projection.evidence[0].covers).toEqual(
+      covers === undefined ? ["T-001"] : covers === "" ? [] : [covers],
+    );
+    if (ceremony === "light") {
+      const delivered = await runCli(
+        ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json"],
+        { env: ENV },
+      );
+      expect(delivered.exit).toBe(proven ? 0 : 2);
+      if (proven) expect(JSON.parse(delivered.stdout).sub_state).toBe("DONE.delivered");
+      else expect(JSON.parse(delivered.stderr).code).toBe("DELIVER_VERIFY_MIN_INCOMPLETE");
+    }
+  });
+
   // SCEN-E2E-005 — see docs/e2e-scenarios.md
   test("SCEN-E2E-005 — quick ceremony deliver from EXECUTE.done passes verify-min (no tracked tasks → vacuous)", async () => {
     const dir = await tmpFeatureDir();

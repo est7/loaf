@@ -102,8 +102,8 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 <!-- generated:fsm-substates BEGIN -->
 | Sub-state | Entry condition | Exit condition | Logical write paths | Gate |
 |---|---|---|---|---|
-| <code>TRIAGE.score</code> | <code>loaf start &lt;desc&gt; invoked</code> | <code>complexity_score computed (0-100)</code> | <code>.loaf/&lt;feature&gt;/state.json</code> | — |
-| <code>TRIAGE.confirm</code> | <code>score computed</code> | <code>user accepts or overrides profile</code> | <code>.loaf/&lt;feature&gt;/state.json</code> | — |
+| <code>TRIAGE.score</code> | <code>loaf start &lt;desc&gt; invoked</code> | <code>complexity_score computed (0-100)</code> | — | — |
+| <code>TRIAGE.confirm</code> | <code>score computed</code> | <code>user accepts or overrides profile</code> | — | — |
 | <code>SPEC.proposal</code> | <code>ceremony.spec_phase=true &amp;&amp; TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)</code> | <code>spec.md body has Proposal section</code> | <code>.loaf/&lt;feature&gt;/spec.md</code><br><code>.loaf/&lt;feature&gt;/spec-draft-context.md</code> | — |
 | <code>SPEC.spec</code> | <code>proposal section exists OR amend-spec back-edge</code> | <code>frontmatter has requirements (each with three-way verifiability) + scenarios (+visual_contracts if UI); needs_clarification empty</code> | <code>.loaf/&lt;feature&gt;/spec.md</code> | — |
 | <code>SPEC.plan</code> | <code>spec section complete &amp;&amp; needs_clarification empty</code> | <code>spec.md body has Plan section</code> | <code>.loaf/&lt;feature&gt;/spec.md</code> | — |
@@ -111,7 +111,7 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 | <code>EXECUTE.plan</code> | <code>spec-lock passed (or quick: TRIAGE.confirm done)</code> | <code>every task has execution policy populated per its kind</code> | <code>.loaf/&lt;feature&gt;/tasks.json</code> | — |
 | <code>EXECUTE.work</code> | <code>EXECUTE.plan done OR fix-impl/fix-test/amend-tasks back-edge</code> | <code>every task.status = done OR abandoned, with all required steps passed/waived/na</code> | <code>.loaf/&lt;feature&gt;/tasks.json</code><br><code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
 | <code>EXECUTE.done</code> | <code>all tasks status ∈ &#123;done, abandoned&#125;</code> | <code>advance to VERIFY.plan (verify_phase=true); OR DONE.delivered (verify_phase=false: quick / light non-spike via `loaf deliver`: verify-min runs at this boundary, on pass transition direct to DONE.delivered, on fail exit 2 — see protocol.md §3.2 + §10.14)</code> | — | — |
-| <code>VERIFY.plan</code> | <code>EXECUTE.done &amp;&amp; ceremony.verify_phase=true</code> | <code>applicability computed for each VerifyCheckKind (must/optional/na with reasons)</code> | <code>.loaf/&lt;feature&gt;/state.json</code> | — |
+| <code>VERIFY.plan</code> | <code>EXECUTE.done &amp;&amp; ceremony.verify_phase=true</code> | <code>applicability computed for each VerifyCheckKind (must/optional/na with reasons)</code> | — | — |
 | <code>VERIFY.run</code> | <code>VERIFY.plan done with run applicability ∈ &#123;must, optional-elected&#125;; OR amend back-edge</code> | <code>run check passed or explicitly waived</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
 | <code>VERIFY.review</code> | <code>VERIFY.plan or prior check done with review applicability ∈ &#123;must, optional-elected&#125;</code> | <code>review check passed or explicitly waived</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
 | <code>VERIFY.acceptance</code> | <code>VERIFY.plan or prior check done with acceptance applicability ∈ &#123;must, optional-elected&#125;</code> | <code>acceptance check passed or explicitly waived</code> | <code>.loaf/&lt;feature&gt;/evidence.jsonl</code><br><code>.loaf/&lt;feature&gt;/findings.jsonl</code> | — |
@@ -123,7 +123,7 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 | <code>DONE.abandoned</code> | <code>loaf abandon --reason '...' (reason required)</code> | <code>terminal</code> | — | — |
 <!-- generated:fsm-substates END -->
 
-上方生成表是 machine.ts 的逻辑声明，其中 Q9 backfill / spec-draft-context / 自动判分 / lessons exit 条件未对应完整 runtime enforcement；实际边界以 §3、§4.2、§8.6 为准。**未实现（目标设计）**：将旧逻辑 write_paths 与当前存储路径全面对齐。生成块仅由 gen:fsm 维护。
+上方生成表是 machine.ts 的逻辑声明，其中 Q9 backfill / spec-draft-context / 自动判分 / lessons exit 条件未对应完整 runtime enforcement；实际边界以 §3、§4.2、§8.6 为准。**未实现（目标设计）**：将旧逻辑 write_paths 与当前存储路径全面对齐。TRIAGE.score / TRIAGE.confirm / VERIFY.plan 的 agent write_paths 为空：state projection 只能由 CLI 派生，不允许通过 hook 直写。生成块仅由 gen:fsm 维护。
 
 ### Transition edges(canonical MACHINE projection)
 
@@ -1212,7 +1212,7 @@ EXECUTE.done    all tasks reached final status
 | `chore` | `execute` | 单步操作(版本号 bump / 配置 edit) |
 
 **两个伪 step 从协议层移除(Q6)**:
-- `tasks step done --evidence-*` 若未显式给 `--evidence-covers T-NNN`，evidence 的 covers=[]，不满足 task proof；调用方必须声明覆盖 task id。
+- `tasks step done --evidence-*` 省略 `--evidence-covers` 时默认 covers=[当前 task id]；显式传入的 CSV（包括空值）保持调用方选择，不自动追加 task id。passing evidence 仍需符合 task kind policy 才满足 proof。
 - `local-check` → 变成 **evidence kind**(任何 step 中跑测试都产 `kind=local-check` 的 evidence)
 - `record-findings` → 变成**正交动作**,通过 `loaf finding raise` 触发,**不进 step 状态机**
 

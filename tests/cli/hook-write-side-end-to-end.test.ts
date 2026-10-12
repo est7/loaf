@@ -152,15 +152,23 @@ const wg = (featureDir: string, target: string): string[] => [
 ];
 
 describe("SC-15c — write-guard allow/deny", () => {
-  test("in-scope write (.loaf/<feature>/state.json at TRIAGE.score) → exit 0 allow", async () => {
-    const { repoRoot, featureDir } = await tmpRepo();
-    await start(featureDir);
-    const r = await runCli(wg(featureDir, path.join(featureDir, "state.json")));
-    expect(r.exit).toBe(0);
-    expect(r.stdout).toBe("");
-    expect(r.stderr).toBe("");
-    void repoRoot;
-  });
+  test.each(["TRIAGE.score", "TRIAGE.confirm"])(
+    "state artifacts at %s are CLI-owned, with no agent allow-set",
+    async (subState) => {
+      const { featureDir } = await tmpRepo();
+      await start(featureDir);
+      if (subState === "TRIAGE.confirm") await advance(featureDir, subState);
+      for (const artifact of ["state.json", "snapshots/state.json"]) {
+        const r = await runCli([...wg(featureDir, path.join(featureDir, artifact)), "--format", "json"]);
+        expect(r.exit).toBe(2);
+        expect(r.stdout).toBe("");
+        expect(JSON.parse(r.stderr)).toMatchObject({
+          code: "WRITE_PATH_VIOLATION",
+          detail: { sub_state: subState, allow_set: [] },
+        });
+      }
+    },
+  );
 
   test("out-of-scope write (src/foo.ts at TRIAGE.score) → exit 2 WRITE_PATH_VIOLATION", async () => {
     const { repoRoot, featureDir } = await tmpRepo();
@@ -241,10 +249,12 @@ describe("SC-15c — strict stdin resolution", () => {
   test("non-TTY stdin hook payload (tool_input.file_path) resolves the path → allow", async () => {
     const { featureDir } = await tmpRepo();
     await start(featureDir);
+    await advance(featureDir, "TRIAGE.confirm");
+    await advance(featureDir, "SPEC.proposal");
     const deps: MainDeps = {
       isStdinTty: () => false,
       readStdin: async () =>
-        JSON.stringify({ tool_input: { file_path: path.join(featureDir, "state.json") } }),
+        JSON.stringify({ tool_input: { file_path: path.join(featureDir, "spec.md") } }),
     };
     const r = await runCli(
       ["hook", "write-guard", "--feature", "auth-refresh", "--feature-dir", featureDir],

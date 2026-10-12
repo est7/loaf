@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Step-completion evidence now covers its task by default when
+  `--evidence-covers` is omitted. Explicit coverage, including an empty value,
+  remains unchanged; task proof still requires passing evidence of an accepted kind.
+- `TRIAGE.score`, `TRIAGE.confirm`, and `VERIFY.plan` no longer authorize
+  agent writes to the obsolete per-feature `state.json` path. These control
+  states have no agent-written artifact; snapshot state remains CLI-derived.
+
 ## [0.12.0] — 2026-10-12
 
 ### Changed

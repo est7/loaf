@@ -305,7 +305,7 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
       .option("--evidence-summary <text>", "Evidence summary (≥3 chars)")
       .option(
         "--evidence-covers <csv>",
-        "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence",
+        "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence (default: current task)",
       )
       .option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)")
       .option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)")
@@ -392,6 +392,7 @@ export function registerTaskStep(tasksCmd: Command, deps: TasksRegistrationDeps)
           result: opts.evidenceResult ?? opts.result,
           summary: opts.evidenceSummary,
           task_id: opts.task,
+          covers: [opts.task],
         };
         if (opts.evidenceCovers !== undefined) {
           evidencePayload["covers"] = opts.evidenceCovers

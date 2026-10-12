@@ -3163,7 +3163,7 @@ const MACHINE = defineMachine({
 	"TRIAGE.score": {
 		entry: "loaf start <desc> invoked",
 		exit: "complexity_score computed (0-100)",
-		write_paths: [".loaf/<feature>/state.json"],
+		write_paths: [],
 		edges: [{
 			target: "TRIAGE.confirm",
 			owner_kind: "event:phase_advanced"
@@ -3173,7 +3173,7 @@ const MACHINE = defineMachine({
 	"TRIAGE.confirm": {
 		entry: "score computed",
 		exit: "user accepts or overrides profile",
-		write_paths: [".loaf/<feature>/state.json"],
+		write_paths: [],
 		edges: [{
 			target: "SPEC.proposal",
 			owner_kind: "event:phase_advanced",
@@ -3315,7 +3315,7 @@ const MACHINE = defineMachine({
 	"VERIFY.plan": {
 		entry: "EXECUTE.done && ceremony.verify_phase=true",
 		exit: "applicability computed for each VerifyCheckKind (must/optional/na with reasons)",
-		write_paths: [".loaf/<feature>/state.json"],
+		write_paths: [],
 		edges: [
 			{
 				target: "VERIFY.run",
@@ -14302,7 +14302,7 @@ function registerTaskStep(tasksCmd, deps) {
 			step: opts.step
 		}) }));
 	});
-	declareCommandPolicy(stepCmd.command("done").description("Complete a workflow step; --result is the step outcome, independent of --evidence-result").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step outcome: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Independent evidence outcome (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+	declareCommandPolicy(stepCmd.command("done").description("Complete a workflow step; --result is the step outcome, independent of --evidence-result").requiredOption("--task <task-id>", "Task whose step to mark done").requiredOption("--step <step-name>", "Step name (kind-specific)").option("--result <r>", "Step outcome: passed (default) | failed | waived | na", "passed").option("--evidence-kind <kind>", "Evidence kind (closed EvidenceKind enum)").option("--evidence-result <r>", "Independent evidence outcome (passed | failed | approved | rejected | waived)").option("--evidence-summary <text>", "Evidence summary (≥3 chars)").option("--evidence-covers <csv>", "Comma-separated REQ/SCEN/VIS/Task ids covered by this evidence (default: current task)").option("--evidence-check <kind>", "Verify-check kind (run | review | acceptance | visual)").option("--evidence-reason <text>", "Evidence reason (manual/waiver require ≥10 chars)").option("--evidence-actor <actor>", "Override evidence actor (default: cli:loaf; required human:* for manual/waiver)").option("--feature <name>", "Feature whose task lifecycle to advance").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
 		selectors: "selected",
 		dryRun: "mutating"
 	}).action(async (opts) => {
@@ -14360,7 +14360,8 @@ function registerTaskStep(tasksCmd, deps) {
 				actor: evidenceActor,
 				result: opts.evidenceResult ?? opts.result,
 				summary: opts.evidenceSummary,
-				task_id: opts.task
+				task_id: opts.task,
+				covers: [opts.task]
 			};
 			if (opts.evidenceCovers !== void 0) evidencePayload["covers"] = opts.evidenceCovers.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 			if (opts.evidenceCheck !== void 0) evidencePayload["check"] = opts.evidenceCheck;

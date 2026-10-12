@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "vitest";
 
+import { SUB_STATE_CONTRACT_BY_STATE } from "../../src/core/sub-state-contracts.js";
 import { WriteGuardConfig } from "../../src/core/loaf-config.js";
 import type { WriteCategory } from "../../src/core/step-write-paths.js";
 import {
@@ -231,5 +232,34 @@ describe("parseHookStdinPath", () => {
   });
   test("empty file_path → fail closed", () => {
     expect(parseHookStdinPath(JSON.stringify({ tool_input: { file_path: "" } })).ok).toBe(false);
+  });
+});
+
+
+describe("control-state write authority", () => {
+  test.each([
+    "TRIAGE.score",
+    "TRIAGE.confirm",
+    "VERIFY.plan",
+  ])("%s cannot authorize agent writes to state artifacts", (subState) => {
+    for (const artifact of ["state.json", "snapshots/state.json"]) {
+      const normalizedPath = `.loaf/auth/${artifact}`;
+      expect(
+        evaluateWritePath({
+          repoRoot: REPO,
+          feature: "auth",
+          subState,
+          targetPath: `${REPO}/${normalizedPath}`,
+          builtinGlobs: SUB_STATE_CONTRACT_BY_STATE[subState]!.write_paths,
+          activeCategories: [],
+          config: null,
+        }),
+      ).toEqual({
+        allowed: false,
+        code: "WRITE_PATH_VIOLATION",
+        normalizedPath,
+        allowSet: [],
+      });
+    }
   });
 });
