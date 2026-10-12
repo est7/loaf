@@ -736,7 +736,7 @@ export const ERROR_CATALOG = {
     zh_message_template:
       "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
     fix_template:
-      "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
+      "resolve the current head first via the kind-appropriate command, or raise one with `loaf pending raise --kind profile_escalation` before escalating",
     template_keys: ["actual_head"],
     doc_anchor: "protocol.md#§10.7",
     detail_keys: ["actual_head"],

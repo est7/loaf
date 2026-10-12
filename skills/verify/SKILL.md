@@ -48,8 +48,9 @@ For each lane `loaf next` routes you to, do the check and record proof:
   envelope actor is writer provenance; they deliberately may differ.
 - Failure → `loaf finding raise …`. A `fix-impl` / `fix-test` / `amend-tasks`
   finding back-edges the cursor to `EXECUTE.work` (leave VERIFY; report and
-  route via `/loaf:execute`). Otherwise close it with
-  `loaf finding close <FND-id>` once resolved. Open actionable findings block
+  route via `/loaf:execute`); `amend-spec` back-edges to `SPEC.spec`. A
+  back-edge does not close the finding: once the fix lands, run
+  `loaf finding close <FND-id>`. Open actionable findings block
   the gate; `defer` / `backlog` findings do not (they appear under
   `deferred_findings`).
 
@@ -64,8 +65,11 @@ passing independent spec review before the accept gate. Use
 from every implementer actor. The payload actor is the reviewer/attester; it is
 independent of the journal envelope writer selected through `LOAF_USER`.
 Without this non-implementer evidence, check 5 fails `SPEC_REVIEW_MISSING` (or
-the applicable implementer comparison diagnostic). Standard ceremony does not
-require it.
+the applicable implementer comparison diagnostic). Implementers are the
+non-`cli:*` actors on done-task `task-summary` / `local-check` evidence; if all
+such evidence came from `tasks step done --evidence-*` without
+`--evidence-actor` (actor `cli:loaf`), check 5 fails
+`SPEC_REVIEW_IMPLEMENTER_UNKNOWN`. Standard ceremony does not require it.
 
 `loaf next` walks the applicable lanes in order, then routes to `VERIFY.accept`.
 

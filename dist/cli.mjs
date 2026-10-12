@@ -532,7 +532,7 @@ const ERROR_CATALOG = {
 		exit_code: 2,
 		message_template: "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: {actual_head}",
 		zh_message_template: "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:{actual_head}",
-		fix_template: "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
+		fix_template: "resolve the current head first via the kind-appropriate command, or raise one with `loaf pending raise --kind profile_escalation` before escalating",
 		template_keys: ["actual_head"],
 		doc_anchor: "protocol.md#§10.7",
 		detail_keys: ["actual_head"]
@@ -7736,7 +7736,7 @@ var en_default = {
 		"SESSION_NOT_FOUND": "run `loaf sessions list --in-cwd` to see registered sessions (future SC-9b), or run `loaf start <name>` to create one",
 		"PENDING_BLOCKS_ADVANCE": "resolve the head with the kind-appropriate command: `loaf gate decide <G>` for kind=gate_decision; `loaf profile escalate --confirm --input <ceremony.json>` for kind=profile_escalation; `loaf pending resolve --answer <a>` for the rest",
 		"GATE_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the gate_decision pending to appear",
-		"ESCALATION_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear",
+		"ESCALATION_NOT_PENDING": "resolve the current head first via the kind-appropriate command, or raise one with `loaf pending raise --kind profile_escalation` before escalating",
 		"ACTOR_AUTHORITY_VIOLATION": "use the command surface that owns this kind; human-only kinds require an interactive human actor resolved by LOAF_USER or git user.email",
 		"FROM_CURSOR_MISMATCH": "refresh the current session state and emit the transition from the actual cursor; do not replay a stale transition candidate",
 		"INVALID_ENVELOPE": "rebuild the entry through the CLI mutator so seq, entry_id, actor, kind, payload, and batch markers satisfy JournalEntry",

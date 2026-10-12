@@ -437,8 +437,8 @@
     },
     "en_message": "`loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: value_actual_head",
     "zh_message": "`loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:value_actual_head",
-    "en_text": "error: ESCALATION_NOT_PENDING — `loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: value_actual_head\n  fix: resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear\n  see: protocol.md#§10.7\n",
-    "zh_text": "error: ESCALATION_NOT_PENDING — `loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:value_actual_head\n  fix: resolve the current head first via the kind-appropriate command, or wait for the profile_escalation pending to appear\n  see: protocol.md#§10.7\n"
+    "en_text": "error: ESCALATION_NOT_PENDING — `loaf profile escalate --confirm --input <ceremony.json>` requires pending head kind=profile_escalation; current head: value_actual_head\n  fix: resolve the current head first via the kind-appropriate command, or raise one with `loaf pending raise --kind profile_escalation` before escalating\n  see: protocol.md#§10.7\n",
+    "zh_text": "error: ESCALATION_NOT_PENDING — `loaf profile escalate --confirm --input <ceremony.json>` 要求 pending head kind=profile_escalation;当前 head:value_actual_head\n  fix: resolve the current head first via the kind-appropriate command, or raise one with `loaf pending raise --kind profile_escalation` before escalating\n  see: protocol.md#§10.7\n"
   },
   {
     "code": "ACTOR_AUTHORITY_VIOLATION",

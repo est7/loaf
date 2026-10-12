@@ -51,8 +51,10 @@ the decision.
 
 5. **Confirm the profile.** `loaf advance TRIAGE.confirm --feature <F>`
    (`TRIAGE.score` → `TRIAGE.confirm`). The ceremony was fixed by the human in
-   step 3; after start it changes only through a kernel-raised
-   `profile_escalation` pending resolved with `loaf profile escalate`. Then
+   step 3; after start it changes only when a skill raises a `profile_escalation`
+   pending (`loaf pending raise --kind profile_escalation --question "<why>"`)
+   and the human resolves it with
+   `loaf profile escalate --confirm --input <ceremony.json>`. Then
    report & stop.
 
 ## Done — report & stop

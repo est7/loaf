@@ -243,11 +243,12 @@ The main skill, when fanning out during EXECUTE, **must follow this
    - Read `loaf tasks list --status ready --format json`; `ready: true` is
      kernel-derived and already requires every dependency to be `done`
    - Confirm mutually non-conflicting write scopes (derived from
-     `STEP_WRITE_PATHS_BY_KIND[kind][step]` ∪ `loaf.config.json.paths.*`)
+     `STEP_WRITE_PATHS_BY_KIND[kind][step]` ∪ the `loaf.config.json` `paths.<category>`
+     entries allowed for that step by `STEP_WRITE_CATEGORIES_BY_KIND[kind][step]`)
    - Pick N (typically 2–4; Wang convention; configurable in loaf-skill)
 2. **Atomic batch transition**: main skill serially calls
    `loaf tasks claim <T-id>` then `loaf tasks step start --task <T-id> --step <s>`
-   for each of the N tasks. Claim moves `pending` → `in_progress` and is
+   for each of the N tasks. Claim moves `pending` or `ready` → `in_progress` and is
    admitted only when every dependency is `done` (`TASK_DEPS_NOT_SATISFIED`,
    `TASK_ALREADY_CLAIMED`); step start sets that step's `steps.<step>.status`
    to `running`. This step is **single-threaded**, with no race; preflight
@@ -306,7 +307,7 @@ file or lock directly.
 |---|---|
 | TRIAGE | Scoring is a single judgment; main skill, single thread |
 | SPEC | `spec.md` / plan / design is a single narrative; concurrent sub-agents produce fragments that fight over EARS REQs |
-| VERIFY | The 4 verify lanes are feature-level serial; concurrency does not speed them up; order is applicability-driven; intent is expressed by sub_state (`VERIFY.run / .review / .acceptance / .visual`) |
+| VERIFY | The 4 verify lanes are feature-level serial; concurrency does not speed them up; fixed lane order (run → review → acceptance → visual), applicability only skips lanes; intent is expressed by sub_state (`VERIFY.run / .review / .acceptance / .visual`) |
 | SETTLE | `SETTLE.lessons` is narrative distillation recorded via `loaf lessons add`; single thread |
 | DONE | Terminal, no work |
 
@@ -324,7 +325,7 @@ both loaf-cli AND loaf-skill — they sit outside loaf's scope entirely:
   skills may use the §4 fan-out contract, while kernel mutations remain serial.
 - **`Rule-candidate` auto-promotion**: Wang's "immediately harden
   high-impact review finding into script + unit test + check-fast" is
-  an automation concern. v0.1.0 non-goal (`loaf lessons promote`). Skills
+  an automation concern. protocol §16 non-goal (`loaf lessons promote`). Skills
   may flag rule-candidate intent in a `loaf lessons add` entry, but
   materialization is user/CI responsibility.
 - **Review round counter / fuse**: Wang's "iteration > 5 fuse" —

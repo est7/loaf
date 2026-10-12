@@ -50,7 +50,8 @@ Repeat until every task is `done` or `abandoned`:
    `TASK_DONE_NO_EVIDENCE`. For `light`, deliver enforces verify-min instead:
    behavioral/structural tasks need passing `local-check` evidence covering the
    T-id, visual-ui needs `visual-review` or `manual`, docs needs `task-summary`
-   or `manual` (else `DELIVER_VERIFY_MIN_INCOMPLETE`). Record
+   or `manual`, chore needs `local-check`, `manual`, or `task-summary`; a human
+   `waiver` satisfies any kind (else `DELIVER_VERIFY_MIN_INCOMPLETE`). Record
    REQ / SCEN / VIS coverage with separate evidence whose `covers[]` names those
    obligation ids. Evidence `kind` constrains which obligation a record can
    satisfy; choose a compatible kind before writing it:
@@ -81,7 +82,9 @@ Repeat until every task is `done` or `abandoned`:
    `fix-impl` requires target step `implement` and `fix-test` requires `red`;
    `--target-task` and `--target-step` go together; unusual category × action
    cells need `--reason`, incoherent cells are rejected. `fix-impl` /
-   `fix-test` / `amend-tasks` back-edges return you here.
+   `fix-test` / `amend-tasks` back-edges return you here; `amend-spec`
+   back-edges to `SPEC.spec`. Close the finding with
+   `loaf finding close <FND-id>` once the retry passes.
 
 Independent ready leaves may run **concurrently** — see
 [references/fan-out.md](references/fan-out.md). Side effects fan out; **loaf

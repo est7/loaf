@@ -52,6 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent writes to the obsolete per-feature `state.json` path. These control
   states have no agent-written artifact; snapshot state remains CLI-derived.
 
+- `ESCALATION_NOT_PENDING` now tells the operator to raise a
+  `profile_escalation` pending instead of waiting for one to appear; workflow
+  skills now document the `amend-spec` back-edge, manual finding closure after
+  a back-edge, the SETTLE.lessons finding restriction, chore verify-min kinds
+  and the `cli:*` implementer exclusion for deep spec review.
+
 ## [0.12.0] — 2026-10-12
 
 ### Changed

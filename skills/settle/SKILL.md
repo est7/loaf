@@ -36,8 +36,10 @@ Build the audit view through CLI readers:
 
 The last command confirms closure markers but intentionally does not expose
 payload paths. Do not invent planned scope or read/write a
-reconcile snapshot as truth. Resolve actionable drift through findings while
-remaining in `SETTLE.lessons`.
+reconcile snapshot as truth. Findings cannot be raised or closed at
+`SETTLE.lessons`; fix actionable drift before verify-accept. At this point,
+record drift as a lesson or surface it to the human, who may close via
+`loaf archive` / `loaf abandon`.
 
 ## Step 3 — Capture lessons
 

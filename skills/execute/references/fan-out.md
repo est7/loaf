@@ -28,7 +28,8 @@ always serial** (ADR-0005 single writer). Follow this 4-step loop:
 If a sub-agent crashes or times out, at fan-in raise a finding against its task
 (`loaf finding raise --category impl-defect --action fix-impl --target-task <T>
 --target-step implement --summary "<what failed>"`) and let the `fix-impl`
-back-edge return the cursor to `EXECUTE.work` and reset that step for a retry.
+back-edge return the cursor to `EXECUTE.work` and reset that step for a retry;
+close the finding with `loaf finding close <FND-id>` once the retry passes.
 If the task itself must be reshaped, use `--action amend-tasks` and then
 `loaf tasks amend <T> --input <file> --finding <FND-N>`. Do not fabricate evidence for work that did not complete.
 

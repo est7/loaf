@@ -14,7 +14,8 @@ continue across non-blocking machine routes, and stop at every human-owned
 decision or fact.
 
 You are the orchestrator; the kernel (`loaf-cli`) owns all state. Never write
-`.loaf/` directly. Pass `--feature <F>` on every `loaf` command.
+`.loaf/` directly. Pass `--feature <F>` on every `loaf` command except `loaf start`, which takes
+`<F>` positionally.
 
 ## Step 1 — Bootstrap
 
@@ -41,7 +42,8 @@ Repeat:
 
 The phase skills own **their own** gates internally (`/loaf:spec` runs
 spec-lock, `/loaf:verify` runs verify-accept). So the `blocked` row here is the
-safety net for `pending` / `profile escalate` and any gate a phase skill left
+safety net for `pending` / `profile escalate` / `lessons add` (deep, zero
+lessons at SETTLE.lessons) and any gate a phase skill left
 unhandled — not the normal path for the two main gates.
 
 ### Executable supervision classification
