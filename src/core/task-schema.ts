@@ -144,12 +144,14 @@ export const STEP_TO_KIND: Record<string, TaskKind[]> = {
 
 const TaskStatusPayload = z.enum(["pending", "ready", "in_progress", "done", "abandoned"]);
 
-const TaskBase = z.object({
-  id: TaskIdPayload,
-  depends_on: z.array(TaskIdPayload).default([]),
-  labels: z.array(z.string()).default([]),
-  status: TaskStatusPayload,
-});
+const TaskBase = z
+  .object({
+    id: TaskIdPayload,
+    depends_on: z.array(TaskIdPayload).default([]),
+    labels: z.array(z.string()).default([]),
+    status: TaskStatusPayload,
+  })
+  .strict();
 
 // ── Per-kind task variants ──────────────────────────────────────────────
 // Each variant extends TaskBase + adds kind-specific required fields +

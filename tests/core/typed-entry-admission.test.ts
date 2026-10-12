@@ -61,7 +61,6 @@ const req = {
   id: "REQ-AUTH-001",
   type: "ubiquitous",
   measurable: { threshold: 100, metric: "latency" },
-  undeclared_requirement_field: "must not reach the projection",
 };
 
 describe("typed entry admission", () => {
@@ -98,7 +97,7 @@ describe("typed entry admission", () => {
     expect(JSON.stringify(raw)).toBe(bytes);
   });
 
-  test("reducer consumes parsed defaults, stripping and declaration order", () => {
+  test("reducer consumes parsed defaults and declaration order", () => {
     const result = admitEntry(started(), entry("event:spec_req_added", { spec_version: 2, req }));
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(JSON.stringify(result));
@@ -138,6 +137,32 @@ describe("typed entry admission", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  test("visual metadata extras are rejected before projection application", () => {
+    const snapshot = started();
+    const before = JSON.stringify(snapshot);
+    const result = admitEntry(
+      snapshot,
+      entry("event:spec_visual_added", {
+        spec_version: 2,
+        visual: {
+          id: "VIS-AUTH-001",
+          target: "Result panel",
+          checks: ["Display correctly"],
+          passthrough_marker: "retired accidental behavior",
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      stage: "admission",
+      code: "INVALID_PAYLOAD",
+      detail: {
+        issues: [{ code: "unrecognized_keys", keys: ["passthrough_marker"], path: ["visual"] }],
+      },
+    });
+    expect(JSON.stringify(snapshot)).toBe(before);
   });
 
   test("raw journal payload bytes survive parsed projection, replay and real doctor rebuild", async () => {
@@ -185,7 +210,7 @@ describe("typed entry admission", () => {
           {
             question: "What should be preserved?",
             id: "NC-001",
-            passthrough_marker: "retained clarification",
+            context: "retained clarification",
           },
         ],
       });
@@ -200,22 +225,20 @@ describe("typed entry admission", () => {
           given: ["a session"],
           name: "Typed scenario",
           id: "SCEN-AUTH-001",
-          stripped_scenario_marker: "remove me",
         },
       });
       await write("event:spec_visual_added", {
         spec_version: 4,
         visual: {
           checks: ["Display correctly"],
-          target: "Result panel",
+          target: "retained visual",
           id: "VIS-AUTH-001",
-          passthrough_marker: "retained visual",
         },
       });
       const journalPath = path.join(dir, "journal.jsonl");
       const journalBytes = await fs.readFile(journalPath);
       expect(journalBytes.toString()).toContain(`"payload":${payloadBytes}`);
-      expect(journalBytes.toString()).toContain("undeclared_requirement_field");
+      expect(journalBytes.toString()).not.toContain('"direction"');
       const mutationSpec = await fs.readFile(path.join(dir, "spec.md"));
       expect(mutationSpec.toString()).toContain("direction: lte");
       expect(mutationSpec.toString()).not.toContain("undeclared_requirement_field");

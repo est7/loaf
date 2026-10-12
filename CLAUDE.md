@@ -116,7 +116,7 @@ source and tests rather than treating an old plan checkbox as live state.
 - **Plan-first when `PUBLIC_IMPACT=true`**: schema additions, reducer/preflight code unions, ERROR_CATALOG / DiagnosticCode additions, journal entry shape, ADR-touching decisions. Dispatch a plan to codex before RED.
 - **Boy Scout flag, don't fix**: in-scope refactors only; out-of-scope findings go in the commit's `不在范围` section with `[file:line — problem — suggestion]`.
 - **Generated diagnostics stay derived**: change `src/core/error-catalog.ts`, regenerate the i18n and protocol artifacts with the package scripts, and verify codegen drift. Do not patch generated mirrors by hand.
-- **Strict over Postel** at every CLI input boundary: `.strict()` Zod schemas, closed `z.enum` (no `.passthrough()` on closed-set fields like `EvidenceKind` / `FindingAction` / `PendingPromptKind`), reject caller-supplied ids, reject envelope fields.
+- **Strict over Postel** at every CLI input boundary: reject unknown control keys, caller-supplied ids, and envelope fields. Journal objects are closed, including nested structured content. Spec add-* input wrappers forward content to the complete journal schema. Closed enums such as `EvidenceKind`, `FindingAction`, and `PendingPromptKind` remain closed.
 
 ## Ship & distribution
 

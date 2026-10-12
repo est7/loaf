@@ -44,6 +44,10 @@ Concretely:
 
 ## Headless human-actor precondition
 
+Journal payload objects are closed: undeclared keys fail validation, including
+nested task, EARS, measurable, scenario, visual, feature, and clarification
+objects. Use CLI schemas and named fields rather than adding metadata.
+
 A non-interactive or headless agent MUST run
 `export LOAF_USER=<stable-id>` before any mutating command. The value is the
 raw stable identifier, without a `human:` prefix; loaf adds the namespace.

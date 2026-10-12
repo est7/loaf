@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** all journal payload objects now reject undeclared keys, including
+  event wrappers and nested task, EARS, measurable, scenario, visual, feature,
+  and clarification objects. Public artifact schemas now expose closed nested
+  objects (`additionalProperties: false`), including visual contracts. Accepted
+  raw journal bytes remain unchanged;
+  parsed defaults stay projection-only. Old journal entries containing
+  newly-disallowed keys now fail replay explicitly, without loose parsing,
+  historical-format fallback, or rewriting the journal.
+- Non-behavioral tasks carrying `red_test_registered` now fail with
+  `INVALID_PAYLOAD` naming the undeclared key, replacing the dedicated
+  `BUG_TASK_FLAG_MISUSE` raw-input check; behavioral-task flag misuse still
+  reports `BUG_TASK_FLAG_MISUSE`.
+- Pending options, task linkage, and resolution answers are now declared
+  optional payload fields; existing writers and answer-less profile escalation
+  retain their behavior.
+
 ## [0.11.0] — 2026-10-10
 
 ### Fixed

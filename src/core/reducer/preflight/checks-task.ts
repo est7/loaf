@@ -8,30 +8,11 @@ import { areTaskDependenciesSatisfied } from "../../task-graph.js";
 import { extractTaskSlim } from "../../task-schema.js";
 import type { PreflightCheckCtx, PreflightFailure } from "../preflight.js";
 
-// The only raw-payload exception: reject a known forbidden input key that
-// non-behavioral task schemas strip. Keep the original === true predicate;
-// false/undefined remain accepted. All domain fields come from the typed entry.
-function hasForbiddenTaskRedInput(inputPayload: unknown, taskIndex?: number): boolean {
-  if (typeof inputPayload !== "object" || inputPayload === null) return false;
-  let task: unknown;
-  if (taskIndex === undefined) {
-    if ("task" in inputPayload) task = inputPayload.task;
-  } else if ("tasks" in inputPayload && Array.isArray(inputPayload.tasks)) {
-    task = inputPayload.tasks[taskIndex];
-  }
-  return (
-    typeof task === "object" &&
-    task !== null &&
-    "red_test_registered" in task &&
-    task.red_test_registered === true
-  );
-}
-
 export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, inputPayload } = c;
+  const { entry } = c;
   if (entry.kind === "event:tasks_planned") {
     const seenIds = new Set<string>();
-    for (const [index, task] of entry.payload.tasks.entries()) {
+    for (const task of entry.payload.tasks) {
       if (seenIds.has(task.id)) {
         return {
           ok: false,
@@ -40,11 +21,7 @@ export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null
         };
       }
       seenIds.add(task.id);
-      if (
-        task.kind === "behavioral"
-          ? task.red_test_registered === true
-          : hasForbiddenTaskRedInput(inputPayload, index)
-      ) {
+      if (task.kind === "behavioral" && task.red_test_registered === true) {
         return {
           ok: false,
           code: "BUG_TASK_FLAG_MISUSE",
@@ -85,20 +62,12 @@ export function checkTasksPlanned(c: PreflightCheckCtx): PreflightFailure | null
 // body-only-field guard. This is a deliberate locus split, not a preflight
 // capability gap.
 export function checkTasksAmended(c: PreflightCheckCtx): PreflightFailure | null {
-  const { entry, inputPayload, sub_state, ctx } = c;
+  const { entry, sub_state, ctx } = c;
   if (entry.kind === "event:tasks_amended") {
     const amended = entry.payload;
     const mode = amended.mode;
     const taskId = amended.task.id;
     const sponsorId = amended.sponsored_by_finding_id;
-    if (amended.task.kind !== "behavioral" && hasForbiddenTaskRedInput(inputPayload)) {
-      return {
-        ok: false,
-        code: "BUG_TASK_FLAG_MISUSE",
-        detail: { task_id: taskId, kind: entry.kind },
-      };
-    }
-
     if (sponsorId !== undefined) {
       // (a) Verify the sponsorship marker against snapshot.findings — mirror
       // the back-edge sponsorship checks (step 5b): the finding must exist,

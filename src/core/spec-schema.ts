@@ -39,18 +39,18 @@ export const MeasurablePayload = z
     unit: z.string().optional(),
     direction: z.enum(["lte", "gte", "eq"]).default("lte"),
   })
-  .passthrough();
+  .strict();
 
 // VerifiabilityFields — the 4 optional fields as a structural shape, NO
-// refine. Stacks onto every EARS variant via .and(). The refine that
+// refine. Each closed EARS body includes these fields. The refine that
 // enforces "at least one of three" is applied SEPARATELY in
 // RequirementEarsVerifiable below.
-const VerifiabilityFields = z.object({
+const VerifiabilityFields = {
   measurable: MeasurablePayload.optional(),
   verified_by_scenarios: z.array(ScenIdPayload).optional(),
   acceptance_na: z.literal(true).optional(),
   acceptance_na_reason: z.string().min(10).optional(),
-});
+};
 
 // Single source for the three-way verifiability rule (protocol §4.2 / §5.1
 // check 5). Used both by RequirementEarsVerifiable refine (journal append)
@@ -73,36 +73,41 @@ export function hasVerifiability(req: {
 // missing trigger) DO reject here; verifiability gaps do NOT — those land
 // in spec-lock check 5.
 
-const ReqBase = z.object({ id: ReqIdPayload });
+const ReqBase = z.object({ id: ReqIdPayload }).strict();
 
 export const RequirementUbiquitousShape = ReqBase.extend({
   type: z.literal("ubiquitous"),
   response: z.string().min(10),
-}).and(VerifiabilityFields);
+  ...VerifiabilityFields,
+});
 
 export const RequirementEventDrivenShape = ReqBase.extend({
   type: z.literal("event-driven"),
   trigger: z.string().min(5),
   response: z.string().min(10),
-}).and(VerifiabilityFields);
+  ...VerifiabilityFields,
+});
 
 export const RequirementStateDrivenShape = ReqBase.extend({
   type: z.literal("state-driven"),
   while_: z.string().min(5),
   behavior: z.string().min(10),
-}).and(VerifiabilityFields);
+  ...VerifiabilityFields,
+});
 
 export const RequirementOptionalShape = ReqBase.extend({
   type: z.literal("optional"),
   feature: z.string().min(5),
   response: z.string().min(10),
-}).and(VerifiabilityFields);
+  ...VerifiabilityFields,
+});
 
 export const RequirementUnwantedShape = ReqBase.extend({
   type: z.literal("unwanted"),
   condition: z.string().min(5),
   response: z.string().min(10),
-}).and(VerifiabilityFields);
+  ...VerifiabilityFields,
+});
 
 export const RequirementEarsShape = z.union([
   RequirementUbiquitousShape,
@@ -147,11 +152,13 @@ export const ScenarioGherkin = z
     when: z.array(z.string().min(3)).min(1),
     then: z.array(z.string().min(3)).min(1),
   })
+  .strict()
   .refine((s) => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance), {
     message: "cannot set both requires_acceptance and acceptance_na",
   });
 export type ScenarioGherkin = z.infer<typeof ScenarioGherkin>;
 
+// Visual contracts are closed authored content, like every journal object.
 export const VisualContract = z
   .object({
     id: VisIdPayload,
@@ -160,7 +167,7 @@ export const VisualContract = z
     requires_visual: z.boolean().optional(),
     visual_na: z.string().min(5).optional(),
   })
-  .passthrough();
+  .strict();
 export type VisualContract = z.infer<typeof VisualContract>;
 
 export const NeedsClarification = z
@@ -170,7 +177,7 @@ export const NeedsClarification = z
     context: z.string().optional(),
     options: z.array(z.string()).optional(),
   })
-  .passthrough();
+  .strict();
 export type NeedsClarification = z.infer<typeof NeedsClarification>;
 
 // ── Whole spec.md frontmatter ───────────────────────────────────────────
@@ -229,10 +236,12 @@ export type SpecEditInput = z.infer<typeof SpecEditInput>;
 export const SpecSubmitInput = z
   .object({
     spec_version: z.number().int().positive().optional(),
-    feature: z.object({
-      id: FeatureIdPayload,
-      name: z.string().min(3),
-    }),
+    feature: z
+      .object({
+        id: FeatureIdPayload,
+        name: z.string().min(3),
+      })
+      .strict(),
     intent: z.string().min(20),
     adr_refs: z.array(z.string()).default([]),
     requirements: z.array(RequirementEarsVerifiable).default([]),

@@ -73,7 +73,12 @@ const schemas: Array<{
     fields: ["based_on", "based_on.spec"],
     rules: [284],
   },
-  { kind: "event:tasks_amended", payload: { mode: "replace", task }, fields: ["task"], rules: [318] },
+  {
+    kind: "event:tasks_amended",
+    payload: { mode: "replace", task },
+    fields: ["task"],
+    rules: [318],
+  },
   { kind: "event:task_claimed", payload: { task_id: "T-001" }, fields: ["task_id"], rules: [354] },
   {
     kind: "event:task_step_started",
@@ -228,9 +233,15 @@ describe("reducer duplicate guards — authoritative preflight", () => {
     "event:task_step_done",
   ] as const) {
     test(`lifecycle ${kind} rejects missing task (reducer 358/380/429)`, () => {
-      const result = preflight(entry(kind, { task_id: "T-999", step: "implement" }), {
-        snapshot: snapshot(),
-      });
+      const result = preflight(
+        entry(kind, {
+          task_id: "T-999",
+          ...(kind === "event:task_claimed" ? {} : { step: "implement" }),
+        }),
+        {
+          snapshot: snapshot(),
+        },
+      );
       expect(result).toMatchObject({
         ok: false,
         code: "TASK_NOT_FOUND",
@@ -243,7 +254,8 @@ describe("reducer duplicate guards — authoritative preflight", () => {
       const prev = snapshot(sponsored ? "EXECUTE.work" : "EXECUTE.plan");
       prev.findings[0]!.action = "amend-tasks";
       const result = preflight(
-        entry("event:tasks_amended", { mode: "replace",
+        entry("event:tasks_amended", {
+          mode: "replace",
           task: { ...task, id: "T-999" },
           ...(sponsored ? { sponsored_by_finding_id: "FND-001" } : {}),
         }),

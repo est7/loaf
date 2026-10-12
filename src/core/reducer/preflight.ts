@@ -300,8 +300,6 @@ export interface EnvelopeCheckCtx {
 
 export interface PreflightCheckCtx extends Omit<EnvelopeCheckCtx, "entry" | "payloadParsed"> {
   entry: AdmittedEntry;
-  /** Boundary-only input for rejecting a known forbidden task RED key. */
-  inputPayload: unknown;
 }
 
 export type PreflightCheck = (ctx: PreflightCheckCtx) => PreflightFailure | null;
@@ -353,7 +351,6 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
 
   const checkCtx: PreflightCheckCtx = {
     entry: admitted.entry,
-    inputPayload: entry.payload,
     ctx,
     sub_state,
     ceremony,

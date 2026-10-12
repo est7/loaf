@@ -623,3 +623,54 @@ describe("loaf spec submit — input + sub_state boundary", () => {
     expect(await readJournalLines(dir)).toEqual(before);
   });
 });
+
+test("spec add typo reports its offending key and nested path without an append", async () => {
+  const { dir, feature } = await seedAtSpecProposal();
+  try {
+    expect(
+      (
+        await runCli([
+          "advance",
+          "SPEC.spec",
+          "--feature",
+          feature,
+          "--feature-dir",
+          dir,
+          "--format",
+          "json",
+        ])
+      ).exit,
+    ).toBe(0);
+    const journal = path.join(dir, "journal.jsonl");
+    const before = await fs.readFile(journal);
+    const result = await runCli([
+      "spec",
+      "add-scenario",
+      "--input",
+      JSON.stringify({
+        id_namespace: "SCEN-TYPO",
+        name: "Valid scenario",
+        given: ["A session"],
+        when: ["Input arrives"],
+        then: ["Result appears"],
+        then_typo: ["Misspelled content"],
+      }),
+      "--feature",
+      feature,
+      "--feature-dir",
+      dir,
+      "--format",
+      "json",
+    ]);
+    expect(result.exit).toBe(2);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      code: "INVALID_PAYLOAD",
+      detail: { issues: [{ code: "unrecognized_keys", keys: ["then_typo"], path: ["scenario"] }] },
+    });
+    expect(result.stderr).toContain("then_typo");
+    expect(await fs.readFile(journal)).toEqual(before);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

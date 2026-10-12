@@ -51,6 +51,9 @@ For add-* input, run that command with `--schema --format=json` and omit
 `tasks submit` itself has no `--schema` flag. Pass your file with `--input`.
 The CLI stamps `REQ-`/`SCEN-`/`VIS-`/`T-` ids — never your own.
 
+REQ, measurable, scenario, VIS, clarification, feature, and task keys are
+closed: undeclared fields fail validation. Use the declared schema fields.
+
 ## Step 3 — The spec-lock gate (HUMAN decision point)
 
 At `SPEC.design`, `loaf next --feature <F> --format json` returns a **blocking**

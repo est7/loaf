@@ -282,9 +282,7 @@ export type JournalEntry = z.infer<typeof JournalEntry>;
 // (§11.2 step 3) + appendEntry (step 5 final validate) so Gate #2 / Gate #3
 // are real schema gates rather than envelope-only checks.
 
-// Generic record fallback for kinds whose payload shape is not yet pinned —
-// rejects literal strings / arrays / scalars (which is what Gate #3 needs)
-// but accepts any nested object structure.
+// Journal payload objects reject undeclared keys at every nesting depth.
 // Phase 16 SC-13b — typed session:resumed payload (codex r343/r345 lock).
 // Replaces the loose RecordPayload mapping for `session:resumed`. CLI
 // `loaf resume` constructs this from the loaded ResumePack header
@@ -311,7 +309,7 @@ export const CeremonyPayload = z
     lessons_required: z.enum(["must", "may", "skip"]),
     strict_drift_check: z.boolean(),
   })
-  .passthrough();
+  .strict();
 
 // Current start writers always provide ceremony_label, workspace, and the
 // version requirement. session_label remains optional for unlabeled starts.
@@ -334,7 +332,7 @@ export const SessionStartedPayload = z
       .string()
       .regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/),
   })
-  .passthrough();
+  .strict();
 export type SessionStartedPayload = z.infer<typeof SessionStartedPayload>;
 
 // Slice B — back-edge sponsorship encoded on the payload (codex r94/r96).
@@ -408,7 +406,7 @@ export const PhaseAdvancedPayload = z
      */
     back_edge: BackEdge.optional(),
   })
-  .passthrough();
+  .strict();
 export type PhaseAdvancedPayload = z.infer<typeof PhaseAdvancedPayload>;
 
 export const GateDecidedPayload = z
@@ -417,7 +415,7 @@ export const GateDecidedPayload = z
     decision: z.enum(["approved", "rejected"]),
     reason: z.string().min(1),
   })
-  .passthrough();
+  .strict();
 export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 
 // ── Per-kind strict payload schemas (audit r2 Blocker — pre-append validation) ──
@@ -428,25 +426,25 @@ export type GateDecidedPayload = z.infer<typeof GateDecidedPayload>;
 // The registry is total over EntryKind, and the reducer switch is exhaustive
 // at compile time; no separate runtime implementation inventory is needed.
 
-export const TaskRefPayload = z.object({ task_id: TaskIdPayload }).passthrough();
+export const TaskRefPayload = z.object({ task_id: TaskIdPayload }).strict();
 
 export const TaskStepRefPayload = z
   .object({
     task_id: TaskIdPayload,
     step: z.string().min(1),
   })
-  .passthrough();
+  .strict();
 
 // Item 1 — `loaf tasks abandon <T-N> --reason "..."`. The journal payload
 // carries the why (reason) even though the reducer projection stays
-// minimal (status→abandoned only). `.passthrough()` mirrors the sibling
+// minimal (status→abandoned only). `.strict()` mirrors the sibling
 // TaskRefPayload / TaskStepRefPayload.
 export const TaskAbandonedPayload = z
   .object({
     task_id: TaskIdPayload,
     reason: z.string().min(1),
   })
-  .passthrough();
+  .strict();
 
 export const TaskStepDonePayload = z
   .object({
@@ -459,7 +457,7 @@ export const TaskStepDonePayload = z
     // so preflight's BUG_TASK_FLAG_MISUSE gate sees a real field.
     red_test_registered: z.boolean().optional(),
   })
-  .passthrough();
+  .strict();
 
 // Phase 11 Item 3 SC2/SC3 — `event:task_step_reset` (codex r139 Q1, r142).
 // Co-emitted by `loaf finding raise --action fix-impl|fix-test` inside the
@@ -485,10 +483,10 @@ export type TaskStepResetPayload = z.infer<typeof TaskStepResetPayload>;
 // fields needed by spec-lock checks 3/4/6/7/8 (lands in sub-cycle 3b).
 export const TasksPlannedPayload = z
   .object({
-    based_on: z.object({ spec: z.number().int().positive() }),
+    based_on: z.object({ spec: z.number().int().positive() }).strict(),
     tasks: z.array(TaskFullPayload),
   })
-  .passthrough();
+  .strict();
 
 // Slice 1.B sub-cycle 3a (F-010 #1+#2): tasks_amended strict single-task
 // replace. Batch amend lands as N journal entries via mutateBatch sharing
@@ -503,7 +501,7 @@ export const TasksPlannedPayload = z
 // `tasks amend` / `tasks add` at EXECUTE.work — preflight §8.6 reads it to
 // relax the unsponsored mutation-rights rejections after verifying the
 // referenced finding is open with action=amend-tasks. The schema is
-// `.strict()` (not `.passthrough()`): this is an authority-bearing payload,
+// closed: this is an authority-bearing payload,
 // so a typo'd top-level key (e.g. `sponsored_by_findng_id`) must fail at
 // append time, not be silently dropped and read as unsponsored.
 export const TasksAmendedPayload = z
@@ -567,13 +565,13 @@ export const FindingRaisedPayload = z
     reason: z.string().optional(),
     target: FindingTarget.optional(),
   })
-  .passthrough();
+  .strict();
 
 export const FindingClosedPayload = z
   .object({
     id: FindingId,
   })
-  .passthrough();
+  .strict();
 
 // Slice 3 SC1 (codex r64 BLOCK 1+2+3 fix): canonical
 // shapes for PendingId / PendingPromptKind / question min length. Closed
@@ -596,20 +594,23 @@ export const PendingAddedPayload = z
     id: PendingId,
     kind: PendingPromptKind,
     question: z.string().min(3),
+    options: z.array(z.string()).optional(),
+    task_id: TaskIdPayload.optional(),
   })
-  .passthrough();
+  .strict();
 
 export const PendingResolvedPayload = z
   .object({
     id: PendingId,
+    answer: z.string().optional(),
   })
-  .passthrough();
+  .strict();
 
 export const SessionReasonPayload = z
   .object({
     reason: z.string().min(1).optional(),
   })
-  .passthrough();
+  .strict();
 
 // `spike:converted` — Phase 12. Record-only spike exit (protocol §8.3): the
 // `loaf spike convert` command emits this audit entry, then archives the
@@ -641,12 +642,12 @@ export const SpecSubmittedPayload = z
         id: FeatureIdPayload,
         name: z.string().min(3),
       })
-      .passthrough(),
+      .strict(),
     intent: z.string().min(20),
     adr_refs: z.array(z.string()),
     needs_clarification: z.array(NeedsClarification),
   })
-  .passthrough();
+  .strict();
 export type SpecSubmittedPayload = z.infer<typeof SpecSubmittedPayload>;
 
 export const SpecReqAddedPayload = z
@@ -654,7 +655,7 @@ export const SpecReqAddedPayload = z
     spec_version: BatchSpecVersion,
     req: RequirementEarsVerifiable,
   })
-  .passthrough();
+  .strict();
 export type SpecReqAddedPayload = z.infer<typeof SpecReqAddedPayload>;
 
 export const SpecScenarioAddedPayload = z
@@ -662,7 +663,7 @@ export const SpecScenarioAddedPayload = z
     spec_version: BatchSpecVersion,
     scenario: ScenarioGherkin,
   })
-  .passthrough();
+  .strict();
 export type SpecScenarioAddedPayload = z.infer<typeof SpecScenarioAddedPayload>;
 
 export const SpecVisualAddedPayload = z
@@ -670,7 +671,7 @@ export const SpecVisualAddedPayload = z
     spec_version: BatchSpecVersion,
     visual: VisualContract,
   })
-  .passthrough();
+  .strict();
 export type SpecVisualAddedPayload = z.infer<typeof SpecVisualAddedPayload>;
 
 // PER_KIND_PAYLOAD is derived from the metadata registry in kind-registry.ts.

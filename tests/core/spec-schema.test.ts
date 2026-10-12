@@ -97,6 +97,22 @@ describe("RequirementEarsShape vs RequirementEarsVerifiable — layer split (cod
   });
 });
 
+test("all EARS bodies compose with verifiability before closing the object", () => {
+  for (const body of [
+    { type: "ubiquitous", response: "The system shall respond" },
+    { type: "event-driven", trigger: "Input arrives", response: "The system shall respond" },
+    { type: "state-driven", while_: "State is active", behavior: "The system shall respond" },
+    { type: "optional", feature: "Feature is enabled", response: "The system shall respond" },
+    { type: "unwanted", condition: "Input is invalid", response: "The system shall respond" },
+  ]) {
+    const req = { id: "REQ-COMP-001", ...body, measurable: { metric: "latency", threshold: 100 } };
+    const parsed = RequirementEarsVerifiable.parse(req);
+    expect(parsed).toEqual({ ...req, measurable: { ...req.measurable, direction: "lte" } });
+    expect(RequirementEarsShape.safeParse({ id: req.id, ...body }).success).toBe(true);
+    expect(RequirementEarsVerifiable.safeParse({ id: req.id, ...body }).success).toBe(false);
+  }
+});
+
 describe("SpecFrontmatter — uses structural shape so missing verifiability slips through", () => {
   test("ACCEPTS frontmatter containing a REQ without verifiability", () => {
     const parsed = SpecFrontmatter.safeParse({
@@ -158,16 +174,23 @@ describe("SpecFrontmatter — uses structural shape so missing verifiability sli
   });
 });
 
-describe("VisualContract — extensible projection shape", () => {
-  test("preserves compatible unknown fields", () => {
-    const parsed = VisualContract.parse({
+describe("VisualContract — closed authored content", () => {
+  test("rejects undeclared per-visual adr_refs", () => {
+    const parsed = VisualContract.safeParse({
       id: "VIS-UI-001",
       target: "settings screen",
       checks: ["matches approved layout"],
       adr_refs: ["ADR-0042"],
     });
 
-    expect(parsed).toHaveProperty("adr_refs", ["ADR-0042"]);
+    expect(parsed.success).toBe(false);
+    if (!parsed.success)
+      expect(parsed.error.issues).toContainEqual({
+        code: "unrecognized_keys",
+        keys: ["adr_refs"],
+        path: [],
+        message: 'Unrecognized key: "adr_refs"',
+      });
   });
 });
 

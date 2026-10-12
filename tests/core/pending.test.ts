@@ -8,7 +8,7 @@
 //   - GATE_NOT_PENDING / ESCALATION_NOT_PENDING + gate decide pending:resolved
 //     co-emission DEFERRED to SC4.
 //   - PendingState projection unchanged ({id, kind, resolved}); --question /
-//     --options / --task-id round-trip via journal payload passthrough only.
+//     --options / --task-id round-trip as declared optional journal fields.
 //   - resolve is strict FIFO pop; no --id flag.
 //   - --question is required for ALL kinds (Strict over Postel; codex r63 a).
 

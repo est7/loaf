@@ -57,7 +57,7 @@ describe("task RED input boundary", () => {
   for (const amended of [false, true]) {
     for (const task of taskCases) {
       for (const flag of [true, false, undefined]) {
-        const contract = amended ? "deliberate amended tightening" : "preserved planned predicate";
+        const contract = amended ? "closed amended body" : "closed planned body";
         test(`${contract}: ${task.kind} red_test_registered=${String(flag)}`, () => {
           const result = preflight(
             entry(amended, {
@@ -65,15 +65,15 @@ describe("task RED input boundary", () => {
               status: "pending",
               no_test_rationale: "No observable behavior changes",
               ...task,
-              red_test_registered: flag,
+              ...(flag === undefined ? {} : { red_test_registered: flag }),
             }),
             { snapshot: context(amended) },
           );
-          if (flag === true) {
+          if (flag !== undefined) {
             expect(result).toMatchObject({
               ok: false,
-              code: "BUG_TASK_FLAG_MISUSE",
-              detail: { task_id: "T-001" },
+              code: "INVALID_PAYLOAD",
+              detail: { kind: amended ? "event:tasks_amended" : "event:tasks_planned" },
             });
           } else {
             expect(result.ok, JSON.stringify(result)).toBe(true);

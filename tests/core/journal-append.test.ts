@@ -151,13 +151,12 @@ describe("appendEntry — Stage 1", () => {
   test("F. entry serialized > 64KB → ENTRY_OVERSIZE, file untouched", async () => {
     const filePath = await tmpJournal();
     // Overshoot the 64KB ceiling. Use a valid pending:added payload
-    // (PendingAddedPayload .passthrough() allows extras) so we hit byte
-    // ceiling, not payload schema.
+    // with a large declared question so we hit the byte ceiling, not
+    // the closed payload schema.
     const bigPayload = {
       id: "PEND-0001",
       kind: "ask_user_question",
-      question: "stub",
-      note: "x".repeat(70_000),
+      question: "x".repeat(70_000),
     };
     const oversize = validEntry({ payload: bigPayload });
 
@@ -174,8 +173,7 @@ describe("appendEntry — Stage 1", () => {
     const payload = {
       id: "PEND-0001",
       kind: "ask_user_question",
-      question: "stub",
-      note: "y".repeat(60_000),
+      question: "y".repeat(60_000),
     };
     const ok = validEntry({ payload });
     await appendEntry(filePath, ok, emptyMeta(), { fsync: false });
@@ -360,7 +358,7 @@ describe("appendMany — Slice 1.0 Cycle 2", () => {
     const filePath = await tmpJournal();
     const big = (seq: number, id: string): JournalEntry => ({
       ...pendingAdded(seq, id),
-      payload: { id, kind: "ask_user_question", question: "stub", note: "x".repeat(35_000) },
+      payload: { id, kind: "ask_user_question", question: "x".repeat(35_000) },
     });
     const entries = [big(0, "PEND-0001"), big(1, "PEND-0002")];
 

@@ -197,8 +197,7 @@ describe("final-validation — Stage 4 end-to-end §11.2 step 4-6", () => {
       payload: {
         id: "PEND-0001",
         kind: "ask_user_question",
-        question: "stub",
-        non_long_text_field: huge,
+        question: huge,
       },
     };
     // Promote does nothing here (payload has no LongTextField shape).

@@ -11,6 +11,18 @@ Schema from the runtime owners through [`src/cli/schema-emit.ts`](../src/cli/sch
 The “former section” column preserves anchors used by older protocol and ADR text; it does not
 create a second definition.
 
+Journal payload objects reject unknown keys at admission and append. This
+includes event wrappers and nested task, EARS, measurable, scenario, visual,
+feature, and clarification objects. Spec add-* input wrappers forward authored
+fields to these complete journal schemas; they are not an open journal contract.
+
+Validation never replaces the raw persisted payload with schema output.
+Accepted entries retain their original field order, omissions, and journal
+bytes; parsed defaults affect projections only. Replay rejects old entries
+with now-disallowed keys explicitly, without a loose parser or a journal
+rewrite. Pending `options`, `task_id`, and resolution `answer` are declared
+optional fields; resolutions produced by profile escalation may omit `answer`.
+
 | Former section | Contract area | Canonical runtime owner |
 | --- | --- | --- |
 | §0 | Schema version | [`src/core/spec-schema.ts`](../src/core/spec-schema.ts), [`src/core/snapshot.ts`](../src/core/snapshot.ts) |

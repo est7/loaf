@@ -1887,53 +1887,57 @@ const ScenIdPayload = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*-\d{3,}$/);
 const VisIdPayload = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*-\d{3,}$/);
 const FeatureIdPayload = z.string().regex(/^F-\d{3,}$/);
 const NcIdPayload = z.string().regex(/^NC-\d{3,}$/);
-const MeasurablePayload = z.object({
-	metric: z.string().min(3),
-	threshold: z.union([z.string(), z.number()]),
-	unit: z.string().optional(),
-	direction: z.enum([
-		"lte",
-		"gte",
-		"eq"
-	]).default("lte")
-}).passthrough();
-const VerifiabilityFields = z.object({
-	measurable: MeasurablePayload.optional(),
+const VerifiabilityFields = {
+	measurable: z.object({
+		metric: z.string().min(3),
+		threshold: z.union([z.string(), z.number()]),
+		unit: z.string().optional(),
+		direction: z.enum([
+			"lte",
+			"gte",
+			"eq"
+		]).default("lte")
+	}).strict().optional(),
 	verified_by_scenarios: z.array(ScenIdPayload).optional(),
 	acceptance_na: z.literal(true).optional(),
 	acceptance_na_reason: z.string().min(10).optional()
-});
+};
 function hasVerifiability(req) {
 	const hasMeasurable = req.measurable !== void 0;
 	const hasScenarios = req.verified_by_scenarios !== void 0 && req.verified_by_scenarios.length > 0;
 	const hasNa = req.acceptance_na === true && (req.acceptance_na_reason?.length ?? 0) >= 10;
 	return hasMeasurable || hasScenarios || hasNa;
 }
-const ReqBase = z.object({ id: ReqIdPayload });
+const ReqBase = z.object({ id: ReqIdPayload }).strict();
 const RequirementUbiquitousShape = ReqBase.extend({
 	type: z.literal("ubiquitous"),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
+	response: z.string().min(10),
+	...VerifiabilityFields
+});
 const RequirementEventDrivenShape = ReqBase.extend({
 	type: z.literal("event-driven"),
 	trigger: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
+	response: z.string().min(10),
+	...VerifiabilityFields
+});
 const RequirementStateDrivenShape = ReqBase.extend({
 	type: z.literal("state-driven"),
 	while_: z.string().min(5),
-	behavior: z.string().min(10)
-}).and(VerifiabilityFields);
+	behavior: z.string().min(10),
+	...VerifiabilityFields
+});
 const RequirementOptionalShape = ReqBase.extend({
 	type: z.literal("optional"),
 	feature: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
+	response: z.string().min(10),
+	...VerifiabilityFields
+});
 const RequirementUnwantedShape = ReqBase.extend({
 	type: z.literal("unwanted"),
 	condition: z.string().min(5),
-	response: z.string().min(10)
-}).and(VerifiabilityFields);
+	response: z.string().min(10),
+	...VerifiabilityFields
+});
 const RequirementEarsShape = z.union([
 	RequirementUbiquitousShape,
 	RequirementEventDrivenShape,
@@ -1963,20 +1967,20 @@ const ScenarioGherkin = z.object({
 	given: z.array(z.string().min(3)).min(1),
 	when: z.array(z.string().min(3)).min(1),
 	then: z.array(z.string().min(3)).min(1)
-}).refine((s) => !(s.tag === "e2e" && s.acceptance_na !== void 0 && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
+}).strict().refine((s) => !(s.tag === "e2e" && s.acceptance_na !== void 0 && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
 const VisualContract = z.object({
 	id: VisIdPayload,
 	target: z.string().min(3),
 	checks: z.array(z.string().min(3)).min(1),
 	requires_visual: z.boolean().optional(),
 	visual_na: z.string().min(5).optional()
-}).passthrough();
+}).strict();
 const NeedsClarification = z.object({
 	id: NcIdPayload,
 	question: z.string().min(5),
 	context: z.string().optional(),
 	options: z.array(z.string()).optional()
-}).passthrough();
+}).strict();
 const SpecFrontmatter = z.object({
 	schema_version: SchemaVersionPayload,
 	spec_version: z.number().int().positive(),
@@ -1997,7 +2001,7 @@ const SpecSubmitInput = z.object({
 	feature: z.object({
 		id: FeatureIdPayload,
 		name: z.string().min(3)
-	}),
+	}).strict(),
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()).default([]),
 	requirements: z.array(RequirementEarsVerifiable).default([]),
@@ -2134,7 +2138,7 @@ const TaskBase = z.object({
 	depends_on: z.array(TaskIdPayload).default([]),
 	labels: z.array(z.string()).default([]),
 	status: TaskStatusPayload
-});
+}).strict();
 const TaskBehavioralPayload = TaskBase.extend({
 	kind: z.literal(TaskKind.enum.behavioral),
 	drives: z.array(RawDrivesRef).min(1),
@@ -2773,7 +2777,7 @@ const CeremonyPayload = z.object({
 		"skip"
 	]),
 	strict_drift_check: z.boolean()
-}).passthrough();
+}).strict();
 const SessionStartedPayload = z.object({
 	session_id: z.string().min(1),
 	feature: z.string().min(1),
@@ -2782,7 +2786,7 @@ const SessionStartedPayload = z.object({
 	ceremony_label: z.string(),
 	workspace: z.string().min(1),
 	loaf_version_required: z.string().regex(/^[\^~]?\d+\.\d+(\.\d+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
-}).passthrough();
+}).strict();
 const BackEdgeAmendSpec = z.object({
 	action: z.literal("amend-spec"),
 	finding_id: FindingId
@@ -2817,21 +2821,21 @@ const PhaseAdvancedPayload = z.object({
 	* (the default).
 	*/
 	back_edge: BackEdge.optional()
-}).passthrough();
+}).strict();
 const GateDecidedPayload = z.object({
 	gate_kind: GateName,
 	decision: z.enum(["approved", "rejected"]),
 	reason: z.string().min(1)
-}).passthrough();
-const TaskRefPayload = z.object({ task_id: TaskIdPayload }).passthrough();
+}).strict();
+const TaskRefPayload = z.object({ task_id: TaskIdPayload }).strict();
 const TaskStepRefPayload = z.object({
 	task_id: TaskIdPayload,
 	step: z.string().min(1)
-}).passthrough();
+}).strict();
 const TaskAbandonedPayload = z.object({
 	task_id: TaskIdPayload,
 	reason: z.string().min(1)
-}).passthrough();
+}).strict();
 const TaskStepDonePayload = z.object({
 	task_id: TaskIdPayload,
 	step: z.string().min(1),
@@ -2842,16 +2846,16 @@ const TaskStepDonePayload = z.object({
 		"na"
 	]).optional(),
 	red_test_registered: z.boolean().optional()
-}).passthrough();
+}).strict();
 const TaskStepResetPayload = z.object({
 	task_id: TaskIdPayload,
 	step: z.string().min(1),
 	finding_id: FindingId
 }).strict();
 const TasksPlannedPayload = z.object({
-	based_on: z.object({ spec: z.number().int().positive() }),
+	based_on: z.object({ spec: z.number().int().positive() }).strict(),
 	tasks: z.array(TaskFullPayload)
-}).passthrough();
+}).strict();
 const TasksAmendedPayload = z.object({
 	mode: z.enum(["add", "replace"]),
 	task: TaskFullPayload,
@@ -2886,8 +2890,8 @@ const FindingRaisedPayload = z.object({
 	summary: z.string().min(3).optional(),
 	reason: z.string().optional(),
 	target: FindingTarget.optional()
-}).passthrough();
-const FindingClosedPayload = z.object({ id: FindingId }).passthrough();
+}).strict();
+const FindingClosedPayload = z.object({ id: FindingId }).strict();
 const PendingId = z.string().regex(/^PEND-\d{4,}$/);
 const PendingPromptKind = z.enum([
 	"ask_user_question",
@@ -2899,10 +2903,15 @@ const PendingPromptKind = z.enum([
 const PendingAddedPayload = z.object({
 	id: PendingId,
 	kind: PendingPromptKind,
-	question: z.string().min(3)
-}).passthrough();
-const PendingResolvedPayload = z.object({ id: PendingId }).passthrough();
-const SessionReasonPayload = z.object({ reason: z.string().min(1).optional() }).passthrough();
+	question: z.string().min(3),
+	options: z.array(z.string()).optional(),
+	task_id: TaskIdPayload.optional()
+}).strict();
+const PendingResolvedPayload = z.object({
+	id: PendingId,
+	answer: z.string().optional()
+}).strict();
+const SessionReasonPayload = z.object({ reason: z.string().min(1).optional() }).strict();
 const SpikeConvertedPayload = z.object({
 	to_feature: FeatureIdPayload,
 	reason: z.string().min(1)
@@ -2913,23 +2922,23 @@ const SpecSubmittedPayload = z.object({
 	feature: z.object({
 		id: FeatureIdPayload,
 		name: z.string().min(3)
-	}).passthrough(),
+	}).strict(),
 	intent: z.string().min(20),
 	adr_refs: z.array(z.string()),
 	needs_clarification: z.array(NeedsClarification)
-}).passthrough();
+}).strict();
 const SpecReqAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
 	req: RequirementEarsVerifiable
-}).passthrough();
+}).strict();
 const SpecScenarioAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
 	scenario: ScenarioGherkin
-}).passthrough();
+}).strict();
 const SpecVisualAddedPayload = z.object({
 	spec_version: BatchSpecVersion,
 	visual: VisualContract
-}).passthrough();
+}).strict();
 const SchemaVersionLiteral = z.literal(2);
 const SessionRuntimeFile = z.object({
 	schema_version: SchemaVersionLiteral,
@@ -5299,26 +5308,18 @@ function checkTaskGraph(tasks) {
 }
 //#endregion
 //#region src/core/reducer/preflight/checks-task.ts
-function hasForbiddenTaskRedInput(inputPayload, taskIndex) {
-	if (typeof inputPayload !== "object" || inputPayload === null) return false;
-	let task;
-	if (taskIndex === void 0) {
-		if ("task" in inputPayload) task = inputPayload.task;
-	} else if ("tasks" in inputPayload && Array.isArray(inputPayload.tasks)) task = inputPayload.tasks[taskIndex];
-	return typeof task === "object" && task !== null && "red_test_registered" in task && task.red_test_registered === true;
-}
 function checkTasksPlanned(c) {
-	const { entry, inputPayload } = c;
+	const { entry } = c;
 	if (entry.kind === "event:tasks_planned") {
 		const seenIds = /* @__PURE__ */ new Set();
-		for (const [index, task] of entry.payload.tasks.entries()) {
+		for (const task of entry.payload.tasks) {
 			if (seenIds.has(task.id)) return {
 				ok: false,
 				code: "DUPLICATE_TASK_ID",
 				detail: { task_id: task.id }
 			};
 			seenIds.add(task.id);
-			if (task.kind === "behavioral" ? task.red_test_registered === true : hasForbiddenTaskRedInput(inputPayload, index)) return {
+			if (task.kind === "behavioral" && task.red_test_registered === true) return {
 				ok: false,
 				code: "BUG_TASK_FLAG_MISUSE",
 				detail: {
@@ -5331,20 +5332,12 @@ function checkTasksPlanned(c) {
 	return null;
 }
 function checkTasksAmended(c) {
-	const { entry, inputPayload, sub_state, ctx } = c;
+	const { entry, sub_state, ctx } = c;
 	if (entry.kind === "event:tasks_amended") {
 		const amended = entry.payload;
 		const mode = amended.mode;
 		const taskId = amended.task.id;
 		const sponsorId = amended.sponsored_by_finding_id;
-		if (amended.task.kind !== "behavioral" && hasForbiddenTaskRedInput(inputPayload)) return {
-			ok: false,
-			code: "BUG_TASK_FLAG_MISUSE",
-			detail: {
-				task_id: taskId,
-				kind: entry.kind
-			}
-		};
 		if (sponsorId !== void 0) {
 			const sponsor = requireFindingSponsor(ctx.snapshot.findings, sponsorId, "amend-tasks");
 			if (!sponsor.ok) return sponsor;
@@ -5866,7 +5859,6 @@ function preflight(rawEntry, ctx) {
 	if (!admitted.ok) return admitted;
 	const checkCtx = {
 		entry: admitted.entry,
-		inputPayload: entry.payload,
 		ctx,
 		sub_state,
 		ceremony,

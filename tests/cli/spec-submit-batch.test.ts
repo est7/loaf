@@ -217,7 +217,7 @@ describe("buildSpecSubmitBatch — payload field shapes", () => {
         {
           id: "NC-001",
           question: "what is the expected hover state for the OAuth login button",
-          status: "open",
+          context: "Hover state needs clarification",
         },
       ],
     });
