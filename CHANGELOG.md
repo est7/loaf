@@ -25,14 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional payload fields; existing writers and answer-less profile escalation
   retain their behavior.
 
-## [0.11.0] — 2026-10-10
-
 ### Fixed
 
 - Package smoke now installs the real packed tarball from the checkout's
   resolved lock graph and local Bun cache, with lifecycle scripts disabled
   and bounded install steps. Registry metadata stalls cannot hang the smoke;
   missing lock/cache prerequisites fail explicitly at `INSTALL_FAILED`.
+
+## [0.11.0] — 2026-10-10
+
+### Fixed
 
 - Invalid `prune --older-than` values now return `USAGE` with exit 2 and the
   offending value instead of `UNEXPECTED_ERROR` or a crash report. Existing
