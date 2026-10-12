@@ -202,9 +202,9 @@ const ERROR_CATALOG = {
 	},
 	SPEC_NOT_INITIALIZED: {
 		exit_code: 2,
-		message_template: "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
-		zh_message_template: "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
-		fix_template: "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
+		message_template: "{kind} blocked: spec_version=0; submit the spec body first to bump spec_version to 1",
+		zh_message_template: "{kind} 被拒:spec_version=0;先提交 spec 正文把 spec_version 升到 1",
+		fix_template: "run `loaf spec init` then `loaf spec edit --input <body.json>` (or `loaf spec submit --input <file>`) to bump spec_version to 1, then retry the add-* command",
 		template_keys: ["kind"],
 		doc_anchor: "protocol.md#§4.2",
 		detail_keys: ["kind"]
@@ -1987,8 +1987,9 @@ z.enum([
 	"optional",
 	"unwanted"
 ]);
-const RequirementEarsVerifiable = RequirementEarsShape.refine(hasVerifiability, { message: "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)" });
-const ScenarioGherkin = z.object({
+const REQ_VERIFIABILITY_MESSAGE = "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)";
+const RequirementEarsVerifiable = RequirementEarsShape.refine(hasVerifiability, { message: REQ_VERIFIABILITY_MESSAGE });
+const ScenarioGherkinObject = z.object({
 	id: ScenIdPayload,
 	name: z.string().min(3),
 	tag: z.enum([
@@ -2002,7 +2003,10 @@ const ScenarioGherkin = z.object({
 	given: z.array(z.string().min(3)).min(1),
 	when: z.array(z.string().min(3)).min(1),
 	then: z.array(z.string().min(3)).min(1)
-}).strict().refine((s) => !(s.tag === "e2e" && s.acceptance_na !== void 0 && s.requires_acceptance), { message: "cannot set both requires_acceptance and acceptance_na" });
+}).strict();
+const scenarioAcceptanceCoherent = (s) => !(s.tag === "e2e" && s.acceptance_na !== void 0 && s.requires_acceptance);
+const SCENARIO_ACCEPTANCE_MESSAGE = "cannot set both requires_acceptance and acceptance_na";
+const ScenarioGherkin = ScenarioGherkinObject.refine(scenarioAcceptanceCoherent, { message: SCENARIO_ACCEPTANCE_MESSAGE });
 const VisualContract = z.object({
 	id: VisIdPayload,
 	target: z.string().min(3),
@@ -2047,29 +2051,19 @@ const SpecSubmitInput = z.object({
 const ReqIdNamespace = z.string().regex(/^REQ-[A-Z][A-Z0-9]*$/);
 const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
 const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
-const rejectCallerSuppliedId = (v) => !("id" in v);
-const ID_REJECTION_MESSAGE = "id_namespace expected; full id is CLI-allocated and must not be supplied in input";
-const SpecAddReqInputItemShape = z.object({
-	id_namespace: ReqIdNamespace,
-	type: z.enum([
-		"ubiquitous",
-		"event-driven",
-		"state-driven",
-		"optional",
-		"unwanted"
-	])
-}).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
-const SpecAddReqInput = z.union([SpecAddReqInputItemShape, z.array(SpecAddReqInputItemShape).min(1)]);
-const SpecAddScenarioInputItemShape = z.object({
-	id_namespace: ScenIdNamespace,
-	name: z.string().min(3)
-}).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
-const SpecAddScenarioInput = z.union([SpecAddScenarioInputItemShape, z.array(SpecAddScenarioInputItemShape).min(1)]);
-const SpecAddVisualInputItemShape = z.object({
-	id_namespace: VisIdNamespace,
-	target: z.string().min(3)
-}).passthrough().refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
-const SpecAddVisualInput = z.union([SpecAddVisualInputItemShape, z.array(SpecAddVisualInputItemShape).min(1)]);
+const ReqNamespaceField = { id_namespace: ReqIdNamespace };
+const SpecAddReqInputItem = z.discriminatedUnion("type", [
+	RequirementUbiquitousShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+	RequirementEventDrivenShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+	RequirementStateDrivenShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+	RequirementOptionalShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+	RequirementUnwantedShape.omit({ id: true }).extend(ReqNamespaceField).strict()
+]).refine(hasVerifiability, { message: REQ_VERIFIABILITY_MESSAGE });
+const SpecAddReqInput = z.union([SpecAddReqInputItem, z.array(SpecAddReqInputItem).min(1)]);
+const SpecAddScenarioInputItem = ScenarioGherkinObject.omit({ id: true }).extend({ id_namespace: ScenIdNamespace }).strict().refine(scenarioAcceptanceCoherent, { message: SCENARIO_ACCEPTANCE_MESSAGE });
+const SpecAddScenarioInput = z.union([SpecAddScenarioInputItem, z.array(SpecAddScenarioInputItem).min(1)]);
+const SpecAddVisualInputItem = VisualContract.omit({ id: true }).extend({ id_namespace: VisIdNamespace }).strict();
+const SpecAddVisualInput = z.union([SpecAddVisualInputItem, z.array(SpecAddVisualInputItem).min(1)]);
 /**
 * Per-namespace id allocator: scan existing ids in `existing` for
 * those matching `<namespace>-<digits>`, find max serial, return next.
@@ -7571,7 +7565,7 @@ var en_default = {
 		"SPEC_EDIT_INPUT_REQUIRED": "non-interactive `loaf spec edit` requires --input <src>; the editor lane requires TTY stdin and stdout",
 		"SCHEMA_VALIDATION_FAILED": "validation failed: {reason}",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} blocked: spec_locked=true; use `loaf finding raise --category spec-gap --action amend-spec` to back-edge into SPEC.spec",
-		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+		"SPEC_NOT_INITIALIZED": "{kind} blocked: spec_version=0; submit the spec body first to bump spec_version to 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md already exists at {spec_md_path}; refusing to overwrite",
 		"CONFIG_ALREADY_INITIALIZED": "loaf config already exists at {config_path}; refusing to overwrite",
 		"ATTACHMENT_NOT_FOUND": "attachment path does not exist: {path}",
@@ -7703,7 +7697,7 @@ var en_default = {
 		"SPEC_EDIT_INPUT_REQUIRED": "pass --input with a JSON object {\"body\":\"<Markdown>\"} via file, stdin '-', or inline JSON; alternatively rerun from a terminal with both stdin and stdout attached to a TTY",
 		"SCHEMA_VALIDATION_FAILED": "inspect the structured validation detail and correct the input or runtime state before retrying; use --schema when supported by the command to inspect its input contract",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "raise a finding with category=spec-gap (or spec-defect) and action=amend-spec to back-edge into SPEC.spec (the finding's resets_spec_locked effect lifts the gate); then retry the spec add/submit",
-		"SPEC_NOT_INITIALIZED": "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
+		"SPEC_NOT_INITIALIZED": "run `loaf spec init` then `loaf spec edit --input <body.json>` (or `loaf spec submit --input <file>`) to bump spec_version to 1, then retry the add-* command",
 		"SPEC_ALREADY_INITIALIZED": "edit the existing spec.md directly, or remove it before re-running `loaf spec init` (no --force flag in Slice 4)",
 		"CONFIG_ALREADY_INITIALIZED": "edit the existing config file directly, or remove it before re-running `loaf config init` (no --force flag)",
 		"ATTACHMENT_NOT_FOUND": "verify the path is reachable from the working directory and readable by the current user",
@@ -8438,7 +8432,7 @@ var zh_default = {
 	diagnostic: {
 		"SPEC_EDIT_INPUT_REQUIRED": "非交互式 `loaf spec edit` 必须传 --input <src>；编辑器通道要求 stdin 和 stdout 均为 TTY",
 		"SPEC_LOCKED_NO_DIRECT_EDIT": "{kind} 被拒:spec_locked=true;用 `loaf finding raise --category spec-gap --action amend-spec` 走 amend-spec 回退到 SPEC.spec",
-		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+		"SPEC_NOT_INITIALIZED": "{kind} 被拒:spec_version=0;先提交 spec 正文把 spec_version 升到 1",
 		"SPEC_ALREADY_INITIALIZED": "spec.md 已存在于 {spec_md_path};拒绝覆盖",
 		"CONFIG_ALREADY_INITIALIZED": "loaf config 已存在于 {config_path};拒绝覆盖",
 		"FINDING_TARGET_REQUIRED": "finding action={action} target 校验失败({reason})",
@@ -17715,21 +17709,21 @@ const REGISTER_SPEC_ADD = [
 		name: "req",
 		payloadField: "req",
 		entryKind: "event:spec_req_added",
-		inputSchema: SpecAddReqInput,
+		itemSchema: SpecAddReqInputItem,
 		snapshotKey: "requirements"
 	},
 	{
 		name: "scenario",
 		payloadField: "scenario",
 		entryKind: "event:spec_scenario_added",
-		inputSchema: SpecAddScenarioInput,
+		itemSchema: SpecAddScenarioInputItem,
 		snapshotKey: "scenarios"
 	},
 	{
 		name: "visual",
 		payloadField: "visual",
 		entryKind: "event:spec_visual_added",
-		inputSchema: SpecAddVisualInput,
+		itemSchema: SpecAddVisualInputItem,
 		snapshotKey: "visual_contracts"
 	}
 ];
@@ -18072,7 +18066,7 @@ feature:
 			if (!read.ok) return;
 			const opts = rawOpts;
 			const parsed = read.value;
-			const inputParse = cfg.inputSchema.safeParse(parsed);
+			const inputParse = Array.isArray(parsed) ? z.array(cfg.itemSchema).min(1).safeParse(parsed) : cfg.itemSchema.safeParse(parsed);
 			if (!inputParse.success) {
 				ctx.failure(diagnostic$2("SCHEMA_VALIDATION_FAILED", {
 					reason: inputParse.error.issues.map((issue) => issue.message).join("; "),

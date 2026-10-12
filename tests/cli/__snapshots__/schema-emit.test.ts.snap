@@ -2592,55 +2592,805 @@ exports[`current public schema output baseline > input:spec:add-req 1`] = `
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "anyOf": [
     {
-      "type": "object",
-      "properties": {
-        "id_namespace": {
-          "type": "string",
-          "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ubiquitous"
+            },
+            "response": {
+              "type": "string",
+              "minLength": 10
+            },
+            "measurable": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "threshold": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "direction": {
+                  "default": "lte",
+                  "type": "string",
+                  "enum": [
+                    "lte",
+                    "gte",
+                    "eq"
+                  ]
+                }
+              },
+              "required": [
+                "metric",
+                "threshold",
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "verified_by_scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "acceptance_na": {
+              "type": "boolean",
+              "const": true
+            },
+            "acceptance_na_reason": {
+              "type": "string",
+              "minLength": 10
+            },
+            "id_namespace": {
+              "type": "string",
+              "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+            }
+          },
+          "required": [
+            "type",
+            "response",
+            "id_namespace"
+          ],
+          "additionalProperties": false
         },
-        "type": {
-          "type": "string",
-          "enum": [
-            "ubiquitous",
-            "event-driven",
-            "state-driven",
-            "optional",
-            "unwanted"
-          ]
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "event-driven"
+            },
+            "trigger": {
+              "type": "string",
+              "minLength": 5
+            },
+            "response": {
+              "type": "string",
+              "minLength": 10
+            },
+            "measurable": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "threshold": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "direction": {
+                  "default": "lte",
+                  "type": "string",
+                  "enum": [
+                    "lte",
+                    "gte",
+                    "eq"
+                  ]
+                }
+              },
+              "required": [
+                "metric",
+                "threshold",
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "verified_by_scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "acceptance_na": {
+              "type": "boolean",
+              "const": true
+            },
+            "acceptance_na_reason": {
+              "type": "string",
+              "minLength": 10
+            },
+            "id_namespace": {
+              "type": "string",
+              "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+            }
+          },
+          "required": [
+            "type",
+            "trigger",
+            "response",
+            "id_namespace"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "state-driven"
+            },
+            "while_": {
+              "type": "string",
+              "minLength": 5
+            },
+            "behavior": {
+              "type": "string",
+              "minLength": 10
+            },
+            "measurable": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "threshold": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "direction": {
+                  "default": "lte",
+                  "type": "string",
+                  "enum": [
+                    "lte",
+                    "gte",
+                    "eq"
+                  ]
+                }
+              },
+              "required": [
+                "metric",
+                "threshold",
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "verified_by_scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "acceptance_na": {
+              "type": "boolean",
+              "const": true
+            },
+            "acceptance_na_reason": {
+              "type": "string",
+              "minLength": 10
+            },
+            "id_namespace": {
+              "type": "string",
+              "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+            }
+          },
+          "required": [
+            "type",
+            "while_",
+            "behavior",
+            "id_namespace"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "optional"
+            },
+            "feature": {
+              "type": "string",
+              "minLength": 5
+            },
+            "response": {
+              "type": "string",
+              "minLength": 10
+            },
+            "measurable": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "threshold": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "direction": {
+                  "default": "lte",
+                  "type": "string",
+                  "enum": [
+                    "lte",
+                    "gte",
+                    "eq"
+                  ]
+                }
+              },
+              "required": [
+                "metric",
+                "threshold",
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "verified_by_scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "acceptance_na": {
+              "type": "boolean",
+              "const": true
+            },
+            "acceptance_na_reason": {
+              "type": "string",
+              "minLength": 10
+            },
+            "id_namespace": {
+              "type": "string",
+              "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+            }
+          },
+          "required": [
+            "type",
+            "feature",
+            "response",
+            "id_namespace"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "unwanted"
+            },
+            "condition": {
+              "type": "string",
+              "minLength": 5
+            },
+            "response": {
+              "type": "string",
+              "minLength": 10
+            },
+            "measurable": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "threshold": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "direction": {
+                  "default": "lte",
+                  "type": "string",
+                  "enum": [
+                    "lte",
+                    "gte",
+                    "eq"
+                  ]
+                }
+              },
+              "required": [
+                "metric",
+                "threshold",
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "verified_by_scenarios": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+              }
+            },
+            "acceptance_na": {
+              "type": "boolean",
+              "const": true
+            },
+            "acceptance_na_reason": {
+              "type": "string",
+              "minLength": 10
+            },
+            "id_namespace": {
+              "type": "string",
+              "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+            }
+          },
+          "required": [
+            "type",
+            "condition",
+            "response",
+            "id_namespace"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "id_namespace",
-        "type"
-      ],
-      "additionalProperties": {}
+      ]
     },
     {
       "minItems": 1,
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "id_namespace": {
-            "type": "string",
-            "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ubiquitous"
+              },
+              "response": {
+                "type": "string",
+                "minLength": 10
+              },
+              "measurable": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "threshold": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "default": "lte",
+                    "type": "string",
+                    "enum": [
+                      "lte",
+                      "gte",
+                      "eq"
+                    ]
+                  }
+                },
+                "required": [
+                  "metric",
+                  "threshold",
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "verified_by_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "acceptance_na": {
+                "type": "boolean",
+                "const": true
+              },
+              "acceptance_na_reason": {
+                "type": "string",
+                "minLength": 10
+              },
+              "id_namespace": {
+                "type": "string",
+                "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+              }
+            },
+            "required": [
+              "type",
+              "response",
+              "id_namespace"
+            ],
+            "additionalProperties": false
           },
-          "type": {
-            "type": "string",
-            "enum": [
-              "ubiquitous",
-              "event-driven",
-              "state-driven",
-              "optional",
-              "unwanted"
-            ]
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "event-driven"
+              },
+              "trigger": {
+                "type": "string",
+                "minLength": 5
+              },
+              "response": {
+                "type": "string",
+                "minLength": 10
+              },
+              "measurable": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "threshold": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "default": "lte",
+                    "type": "string",
+                    "enum": [
+                      "lte",
+                      "gte",
+                      "eq"
+                    ]
+                  }
+                },
+                "required": [
+                  "metric",
+                  "threshold",
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "verified_by_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "acceptance_na": {
+                "type": "boolean",
+                "const": true
+              },
+              "acceptance_na_reason": {
+                "type": "string",
+                "minLength": 10
+              },
+              "id_namespace": {
+                "type": "string",
+                "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+              }
+            },
+            "required": [
+              "type",
+              "trigger",
+              "response",
+              "id_namespace"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "state-driven"
+              },
+              "while_": {
+                "type": "string",
+                "minLength": 5
+              },
+              "behavior": {
+                "type": "string",
+                "minLength": 10
+              },
+              "measurable": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "threshold": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "default": "lte",
+                    "type": "string",
+                    "enum": [
+                      "lte",
+                      "gte",
+                      "eq"
+                    ]
+                  }
+                },
+                "required": [
+                  "metric",
+                  "threshold",
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "verified_by_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "acceptance_na": {
+                "type": "boolean",
+                "const": true
+              },
+              "acceptance_na_reason": {
+                "type": "string",
+                "minLength": 10
+              },
+              "id_namespace": {
+                "type": "string",
+                "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+              }
+            },
+            "required": [
+              "type",
+              "while_",
+              "behavior",
+              "id_namespace"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "optional"
+              },
+              "feature": {
+                "type": "string",
+                "minLength": 5
+              },
+              "response": {
+                "type": "string",
+                "minLength": 10
+              },
+              "measurable": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "threshold": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "default": "lte",
+                    "type": "string",
+                    "enum": [
+                      "lte",
+                      "gte",
+                      "eq"
+                    ]
+                  }
+                },
+                "required": [
+                  "metric",
+                  "threshold",
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "verified_by_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "acceptance_na": {
+                "type": "boolean",
+                "const": true
+              },
+              "acceptance_na_reason": {
+                "type": "string",
+                "minLength": 10
+              },
+              "id_namespace": {
+                "type": "string",
+                "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+              }
+            },
+            "required": [
+              "type",
+              "feature",
+              "response",
+              "id_namespace"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "unwanted"
+              },
+              "condition": {
+                "type": "string",
+                "minLength": 5
+              },
+              "response": {
+                "type": "string",
+                "minLength": 10
+              },
+              "measurable": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "threshold": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "direction": {
+                    "default": "lte",
+                    "type": "string",
+                    "enum": [
+                      "lte",
+                      "gte",
+                      "eq"
+                    ]
+                  }
+                },
+                "required": [
+                  "metric",
+                  "threshold",
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "verified_by_scenarios": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^SCEN-[A-Z][A-Z0-9-]*-\\\\d{3,}$"
+                }
+              },
+              "acceptance_na": {
+                "type": "boolean",
+                "const": true
+              },
+              "acceptance_na_reason": {
+                "type": "string",
+                "minLength": 10
+              },
+              "id_namespace": {
+                "type": "string",
+                "pattern": "^REQ-[A-Z][A-Z0-9]*$"
+              }
+            },
+            "required": [
+              "type",
+              "condition",
+              "response",
+              "id_namespace"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "id_namespace",
-          "type"
-        ],
-        "additionalProperties": {}
+        ]
       }
     }
   ]
@@ -2655,20 +3405,63 @@ exports[`current public schema output baseline > input:spec:add-scenario 1`] = `
     {
       "type": "object",
       "properties": {
-        "id_namespace": {
-          "type": "string",
-          "pattern": "^SCEN-[A-Z][A-Z0-9-]*$"
-        },
         "name": {
           "type": "string",
           "minLength": 3
+        },
+        "tag": {
+          "type": "string",
+          "enum": [
+            "happy",
+            "edge",
+            "error",
+            "e2e"
+          ]
+        },
+        "requires_acceptance": {
+          "type": "boolean"
+        },
+        "acceptance_na": {
+          "type": "string",
+          "minLength": 5
+        },
+        "given": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "when": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "then": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "id_namespace": {
+          "type": "string",
+          "pattern": "^SCEN-[A-Z][A-Z0-9-]*$"
         }
       },
       "required": [
-        "id_namespace",
-        "name"
+        "name",
+        "given",
+        "when",
+        "then",
+        "id_namespace"
       ],
-      "additionalProperties": {}
+      "additionalProperties": false
     },
     {
       "minItems": 1,
@@ -2676,20 +3469,63 @@ exports[`current public schema output baseline > input:spec:add-scenario 1`] = `
       "items": {
         "type": "object",
         "properties": {
-          "id_namespace": {
-            "type": "string",
-            "pattern": "^SCEN-[A-Z][A-Z0-9-]*$"
-          },
           "name": {
             "type": "string",
             "minLength": 3
+          },
+          "tag": {
+            "type": "string",
+            "enum": [
+              "happy",
+              "edge",
+              "error",
+              "e2e"
+            ]
+          },
+          "requires_acceptance": {
+            "type": "boolean"
+          },
+          "acceptance_na": {
+            "type": "string",
+            "minLength": 5
+          },
+          "given": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "when": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "then": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "id_namespace": {
+            "type": "string",
+            "pattern": "^SCEN-[A-Z][A-Z0-9-]*$"
           }
         },
         "required": [
-          "id_namespace",
-          "name"
+          "name",
+          "given",
+          "when",
+          "then",
+          "id_namespace"
         ],
-        "additionalProperties": {}
+        "additionalProperties": false
       }
     }
   ]
@@ -2704,20 +3540,36 @@ exports[`current public schema output baseline > input:spec:add-visual 1`] = `
     {
       "type": "object",
       "properties": {
-        "id_namespace": {
-          "type": "string",
-          "pattern": "^VIS-[A-Z][A-Z0-9-]*$"
-        },
         "target": {
           "type": "string",
           "minLength": 3
+        },
+        "checks": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "requires_visual": {
+          "type": "boolean"
+        },
+        "visual_na": {
+          "type": "string",
+          "minLength": 5
+        },
+        "id_namespace": {
+          "type": "string",
+          "pattern": "^VIS-[A-Z][A-Z0-9-]*$"
         }
       },
       "required": [
-        "id_namespace",
-        "target"
+        "target",
+        "checks",
+        "id_namespace"
       ],
-      "additionalProperties": {}
+      "additionalProperties": false
     },
     {
       "minItems": 1,
@@ -2725,20 +3577,36 @@ exports[`current public schema output baseline > input:spec:add-visual 1`] = `
       "items": {
         "type": "object",
         "properties": {
-          "id_namespace": {
-            "type": "string",
-            "pattern": "^VIS-[A-Z][A-Z0-9-]*$"
-          },
           "target": {
             "type": "string",
             "minLength": 3
+          },
+          "checks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          },
+          "requires_visual": {
+            "type": "boolean"
+          },
+          "visual_na": {
+            "type": "string",
+            "minLength": 5
+          },
+          "id_namespace": {
+            "type": "string",
+            "pattern": "^VIS-[A-Z][A-Z0-9-]*$"
           }
         },
         "required": [
-          "id_namespace",
-          "target"
+          "target",
+          "checks",
+          "id_namespace"
         ],
-        "additionalProperties": {}
+        "additionalProperties": false
       }
     }
   ]

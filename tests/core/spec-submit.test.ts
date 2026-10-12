@@ -665,8 +665,8 @@ test("spec add typo reports its offending key and nested path without an append"
     expect(result.exit).toBe(2);
     expect(JSON.parse(result.stderr)).toMatchObject({
       ok: false,
-      code: "INVALID_PAYLOAD",
-      detail: { issues: [{ code: "unrecognized_keys", keys: ["then_typo"], path: ["scenario"] }] },
+      code: "SCHEMA_VALIDATION_FAILED",
+      detail: { issues: [{ code: "unrecognized_keys", keys: ["then_typo"], path: [] }] },
     });
     expect(result.stderr).toContain("then_typo");
     expect(await fs.readFile(journal)).toEqual(before);

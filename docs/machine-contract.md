@@ -13,8 +13,9 @@ create a second definition.
 
 Journal payload objects reject unknown keys at admission and append. This
 includes event wrappers and nested task, EARS, measurable, scenario, visual,
-feature, and clarification objects. Spec add-* input wrappers forward authored
-fields to these complete journal schemas; they are not an open journal contract.
+feature, and clarification objects. Spec add-* inputs are these closed content
+schemas with `id` replaced by a caller `id_namespace`; unknown keys fail at the
+input boundary and `--schema` exports every admitted field.
 
 Validation never replaces the raw persisted payload with schema output.
 Accepted entries retain their original field order, omissions, and journal

@@ -320,19 +320,17 @@ export const ERROR_CATALOG = {
     detail_keys: ["kind"],
   },
   SPEC_NOT_INITIALIZED: {
-    // Slice 4 SC3: preflight refine (5i) emits this with detail.kind
-    // (one of the 3 add-* kinds; spec_submitted is exempt as the init
-    // step) and detail.spec_version = 0. Recovery path under SC3 is
-    // `loaf spec submit` (whole-replacement) — `loaf spec init`
-    // (scaffold-only, no journal entry) is deferred to SC4 and will
-    // chain into submit there.
+    // Preflight emits this with detail.kind (one of the 3 add-* kinds;
+    // spec_submitted is exempt as the init step). Both `loaf spec edit`
+    // and `loaf spec submit` emit spec_submitted and bump spec_version.
+    // `loaf spec init` only scaffolds spec.md and writes no journal entry.
     exit_code: 2,
     message_template:
-      "{kind} blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
+      "{kind} blocked: spec_version=0; submit the spec body first to bump spec_version to 1",
     zh_message_template:
-      "{kind} 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
+      "{kind} 被拒:spec_version=0;先提交 spec 正文把 spec_version 升到 1",
     fix_template:
-      "run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)",
+      "run `loaf spec init` then `loaf spec edit --input <body.json>` (or `loaf spec submit --input <file>`) to bump spec_version to 1, then retry the add-* command",
     template_keys: ["kind"],
     doc_anchor: "protocol.md#§4.2",
     detail_keys: ["kind"],

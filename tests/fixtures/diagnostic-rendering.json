@@ -59,10 +59,10 @@
     "detail": {
       "kind": "value_kind"
     },
-    "en_message": "value_kind blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1",
-    "zh_message": "value_kind 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1",
-    "en_text": "error: SPEC_NOT_INITIALIZED — value_kind blocked: spec_version=0; run `loaf spec submit` first to bump spec_version to 1\n  fix: run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)\n  see: protocol.md#§4.2\n",
-    "zh_text": "error: SPEC_NOT_INITIALIZED — value_kind 被拒:spec_version=0;先跑 `loaf spec submit` 把 spec_version 升到 1\n  fix: run `loaf spec submit --input <file>` first to bump spec_version to 1, then retry the add-* command (SC4 will add `loaf spec init` as a separate scaffold helper that chains into submit)\n  see: protocol.md#§4.2\n"
+    "en_message": "value_kind blocked: spec_version=0; submit the spec body first to bump spec_version to 1",
+    "zh_message": "value_kind 被拒:spec_version=0;先提交 spec 正文把 spec_version 升到 1",
+    "en_text": "error: SPEC_NOT_INITIALIZED — value_kind blocked: spec_version=0; submit the spec body first to bump spec_version to 1\n  fix: run `loaf spec init` then `loaf spec edit --input <body.json>` (or `loaf spec submit --input <file>`) to bump spec_version to 1, then retry the add-* command\n  see: protocol.md#§4.2\n",
+    "zh_text": "error: SPEC_NOT_INITIALIZED — value_kind 被拒:spec_version=0;先提交 spec 正文把 spec_version 升到 1\n  fix: run `loaf spec init` then `loaf spec edit --input <body.json>` (or `loaf spec submit --input <file>`) to bump spec_version to 1, then retry the add-* command\n  see: protocol.md#§4.2\n"
   },
   {
     "code": "SPEC_ALREADY_INITIALIZED",

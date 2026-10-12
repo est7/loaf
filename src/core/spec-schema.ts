@@ -133,15 +133,16 @@ export type EarsType = z.infer<typeof EarsType>;
 // when no verifiability triad — this is the journal-strict gate so loaf
 // can't append a REQ that violates protocol §4.2.
 
+const REQ_VERIFIABILITY_MESSAGE =
+  "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)";
 export const RequirementEarsVerifiable = RequirementEarsShape.refine(hasVerifiability, {
-  message:
-    "REQ must declare measurable, verified_by_scenarios[], or acceptance_na+reason (≥10 chars)",
+  message: REQ_VERIFIABILITY_MESSAGE,
 });
 export type RequirementEarsVerifiable = z.infer<typeof RequirementEarsVerifiable>;
 
 // ── Scenarios + visual contracts + needs_clarification ──────────────────
 
-export const ScenarioGherkin = z
+const ScenarioGherkinObject = z
   .object({
     id: ScenIdPayload,
     name: z.string().min(3),
@@ -152,10 +153,16 @@ export const ScenarioGherkin = z
     when: z.array(z.string().min(3)).min(1),
     then: z.array(z.string().min(3)).min(1),
   })
-  .strict()
-  .refine((s) => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance), {
-    message: "cannot set both requires_acceptance and acceptance_na",
-  });
+  .strict();
+const scenarioAcceptanceCoherent = (s: {
+  tag?: string | undefined;
+  acceptance_na?: string | undefined;
+  requires_acceptance?: boolean | undefined;
+}): boolean => !(s.tag === "e2e" && s.acceptance_na !== undefined && s.requires_acceptance);
+const SCENARIO_ACCEPTANCE_MESSAGE = "cannot set both requires_acceptance and acceptance_na";
+export const ScenarioGherkin = ScenarioGherkinObject.refine(scenarioAcceptanceCoherent, {
+  message: SCENARIO_ACCEPTANCE_MESSAGE,
+});
 export type ScenarioGherkin = z.infer<typeof ScenarioGherkin>;
 
 // Visual contracts are closed authored content, like every journal object.
@@ -264,65 +271,52 @@ export const ScenIdNamespace = z.string().regex(/^SCEN-[A-Z][A-Z0-9-]*$/);
 export const VisIdNamespace = z.string().regex(/^VIS-[A-Z][A-Z0-9-]*$/);
 
 // SpecAddReqInputItem / SpecAddScenarioInputItem / SpecAddVisualInputItem
-// — CLI boundary shape for `loaf spec add-*`. id_namespace replaces the
-// full `id` field used by the journal payload variants. The CLI stamps
-// the full id (via per-namespace allocator) before emitting the
-// event:spec_req_added entry. Heavy verifiability refines still fire at
-// journal-append time via RequirementEarsVerifiable / ScenarioGherkin
-// / VisualContract — this CLI-side schema only guards the structural
-// shape needed for allocation (passthrough on non-id fields).
+// — CLI boundary shape for `loaf spec add-*`. Each item is the complete
+// closed journal content schema with `id` replaced by `id_namespace`, so
+// `--schema` exports every field admission requires. The CLI allocator owns
+// the full id: a caller-supplied `id` is an unknown key and fails the
+// closed parse before allocation (codex r76 BLOCK).
 //
-// Single-item or array-of-items both accepted. Array → batch path:
+// Single-item or array-of-items both accepted; the CLI picks the item or
+// array schema by input shape so issues name the offending key rather than
+// collapsing into a union mismatch. Array → batch path:
 // one mutateBatch with N entries sharing one spec_version, allocator
 // advances per-namespace across the batch.
 
-// codex r76 BLOCK fix: refine rejects caller-supplied `id`. The CLI
-// allocator owns the full id contract; accepting `id` from input would
-// let caller bypass per-namespace allocation and silently desync stdout
-// (which prints the allocated id) from journal (which would store the
-// caller-supplied id via spread overwrite).
-const rejectCallerSuppliedId = <T extends Record<string, unknown>>(v: T): boolean => !("id" in v);
-const ID_REJECTION_MESSAGE =
-  "id_namespace expected; full id is CLI-allocated and must not be supplied in input";
-
-const SpecAddReqInputItemShape = z
-  .object({
-    id_namespace: ReqIdNamespace,
-    type: z.enum(["ubiquitous", "event-driven", "state-driven", "optional", "unwanted"]),
-  })
-  .passthrough()
-  .refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
+const ReqNamespaceField = { id_namespace: ReqIdNamespace };
+export const SpecAddReqInputItem = z
+  .discriminatedUnion("type", [
+    RequirementUbiquitousShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+    RequirementEventDrivenShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+    RequirementStateDrivenShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+    RequirementOptionalShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+    RequirementUnwantedShape.omit({ id: true }).extend(ReqNamespaceField).strict(),
+  ])
+  .refine(hasVerifiability, { message: REQ_VERIFIABILITY_MESSAGE });
 export const SpecAddReqInput = z.union([
-  SpecAddReqInputItemShape,
-  z.array(SpecAddReqInputItemShape).min(1),
+  SpecAddReqInputItem,
+  z.array(SpecAddReqInputItem).min(1),
 ]);
-export type SpecAddReqInputItem = z.infer<typeof SpecAddReqInputItemShape>;
+export type SpecAddReqInputItem = z.infer<typeof SpecAddReqInputItem>;
 
-const SpecAddScenarioInputItemShape = z
-  .object({
-    id_namespace: ScenIdNamespace,
-    name: z.string().min(3),
-  })
-  .passthrough()
-  .refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
+export const SpecAddScenarioInputItem = ScenarioGherkinObject.omit({ id: true })
+  .extend({ id_namespace: ScenIdNamespace })
+  .strict()
+  .refine(scenarioAcceptanceCoherent, { message: SCENARIO_ACCEPTANCE_MESSAGE });
 export const SpecAddScenarioInput = z.union([
-  SpecAddScenarioInputItemShape,
-  z.array(SpecAddScenarioInputItemShape).min(1),
+  SpecAddScenarioInputItem,
+  z.array(SpecAddScenarioInputItem).min(1),
 ]);
-export type SpecAddScenarioInputItem = z.infer<typeof SpecAddScenarioInputItemShape>;
+export type SpecAddScenarioInputItem = z.infer<typeof SpecAddScenarioInputItem>;
 
-const SpecAddVisualInputItemShape = z
-  .object({
-    id_namespace: VisIdNamespace,
-    target: z.string().min(3),
-  })
-  .passthrough()
-  .refine(rejectCallerSuppliedId, { message: ID_REJECTION_MESSAGE });
+export const SpecAddVisualInputItem = VisualContract.omit({ id: true })
+  .extend({ id_namespace: VisIdNamespace })
+  .strict();
 export const SpecAddVisualInput = z.union([
-  SpecAddVisualInputItemShape,
-  z.array(SpecAddVisualInputItemShape).min(1),
+  SpecAddVisualInputItem,
+  z.array(SpecAddVisualInputItem).min(1),
 ]);
-export type SpecAddVisualInputItem = z.infer<typeof SpecAddVisualInputItemShape>;
+export type SpecAddVisualInputItem = z.infer<typeof SpecAddVisualInputItem>;
 
 /**
  * Per-namespace id allocator: scan existing ids in `existing` for

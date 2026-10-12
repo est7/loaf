@@ -192,6 +192,18 @@ describe("current public schema output baseline", () => {
     expect(INPUT_SCHEMAS["evidence:add"]).toBe(EvidenceAddInputBatched);
   });
 
+  test.each([
+    ["spec:add-req", ["response", "trigger", "while_", "behavior", "measurable"]],
+    ["spec:add-scenario", ["given", "when", "then"]],
+    ["spec:add-visual", ["checks"]],
+  ] as const)("%s exports the closed journal content fields", (surface, fields) => {
+    const json = JSON.stringify(emitInputSchema(surface));
+    expect(json).not.toContain('"additionalProperties":{}');
+    expect(json).toContain('"additionalProperties":false');
+    for (const field of fields) expect(json).toContain(`"${field}"`);
+    expect(json).not.toMatch(/"id":\{/);
+  });
+
   test.each(inputSurfaces)("input:%s", (surface) => {
     expect(formatSchema(emitInputSchema(surface))).toMatchSnapshot();
   });

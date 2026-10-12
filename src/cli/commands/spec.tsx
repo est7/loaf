@@ -19,10 +19,11 @@ import { mapZodIssues } from "../check-file.js";
 import { runEditor as defaultRunEditor, type RunEditor } from "../run-editor.js";
 import { FRONTMATTER_RE, splitFrontmatter } from "../../core/spec-frontmatter.js";
 import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 import {
-  SpecAddReqInput,
-  SpecAddScenarioInput,
-  SpecAddVisualInput,
+  SpecAddReqInputItem,
+  SpecAddScenarioInputItem,
+  SpecAddVisualInputItem,
   SpecEditInput,
   SpecFrontmatter,
   SpecSubmitInput,
@@ -36,7 +37,10 @@ interface SpecAddKindConfig {
   name: "req" | "scenario" | "visual";
   payloadField: "req" | "scenario" | "visual";
   entryKind: "event:spec_req_added" | "event:spec_scenario_added" | "event:spec_visual_added";
-  inputSchema: typeof SpecAddReqInput | typeof SpecAddScenarioInput | typeof SpecAddVisualInput;
+  itemSchema:
+    | typeof SpecAddReqInputItem
+    | typeof SpecAddScenarioInputItem
+    | typeof SpecAddVisualInputItem;
   snapshotKey: "requirements" | "scenarios" | "visual_contracts";
 }
 
@@ -67,21 +71,21 @@ const REGISTER_SPEC_ADD: SpecAddKindConfig[] = [
     name: "req",
     payloadField: "req",
     entryKind: "event:spec_req_added",
-    inputSchema: SpecAddReqInput,
+    itemSchema: SpecAddReqInputItem,
     snapshotKey: "requirements",
   },
   {
     name: "scenario",
     payloadField: "scenario",
     entryKind: "event:spec_scenario_added",
-    inputSchema: SpecAddScenarioInput,
+    itemSchema: SpecAddScenarioInputItem,
     snapshotKey: "scenarios",
   },
   {
     name: "visual",
     payloadField: "visual",
     entryKind: "event:spec_visual_added",
-    inputSchema: SpecAddVisualInput,
+    itemSchema: SpecAddVisualInputItem,
     snapshotKey: "visual_contracts",
   },
 ];
@@ -292,7 +296,7 @@ export function registerSpec(
   // SPEC_VERSION_NOT_MONOTONIC reducer check.
   //
   // Each command is structurally identical; the only differences are:
-  //   1. Input schema (SpecAddReqInput / SpecAddScenarioInput / SpecAddVisualInput)
+  //   1. Input item schema (SpecAddReqInputItem / SpecAddScenarioInputItem / SpecAddVisualInputItem)
   //   2. Snapshot projection scanned (requirements / scenarios / visual_contracts)
   //   3. Output payload field name (req / scenario / visual)
   //   4. Journal entry kind (event:spec_req_added / spec_scenario_added /
@@ -727,7 +731,9 @@ export function registerSpec(
         if (!read.ok) return;
         const opts = rawOpts as { input: string; feature: string; featureDir?: string };
         const parsed = read.value;
-        const inputParse = cfg.inputSchema.safeParse(parsed);
+        const inputParse = Array.isArray(parsed)
+          ? z.array(cfg.itemSchema).min(1).safeParse(parsed)
+          : cfg.itemSchema.safeParse(parsed);
         if (!inputParse.success) {
           ctx.failure(
             diagnostic("SCHEMA_VALIDATION_FAILED", {
