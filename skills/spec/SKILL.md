@@ -36,19 +36,21 @@ satisfied with the content.
 | sub-state | author this | how | then |
 |---|---|---|---|
 | `SPEC.proposal` | why / scope / anti-scope | `loaf spec init`, then `loaf spec edit --input <body.json>` | `loaf advance SPEC.spec` |
-| `SPEC.spec` | EARS `REQ-*` (measurable + `verified_by_scenarios` or `acceptance_na`+reason), Gherkin `SCEN-*`, `VIS-*` if UI; `needs_clarification` must be empty | `loaf spec add-req` / `add-scenario` / `add-visual --input <file>` | `loaf advance SPEC.plan` |
+| `SPEC.spec` | EARS `REQ-*` (at least one of `measurable`, `verified_by_scenarios[]`, or `acceptance_na` + `acceptance_na_reason` ≥10 chars), Gherkin `SCEN-*`, `VIS-*` if UI; `needs_clarification` must be empty | `loaf spec add-req` / `add-scenario` / `add-visual --input <file>` | `loaf advance SPEC.plan` |
 | `SPEC.plan` | risks / dependencies / milestones | `loaf spec edit --input <body.json>` (Plan body) | `loaf advance SPEC.design` |
-| `SPEC.design` | design notes + task graph; **bind every `REQ`/`SCEN`/`VIS` to ≥1 task** via `task.drives[]` | `loaf tasks submit --input <file>` | gate → step 3 |
+| `SPEC.design` | design notes + task graph; bind every `REQ` via `task.drives[]`, every e2e `SCEN` via a task with `requires_acceptance: true` whose `drives` includes it (or `acceptance_na`), every `VIS` via a `visual-ui` task's `visual_contract_refs[]` (or `visual_na`). Prefer coarse tasks; warn the human if the graph exceeds 8 tasks | `loaf tasks submit --input <file>` | gate → step 3 |
 
 For headless prose authoring, `<body.json>` is a strict JSON object with one
 field: `{"body":"<complete Markdown body>"}`. `spec edit --input` preserves the
 current frontmatter and replaces only the body; do not copy frontmatter into the
 payload. The source may be a file path, `-` for piped JSON, or inline JSON. An
-interactive human may omit `--input` to use an explicitly configured `$EDITOR`.
+interactive human on a TTY may omit `--input` to open `$EDITOR` (falls back to
+`vi`).
 
 For add-* input, run that command with `--schema --format=json` and omit
-`--feature`. For the whole task graph, run `loaf tasks schema --format=json`;
-`tasks submit` itself has no `--schema` flag. Pass your file with `--input`.
+`--feature`. For the task graph input, run `loaf tasks submit --schema
+--format=json` (the id-less `local_key` authoring shape); `loaf tasks schema`
+is the projected artifact, not submit input. Pass your file with `--input`.
 The CLI stamps `REQ-`/`SCEN-`/`VIS-`/`T-` ids — never your own.
 
 REQ, measurable, scenario, VIS, clarification, feature, and task keys are
@@ -58,9 +60,10 @@ closed: undeclared fields fail validation. Use the declared schema fields.
 
 At `SPEC.design`, `loaf next --feature <F> --format json` returns a **blocking**
 recommendation: `loaf gate decide spec-lock` (`blocked: true`). This is the
-pause. The gate runs 8 mechanical checks (frontmatter, `needs_clarification`,
-task↔spec coverage, REQ / scenario / visual coverage, spec-review, orphans) and
-requires a `human:*` actor — which is why it is a human decision.
+pause. The gate runs 8 checks on the journal snapshot (frontmatter,
+`needs_clarification`, task-graph freshness, REQ driven, REQ verifiability, e2e
+scenario binding, visual binding, task-kind obligations) and requires a
+`human:*` actor — which is why it is a human decision.
 
 Before asking the human, run
 `loaf spec status --feature <F> --format json` and summarize its failing and
@@ -71,9 +74,12 @@ or reject.** Then run their decision:
 - approve → `loaf gate decide spec-lock --approve --reason "<why>" --feature <F>`
 - reject  → `loaf gate decide spec-lock --reject --reason "<what's missing>" --feature <F>`
 
-If `--approve` fails with failed checks (incomplete spec), surface them, return
-to step 2 to fix the spec or tasks, then retry. **Never force a lock past a
-failing check.** A reject keeps the cursor in SPEC — return to step 2.
+If `--approve` fails with failed checks (incomplete spec), surface them and fix
+in place at `SPEC.design` (no backward advance) with `spec add-*` / `spec edit`.
+Any spec change bumps `spec_version`, so re-run `loaf tasks submit` before
+retrying. **Never force a lock past a failing check.** A reject also leaves the
+cursor at `SPEC.design`; fix the same way. Editing `spec.md` by hand changes
+nothing — the gate reads the journal.
 
 ## Done — report & stop
 

@@ -41,7 +41,9 @@ remaining in `SETTLE.lessons`.
 
 ## Step 3 — Capture lessons
 
-`deep` requires at least one lesson (`lessons_required: must`). Record each:
+`deep` expects at least one lesson (`lessons_required: must`), but the kernel
+does not enforce it: `loaf next` already offers `deliver` with zero lessons.
+Record lessons before handing off. Record each:
 
 `loaf lessons add --text "<lesson>" --reason "<why it matters, ≥10 chars>"`
 (or `--file <path>` instead of `--text`). This appends a strict

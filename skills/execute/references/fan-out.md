@@ -8,8 +8,9 @@ concurrency count, write-scope isolation — is your job, not the protocol's.
 The iron rule: **side effects may run concurrently; loaf-artifact writes are
 always serial** (ADR-0005 single writer). Follow this 4-step loop:
 
-1. **Pick a batch of ready leaves.** From `loaf tasks list`, take tasks with
-   status ready and all `depends_on` done. Confirm their write scopes do not
+1. **Pick a batch of ready leaves.** From `loaf tasks list --status ready
+   --format json`, take tasks with `ready: true` (kernel-derived; it already
+   requires every `depends_on` to be done). Confirm their write scopes do not
    overlap. Pick N (typically 2–4).
 2. **Atomic batch transition (serial).** Call `loaf tasks claim <T>` + `loaf
    tasks step start --task <T> --step <s>` for each — one at a time, in the
@@ -25,9 +26,11 @@ always serial** (ADR-0005 single writer). Follow this 4-step loop:
 ## Failure handling
 
 If a sub-agent crashes or times out, at fan-in raise a finding against its task
-(`loaf finding raise --category test-defect --action amend-tasks --refs <T>`)
-and let the `amend-tasks` back-edge return the cursor to `EXECUTE.work` for a
-retry. Do not fabricate evidence for work that did not complete.
+(`loaf finding raise --category impl-defect --action fix-impl --target-task <T>
+--target-step implement --summary "<what failed>"`) and let the `fix-impl`
+back-edge return the cursor to `EXECUTE.work` and reset that step for a retry.
+If the task itself must be reshaped, use `--action amend-tasks` and then
+`loaf tasks amend <T> --input <file> --finding <FND-N>`. Do not fabricate evidence for work that did not complete.
 
 ## When NOT to fan out
 

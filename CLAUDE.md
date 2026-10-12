@@ -64,9 +64,11 @@ Navigation only — each file owns its own contract; read the source before chan
 | Admission ordering + public typed failure surface | `src/core/reducer/preflight.ts` |
 | Admission policy checks by kind family | `src/core/reducer/preflight/` |
 | Shared invariant predicates used by both surfaces | `src/core/reducer/invariants.ts` |
-| Per-kind tables (payload, actor, sub_state, reducer-implemented) | `src/core/kind-registry.ts` |
+| Per-kind tables (payload, actor, sub_state, entry schema version) | `src/core/kind-registry.ts` |
+| Single entry-admission path (NO_SESSION → preflight → reducer) + typed admitted entry | `src/core/entry-admission.ts`, `src/core/admitted-entry.ts` |
 | Legal transitions + guards | `src/core/reducer/transition.ts`, `src/core/machine.ts` |
-| Gate evaluation | `src/core/gates/` |
+| Gate evaluation (spec input from the journal snapshot, never spec.md) | `src/core/gates/`, `src/core/spec-snapshot.ts` |
+| Pending queue, finding action/risk policy, sponsorship | `src/core/intervention-policy.ts` |
 | Task-graph admission | `src/core/task-graph.ts` |
 | Task-amend frozen-field and freshness policy | `src/core/task-amend-policy.ts` |
 | Actor resolution policy | `src/core/actor-resolver.ts` |
@@ -74,8 +76,13 @@ Navigation only — each file owns its own contract; read the source before chan
 | Scope entry contract + replay derivation | `src/core/journal-entry.ts`, `src/core/scope-projection.ts` |
 | Machine-local session runtime + owner-fenced lock | `src/core/session-runtime.ts` |
 | EXECUTE closure scope transaction | `src/core/execute-closure.ts` |
+| Pending-scope accumulation, closure preparation and settlement | `src/core/pending-scope.ts` |
 | PostToolUse scope normalization | `src/core/scope-track.ts` |
 | Raw argv presentation semantics | `src/cli/argv-presentation.ts` |
+| Shared argv token scanner (stops at `--`) | `src/core/argv-scanner.ts` |
+| Per-command selector / dry-run / schema policy declared at registration | `src/cli/command-policy.ts` |
+| Single recoverable failure outlet (catalog-rendered) | `src/cli/diagnostic-failure.ts`, `src/core/error-catalog.ts` |
+| Trash bucket layout, manifest, trash/restore transfers | `src/core/trash-bucket.ts` |
 | Task command registration and handlers | `src/cli/commands/tasks/` |
 
 The mutation pipeline is staged and **all-or-nothing before write**: per-entry preflight and reducer dry-run run first, then gate evaluation, then sidecar promotion, then a final dry-run plus drift check, and only then a single fsync'd append. Once the append syscall starts there is no in-process rollback. `src/core/journal-bootstrap.ts` owns the batch-aware tail-recovery primitive; `loaf doctor --check-tail` is not wired yet, so do not promise that command as an available repair path. Read `src/core/journal-mutate.ts` for the current pass order rather than assuming it.
@@ -139,7 +146,7 @@ Not published to npm (`npm view loaf-cli` → 404). The CLI is distributed **str
 - Don't write spec.md / tasks.json / etc. as truth — they are derived projections.
 - Don't add `.passthrough()` on closed-enum fields — caller typos (e.g. `gate-decision` vs `gate_decision`) silently bypass invariants (Slice 3 SC1 r64 BLOCK).
 - Don't let `{id, ...rest}` spreads accept caller id over allocated id (Slice 4 SC2 r77 BLOCK pattern).
-- Don't compose YAML scalars containing `:` / leading `-` / `#` unquoted — production `readSpecFrontmatter` rejects them. Use `JSON.stringify(value)` for embedded scalars (Slice 4 SC4 r80 BLOCK).
+- Don't compose YAML scalars containing `:` / leading `-` / `#` unquoted — the frontmatter parser used by `loaf spec edit` and `loaf check` (`splitFrontmatter` + `yaml`) rejects them. Use `JSON.stringify(value)` for embedded scalars (Slice 4 SC4 r80 BLOCK).
 - Don't drift `ERROR_CATALOG` placeholders from runtime `detail.*` keys — `{phase}` vs `{kind}` etc. are easy to miss. Use `rg` to cross-check.
 - Don't suggest history-rewriting commands (rebase / reset --hard / filter-repo) unless explicitly asked.
 - Don't push without explicit user instruction.

@@ -2,7 +2,7 @@
 
 The kernel ships four built-in presets (`loaf start --ceremony <label>`). Each
 expands to the six-flag `Ceremony` object below — the values are ground truth
-from `src/cli.tsx` `PRESETS` (do not paraphrase from memory; re-check if the
+from `src/cli/commands/lifecycle.tsx` `PRESETS` (do not paraphrase from memory; re-check if the
 kernel changes them).
 
 | preset | spec_phase | verify_phase | settle_phase | strict_spec_review | lessons_required | strict_drift_check |
@@ -21,14 +21,18 @@ standard  TRIAGE → SPEC → EXECUTE → VERIFY → DONE
 deep      TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE → DONE   (+ strict trio)
 ```
 
-`deep`'s "strict trio" — `strict_spec_review`, `lessons_required: must`,
-`strict_drift_check` — turns the spec-review check, the lessons obligation, and
-the reconcile drift check from optional into hard gates.
+`quick` has no SPEC phase, so it has no task graph: `tasks submit` / `tasks add`
+are rejected and the session delivers from `EXECUTE.done`.
+
+`deep`'s "strict trio": `strict_spec_review` makes verify-accept check 5 a hard
+gate (independent spec-review evidence). `lessons_required: must` and
+`strict_drift_check` are recorded in the journal but not currently enforced by
+the kernel; the `/loaf:settle` skill owns the lessons obligation.
 
 The preset is a **label only**. The kernel stores the expanded six flags in the
 journal and enforces everything off those flags; the label is for display. You
-pass the label; the kernel expands it. A 3rd-party workflow could ship its own
-named presets, but these four are the loaf defaults.
+pass the label; the kernel expands it. `loaf start` accepts only these four
+labels (anything else is `INVALID_PRESET`).
 
 ## Score → preset mapping (your suggestion in TRIAGE.score)
 
@@ -48,4 +52,5 @@ non-trivial **security** or **concurrency** dimension should pull the
 suggestion up at least one level regardless of the raw total — those are the
 dimensions where skipping VERIFY/SETTLE hurts most.
 
-The score only *suggests*. The human confirms or overrides in `TRIAGE.confirm`.
+The score only *suggests*. The human confirms or overrides the preset before
+`loaf start` (step 3 of `/loaf:start`).

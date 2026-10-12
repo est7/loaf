@@ -28,8 +28,8 @@ commands (ADR-0005 single writer). Pass `--feature <F>` on every command.
 ## Step 2 — `VERIFY.plan`: read applicability
 
 Run `loaf verify status --feature <F> --format json` and read the
-kernel-derived `lanes[]`. Treat each lane's `must` / `optional` / `na` status
-and reason as authoritative; do not independently decide or record lane
+kernel-derived `lanes[]`. Treat each lane's `applicability` (`must` or `na`)
+and `reason` as authoritative; do not independently decide or record lane
 applicability. `loaf next` is routing only: it routes to the first applicable
 lane and does not compute or persist applicability. Run the advance it returns.
 
@@ -39,11 +39,17 @@ For each lane `loaf next` routes you to, do the check and record proof:
 
 - `loaf evidence add --input <file>` with the lane's evidence `kind`
   (`local-check`/`task-summary` for run, `verify-review` for review,
-  `acceptance` for acceptance, `visual-review` + attachments for visual).
+  `acceptance` for acceptance, `visual-review` + attachments for visual). Set
+  payload `check: "<lane>"` for explicit lane linkage; kind is the fallback,
+  and `spec-review` also counts for the review lane.
 - In evidence input, payload `actor` is the evidence attester. The journal
   envelope actor is writer provenance; they deliberately may differ.
-- Failure → `loaf finding raise …`; close it with `loaf finding close <FND-id>`
-  once resolved. Open findings block the gate.
+- Failure → `loaf finding raise …`. A `fix-impl` / `fix-test` / `amend-tasks`
+  finding back-edges the cursor to `EXECUTE.work` (leave VERIFY; report and
+  route via `/loaf:execute`). Otherwise close it with
+  `loaf finding close <FND-id>` once resolved. Open actionable findings block
+  the gate; `defer` / `backlog` findings do not (they appear under
+  `deferred_findings`).
 
 Use `loaf evidence list --feature <F> --format json` (optionally filtered by
 `--covers`, `--task`, or `--kind`) to review recorded coverage. Do not inspect

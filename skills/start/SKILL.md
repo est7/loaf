@@ -29,8 +29,9 @@ the decision.
 
 1. **Check for an existing session (re-entry safe).**
    `loaf status --feature <F> --format json`
-   - Exit 2 `FEATURE_NOT_FOUND` → no session yet; continue to step 2.
-   - Exit 0 with a `sub_state` → already started. Do **not** re-run `loaf
+   - Exit 2 with a one-line stderr JSON whose `code` is `FEATURE_NOT_FOUND`
+     → no session yet; continue to step 2.
+   - Exit 0 with `state.sub_state` → already started. Do **not** re-run `loaf
      start`. Skip to **Done — report & stop** — the kernel routes you to the real cursor.
 
 2. **Score the work (your judgment).** Rate complexity 0–100 across **files /
@@ -49,8 +50,10 @@ the decision.
    `standard`.
 
 5. **Confirm the profile.** `loaf advance TRIAGE.confirm --feature <F>`
-   (`TRIAGE.score` → `TRIAGE.confirm` — the "accept or override profile"
-   checkpoint). Then report & stop.
+   (`TRIAGE.score` → `TRIAGE.confirm`). The ceremony was fixed by the human in
+   step 3; after start it changes only through a kernel-raised
+   `profile_escalation` pending resolved with `loaf profile escalate`. Then
+   report & stop.
 
 ## Done — report & stop
 

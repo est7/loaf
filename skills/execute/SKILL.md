@@ -20,18 +20,21 @@ commands — never touch `.loaf/` or its snapshots (ADR-0005 single writer). Pas
 `loaf status --feature <F> --format json`
 
 - `FEATURE_NOT_FOUND` → wrong skill; tell the user to run `/loaf:start`.
-- `sub_state = SPEC.design` (just locked) or `TRIAGE.confirm` (quick path) →
-  you are the receiving skill: run `loaf next` and the advance it returns to
-  reach `EXECUTE.plan`.
+- `sub_state = SPEC.design` → the spec is not locked yet (approving spec-lock
+  moves the cursor straight to `EXECUTE.plan`); route back to `/loaf:spec`.
+- `sub_state = TRIAGE.confirm` (quick path) → you are the receiving skill: run
+  `loaf next` and the advance it returns to reach `EXECUTE.plan`. `quick` has
+  no task graph; do the work directly and deliver from `EXECUTE.done`.
 - `sub_state` in `EXECUTE.*` → resume at that sub-state.
 - `sub_state` past EXECUTE → done here; skip to **Done — report & stop**.
 
 ## Step 2 — `EXECUTE.plan`: derive execution policy
 
-For each task, set its per-step applicability from `kind × ceremony`. Narrow
-edits only: `loaf tasks amend <T-id> --policy <…>` (policy fields only — cannot
-change `drives` / `kind` / `depends_on`). `loaf tasks list` to review. When
-every task has a policy → `loaf advance EXECUTE.work`.
+Each task arrives with every kind step `must` (or the submitted `step_policy`).
+Narrow where appropriate with `loaf tasks amend <T-id> --policy <step>=<must|optional|na>`
+(repeatable; policy fields only — cannot change `drives` / `kind` /
+`depends_on`; an unknown step is `TASK_STEP_NOT_FOUND`). `loaf tasks list` to
+review, then `loaf advance EXECUTE.work`.
 
 ## Step 3 — `EXECUTE.work`: the work loop
 
@@ -42,8 +45,12 @@ Repeat until every task is `done` or `abandoned`:
 2. `loaf tasks claim <T-id>`, then `loaf tasks step start --task <T-id> --step <s>`.
 3. Do the work — write code / run tests, touching only that task's own scope.
 4. `loaf evidence add --input <file>` — its `covers[]` must include the **task
-   id** (`T-id`): the verify-accept gate requires every done task to carry
-   evidence covering its own id, else it fails `TASK_DONE_NO_EVIDENCE`. Record
+   id** (`T-id`): the verify-accept gate (standard/deep) requires every done
+   task to carry passing evidence covering its own id, else it fails
+   `TASK_DONE_NO_EVIDENCE`. For `light`, deliver enforces verify-min instead:
+   behavioral/structural tasks need passing `local-check` evidence covering the
+   T-id, visual-ui needs `visual-review` or `manual`, docs needs `task-summary`
+   or `manual` (else `DELIVER_VERIFY_MIN_INCOMPLETE`). Record
    REQ / SCEN / VIS coverage with separate evidence whose `covers[]` names those
    obligation ids. Evidence `kind` constrains which obligation a record can
    satisfy; choose a compatible kind before writing it:
@@ -56,10 +63,9 @@ Repeat until every task is `done` or `abandoned`:
    | `T-*` | `task-summary`, `local-check`, `manual`, `waiver` |
 
    An `evidence add` compatibility warning means the supplied kind cannot
-   satisfy that coverage lane; it is not noise. For `REQ-*`, `SCEN-*`, and
-   `VIS-*`, `manual` / `waiver` also require a `human:*` payload actor and a
-   reason of at least 10 characters. `visual-review` evidence covering `VIS-*`
-   additionally requires an attachment. Then
+   satisfy that coverage lane; it is not noise. `manual` / `waiver` evidence
+   always requires a `human:*` payload actor and a reason of at least 10
+   characters; every `visual-review` requires at least one attachment. Then
    `loaf tasks step done --task <T-id> --step <s>`.
    Completing the last must-step auto-promotes the task to `done`.
    The step outcome and evidence outcome are independent: a RED reproduction
@@ -71,7 +77,11 @@ Repeat until every task is `done` or `abandoned`:
    tasks. In evidence input, payload `actor` is the evidence attester; the
    journal envelope actor is writer provenance, and the two may differ.
 5. Problem found → `loaf finding raise --category <c> --action <a> --summary
-   "<…>"` (`fix-impl` / `fix-test` / `amend-tasks` back-edges return you here).
+   "<…>" [--target-task <T-id> --target-step <s>] [--reason "<≥20 chars>"]`.
+   `fix-impl` requires target step `implement` and `fix-test` requires `red`;
+   `--target-task` and `--target-step` go together; unusual category × action
+   cells need `--reason`, incoherent cells are rejected. `fix-impl` /
+   `fix-test` / `amend-tasks` back-edges return you here.
 
 Independent ready leaves may run **concurrently** — see
 [references/fan-out.md](references/fan-out.md). Side effects fan out; **loaf
