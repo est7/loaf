@@ -1607,28 +1607,45 @@ const ERROR_CATALOG = {
 		exit_code: 2,
 		message_template: "requested loaf doctor mode is not implemented in this release",
 		zh_message_template: "当前发布版本未实现该 loaf doctor 模式",
-		fix_template: "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
+		fix_template: "Use `loaf doctor --rebuild --feature <name>` or `loaf doctor --check-tail --feature <name>`.",
 		template_keys: [],
 		doc_anchor: "protocol.md#§10.15",
 		detail_keys: []
 	},
 	DOCTOR_FEATURE_REQUIRED: {
 		exit_code: 2,
-		message_template: "loaf doctor --rebuild requires --feature <name>",
-		zh_message_template: "loaf doctor --rebuild 必须带 --feature <name>",
-		fix_template: "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+		message_template: "loaf doctor requires --feature <name>",
+		zh_message_template: "loaf doctor 必须带 --feature <name>",
+		fix_template: "Pass --feature <name>; optionally override its directory with --feature-dir <path>.",
 		template_keys: [],
 		doc_anchor: "protocol.md#§10.15",
 		detail_keys: []
 	},
 	DOCTOR_REBUILD_FAILED: {
 		exit_code: 2,
-		message_template: "doctor --rebuild failed",
-		zh_message_template: "doctor --rebuild 失败",
+		message_template: "doctor repair/rebuild failed",
+		zh_message_template: "doctor 修复/重建失败",
 		fix_template: "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
 		template_keys: [],
 		doc_anchor: "protocol.md#§10.15",
-		detail_keys: []
+		detail_keys: [],
+		variants: { "failure.doctor.after_tail_recovery": {
+			message_template: "doctor failed after tail recovery {recovery_action} ({truncated_bytes} bytes truncated): {failure}",
+			zh_message_template: "doctor 在尾部修复 {recovery_action} 后失败（已截断 {truncated_bytes} 字节）：{failure}",
+			fix_template: "The recovery is already committed; preserve the journal and repair the reported replay/projection failure before running `loaf doctor --rebuild --feature <name>`.",
+			zh_fix_template: "尾部修复已提交；保留 journal，处理报告的 replay/投影错误后再运行 `loaf doctor --rebuild --feature <name>`。",
+			template_keys: [
+				"failure",
+				"recovery_action",
+				"truncated_bytes"
+			],
+			detail_keys: [
+				"failure",
+				"recovery_action",
+				"truncated_bytes"
+			],
+			doc_anchor: "protocol.md#§10.15"
+		} }
 	},
 	REDUCER_ERROR: {
 		exit_code: 2,
@@ -1642,7 +1659,7 @@ const ERROR_CATALOG = {
 	APPEND_ERROR: {
 		exit_code: 2,
 		message_template: "journal append failed",
-		fix_template: "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+		fix_template: "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity",
 		template_keys: [],
 		detail_keys: [],
 		doc_anchor: "protocol.md#§11.2"
@@ -6108,7 +6125,20 @@ async function replayJournal(filePath, opts = {}) {
 		...collected ? { entries: collected } : {}
 	};
 }
-z.object({
+/**
+* Refuses destructive recovery when the tail proves that a newer writer has
+* emitted an entry this binary cannot interpret.
+*/
+var TailRecoveryUpgradeRequiredError = class extends Error {
+	code = "JOURNAL_TAIL_REQUIRES_NEWER_LOAF";
+	detail;
+	constructor(detail) {
+		super(`tail recovery refused at seq ${detail.seq}: kind ${detail.kind} uses entry schema ${detail.entry_schema_version} (${detail.reason})`);
+		this.name = "TailRecoveryUpgradeRequiredError";
+		this.detail = detail;
+	}
+};
+const TailRecoveryEnvelope = z.object({
 	seq: z.number().int().nonnegative(),
 	entry_id: EntryId,
 	at: z.string().datetime(),
@@ -6127,6 +6157,147 @@ z.object({
 	].filter((value) => value !== void 0).length;
 	return present === 0 || present === 3;
 }, { message: "batch_id, batch_index, batch_count must be all-present or all-absent" }).refine((entry) => entry.batch_index === void 0 || entry.batch_count === void 0 || entry.batch_index < entry.batch_count, { message: "batch_index must be < batch_count" });
+function classifyTailLine(line) {
+	let decoded;
+	try {
+		decoded = JSON.parse(line);
+	} catch {
+		return { status: "invalid" };
+	}
+	const envelope = TailRecoveryEnvelope.safeParse(decoded);
+	if (envelope.success) {
+		const knownKind = EntryKind.safeParse(envelope.data.kind);
+		if (!knownKind.success) return {
+			status: "newer",
+			detail: {
+				seq: envelope.data.seq,
+				kind: envelope.data.kind,
+				entry_schema_version: envelope.data.entry_schema_version,
+				reason: "unknown_kind"
+			}
+		};
+		if (envelope.data.entry_schema_version > ENTRY_SCHEMA_VERSIONS[knownKind.data]) return {
+			status: "newer",
+			detail: {
+				seq: envelope.data.seq,
+				kind: knownKind.data,
+				entry_schema_version: envelope.data.entry_schema_version,
+				reason: "entry_schema_version_too_new"
+			}
+		};
+	}
+	const parsed = JournalEntry.safeParse(decoded);
+	return parsed.success ? {
+		status: "known",
+		entry: parsed.data
+	} : { status: "invalid" };
+}
+/**
+* Walk the journal from the end; if the tail is malformed (no trailing \n,
+* JSON parse fails, batch incomplete), truncate back to the last fully
+* committed boundary. Returns the action + bytes/entries dropped.
+*
+* Boundary rules (ADR-0005 §4.13):
+*   - A final segment without trailing \n is a partial line → drop.
+*   - A JSON-invalid line is a write-mid-line artifact → drop.
+*   - If the last fully-committed line is a batch member with
+*     batch_index < batch_count-1, that batch's prefix entries are also
+*     truncated back to the batch's first entry's pre-offset.
+*/
+async function tailRecovery(filePath) {
+	let contents;
+	try {
+		contents = await promises.readFile(filePath, "utf8");
+	} catch (err) {
+		if (err.code === "ENOENT") return {
+			truncated_bytes: 0,
+			truncated_entries: 0,
+			action: "noop"
+		};
+		throw err;
+	}
+	if (contents.length === 0) return {
+		truncated_bytes: 0,
+		truncated_entries: 0,
+		action: "noop"
+	};
+	const segments = contents.split("\n");
+	const trailingTerminated = segments[segments.length - 1] === "";
+	const completeSegments = segments.slice(0, -1);
+	const completeLines = [];
+	let cursor = 0;
+	for (const text of completeSegments) {
+		completeLines.push({
+			text,
+			start_offset: cursor
+		});
+		cursor += Buffer.byteLength(`${text}\n`, "utf8");
+	}
+	const partialLine = trailingTerminated ? null : {
+		text: segments[segments.length - 1],
+		start_offset: cursor
+	};
+	const totalBytes = Buffer.byteLength(contents, "utf8");
+	const classified = completeLines.map((line) => classifyTailLine(line.text));
+	let truncateOffset = totalBytes;
+	let truncatedEntries = 0;
+	let action = "noop";
+	if (partialLine !== null) {
+		const partialClassification = classifyTailLine(partialLine.text);
+		if (partialClassification.status === "newer") throw new TailRecoveryUpgradeRequiredError(partialClassification.detail);
+		truncateOffset = partialLine.start_offset;
+		action = "drop_partial_line";
+	}
+	let trailingInvalidCount = 0;
+	for (let i = completeLines.length - 1; i >= 0; i--) {
+		const line = classified[i];
+		if (line.status === "known") break;
+		if (line.status === "newer") throw new TailRecoveryUpgradeRequiredError(line.detail);
+		trailingInvalidCount += 1;
+		truncateOffset = completeLines[i].start_offset;
+	}
+	if (trailingInvalidCount > 0) action = "drop_invalid_tail";
+	truncatedEntries += trailingInvalidCount;
+	const survivorCount = completeLines.length - trailingInvalidCount;
+	if (survivorCount > 0) {
+		const lastClassified = classified[survivorCount - 1];
+		if (lastClassified.status === "newer") throw new TailRecoveryUpgradeRequiredError(lastClassified.detail);
+		const last = lastClassified.status === "known" ? lastClassified.entry : null;
+		if (last === null) throw new Error("tail recovery invariant violated: last survivor is invalid");
+		if (last.batch_id !== void 0) {
+			let batchStartIdx = survivorCount - 1;
+			while (batchStartIdx > 0) {
+				const previous = classified[batchStartIdx - 1];
+				if (previous.status !== "known" || previous.entry.batch_id !== last.batch_id) break;
+				batchStartIdx -= 1;
+			}
+			const batchEntryCount = survivorCount - batchStartIdx;
+			if (batchEntryCount < (last.batch_count ?? batchEntryCount)) {
+				truncateOffset = completeLines[batchStartIdx].start_offset;
+				truncatedEntries += batchEntryCount;
+				action = "drop_partial_batch";
+			}
+		}
+	}
+	if (truncateOffset === totalBytes) return {
+		truncated_bytes: 0,
+		truncated_entries: 0,
+		action: "noop"
+	};
+	const truncatedBytes = totalBytes - truncateOffset;
+	const fh = await promises.open(filePath, "r+");
+	try {
+		await fh.truncate(truncateOffset);
+		await fh.sync();
+	} finally {
+		await fh.close();
+	}
+	return {
+		truncated_bytes: truncatedBytes,
+		truncated_entries: truncatedEntries,
+		action
+	};
+}
 //#endregion
 //#region src/core/cli-runtime.ts
 const LOAF_DOCS_URL = "https://docs.loaf.invalid";
@@ -7386,8 +7557,8 @@ var en_default = {
 		"INVALID_PRESET": "invalid ceremony preset",
 		"USAGE": "invalid CLI usage",
 		"DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
-		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
-		"DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
+		"DOCTOR_FEATURE_REQUIRED": "loaf doctor requires --feature <name>",
+		"DOCTOR_REBUILD_FAILED": "doctor repair/rebuild failed",
 		"REDUCER_ERROR": "internal reducer invariant failed",
 		"APPEND_ERROR": "journal append failed",
 		"SIDECAR_ERROR": "sidecar finalize failed: {err}",
@@ -7516,11 +7687,11 @@ var en_default = {
 		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
 		"INVALID_PRESET": "Use one of quick, light, standard, or deep.",
 		"USAGE": "Run the command with --help and retry with the required flags/arguments.",
-		"DOCTOR_MODE_NOT_IMPLEMENTED": "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
-		"DOCTOR_FEATURE_REQUIRED": "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+		"DOCTOR_MODE_NOT_IMPLEMENTED": "Use `loaf doctor --rebuild --feature <name>` or `loaf doctor --check-tail --feature <name>`.",
+		"DOCTOR_FEATURE_REQUIRED": "Pass --feature <name>; optionally override its directory with --feature-dir <path>.",
 		"DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
 		"REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
-		"APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+		"APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity",
 		"SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
 		"INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
 		"SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
@@ -7594,7 +7765,8 @@ var en_default = {
 			"covers_invalid": "--covers must be a valid coverage id (got {value})",
 			"task_invalid": "--task must be a valid task id (got {value})",
 			"kind_invalid": "--kind must be one of: {allowed_kinds_human}"
-		}
+		},
+		"doctor": { "after_tail_recovery": "doctor failed after tail recovery {recovery_action} ({truncated_bytes} bytes truncated): {failure}" }
 	} },
 	diagnostic_variant_fix: { "failure": {
 		"check": {
@@ -7661,7 +7833,8 @@ var en_default = {
 			"covers_invalid": "Run the command with --help and retry with the required flags/arguments.",
 			"task_invalid": "Run the command with --help and retry with the required flags/arguments.",
 			"kind_invalid": "Run the command with --help and retry with the required flags/arguments."
-		}
+		},
+		"doctor": { "after_tail_recovery": "The recovery is already committed; preserve the journal and repair the reported replay/projection failure before running `loaf doctor --rebuild --feature <name>`." }
 	} },
 	success: {
 		"next": {
@@ -8198,8 +8371,8 @@ var zh_default = {
 		"INVALID_PRESET": "ceremony preset 不合法",
 		"USAGE": "CLI 用法不合法",
 		"DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
-		"DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild 必须带 --feature <name>",
-		"DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
+		"DOCTOR_FEATURE_REQUIRED": "loaf doctor 必须带 --feature <name>",
+		"DOCTOR_REBUILD_FAILED": "doctor 修复/重建失败",
 		"REDUCER_ERROR": "reducer 内部不变量失败",
 		"SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
 		"SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
@@ -8276,9 +8449,10 @@ var zh_default = {
 			"covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
 			"task_invalid": "--task 必须是有效的 task id(当前 {value})",
 			"kind_invalid": "--kind 必须是:{allowed_kinds_human}"
-		}
+		},
+		"doctor": { "after_tail_recovery": "doctor 在尾部修复 {recovery_action} 后失败（已截断 {truncated_bytes} 字节）：{failure}" }
 	} },
-	diagnostic_variant_fix: {},
+	diagnostic_variant_fix: { "failure": { "doctor": { "after_tail_recovery": "尾部修复已提交；保留 journal，处理报告的 replay/投影错误后再运行 `loaf doctor --rebuild --feature <name>`。" } } },
 	success: {
 		"next": {
 			"full_command_pointer": "运行 `{command}` 获取完整命令",
@@ -13514,11 +13688,15 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			config_path: configPath
 		}, () => `${configPath}\n`);
 	});
-	declareCommandPolicy(program.command("doctor").description("Repository self-check. This release implements --rebuild only").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+	declareCommandPolicy(program.command("doctor").description("Repair journal tails (--check-tail) or rebuild projections (--rebuild)").option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json").option("--check-tail", "Repair an incomplete journal tail, then replay and rebuild projections").option("--feature <name>", "Feature to repair or rebuild (required)").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
 		selectors: "recovery",
 		dryRun: "read-only"
 	}).action(async (opts) => {
-		if (!opts.rebuild) {
+		if (opts.rebuild && opts.checkTail) {
+			ctx.failure(diagnostic$2("MUTUALLY_EXCLUSIVE_FLAGS", { conflicting: ["--rebuild", "--check-tail"] }));
+			return;
+		}
+		if (!opts.rebuild && !opts.checkTail) {
 			ctx.failure(diagnostic$2("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
 			return;
 		}
@@ -13530,7 +13708,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		ctx.recordTraceTarget(opts.feature, featureDir);
 		let lease;
 		try {
-			lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
+			lease = await acquireFeatureWriteLease(featureDir, opts.checkTail ? "doctor:check-tail" : "doctor:rebuild");
 		} catch (error) {
 			if (error instanceof FeatureWriteLeaseError) {
 				ctx.failure(error.diagnostic);
@@ -13540,20 +13718,45 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 		}
 		try {
 			const journalPath = path.join(featureDir, "journal.jsonl");
+			let recovery;
+			if (opts.checkTail) try {
+				recovery = await tailRecovery(journalPath);
+			} catch (error) {
+				if (error instanceof TailRecoveryUpgradeRequiredError) {
+					ctx.failure(diagnostic$2(error.code, { ...error.detail }));
+					return;
+				}
+				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {
+					reason: "tail_recovery_failed",
+					journal_path: journalPath,
+					cause: error instanceof Error ? error.message : String(error)
+				}));
+				return;
+			}
+			const failRebuild = (detail) => {
+				if (recovery !== void 0) ctx.failure(diagnosticVariant("failure.doctor.after_tail_recovery", {
+					...detail,
+					recovery,
+					recovery_action: recovery.action,
+					truncated_bytes: recovery.truncated_bytes,
+					failure: String(detail["reason"] ?? detail["replay_code"] ?? "rebuild_failed")
+				}));
+				else ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", detail));
+			};
 			const replay = await replayJournal(journalPath, { collect_entries: true });
 			if (!replay.ok) {
-				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {
+				failRebuild({
 					journal_path: journalPath,
 					replay_code: replay.code,
 					at_seq: replay.at_seq,
 					...replay.detail,
 					...replay.code === "REDUCER_REJECTED" ? { diagnostic: replay.diagnostic } : { cause: replay.message }
-				}));
+				});
 				return;
 			}
 			const entries = replay.entries;
 			if (entries === void 0) {
-				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {}));
+				failRebuild({});
 				return;
 			}
 			let rebuilt;
@@ -13564,11 +13767,11 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 					meta: replay.meta
 				});
 			} catch (err) {
-				ctx.failure(diagnostic$2("DOCTOR_REBUILD_FAILED", {
+				failRebuild({
 					reason: "projection_write_failed",
 					cause: err.message,
 					feature_dir: featureDir
-				}));
+				});
 				return;
 			}
 			const out = {
@@ -13576,9 +13779,10 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 				feature: opts.feature,
 				feature_dir: featureDir,
 				tail_seq: replay.meta.last_applied_seq,
+				...recovery !== void 0 ? recovery : {},
 				rebuilt
 			};
-			ctx.success(out, (i18n) => i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany, {
+			ctx.success(out, (i18n) => (recovery === void 0 ? "" : `tail recovery: ${recovery.action}; truncated ${recovery.truncated_bytes} bytes (${recovery.truncated_entries} entries)\n`) + i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildTextOne : SUCCESS_KEYS.doctorRebuildTextMany, {
 				count: rebuilt.length,
 				feature: opts.feature
 			}) + "\n" + rebuilt.map((f) => `  snapshots/${f}\n`).join("") + i18n.t(SUCCESS_KEYS.snapshotAsOfSeq, { seq: replay.meta.last_applied_seq }) + "\n", (i18n) => ({ stateChange: i18n.t(rebuilt.length === 1 ? SUCCESS_KEYS.doctorRebuildStateChangeOne : SUCCESS_KEYS.doctorRebuildStateChangeMany, {

@@ -214,8 +214,8 @@ describe("ERROR_CATALOG template/detail contracts", () => {
     }
   });
 
-  test("all 41 variants belong to the existing site taxonomy and have complete detail contracts", () => {
-    expect(Object.keys(DIAGNOSTIC_VARIANTS)).toHaveLength(41);
+  test("all 42 variants belong to the existing site taxonomy and have complete detail contracts", () => {
+    expect(Object.keys(DIAGNOSTIC_VARIANTS)).toHaveLength(42);
     for (const [context, variant] of Object.entries(DIAGNOSTIC_VARIANTS)) {
       expect(context).toMatch(/^failure\./);
       const entry = variant.template;

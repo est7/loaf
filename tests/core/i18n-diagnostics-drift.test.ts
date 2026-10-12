@@ -99,7 +99,9 @@ describe("generated i18n diagnostic sections", () => {
       expect(read(en.diagnostic_variant)).toBe(variant.template.message_template);
       expect(read(en.diagnostic_variant_fix)).toBe(variant.template.fix_template);
       expect(read(zh.diagnostic_variant)).toBe(variant.template.zh_message_template);
-      expect(read(zh.diagnostic_variant_fix)).toBeUndefined();
+      expect(read(zh.diagnostic_variant_fix)).toBe(
+        "zh_fix_template" in variant.template ? variant.template.zh_fix_template : undefined,
+      );
     }
   });
 });

@@ -85,7 +85,7 @@ Navigation only — each file owns its own contract; read the source before chan
 | Trash bucket layout, manifest, trash/restore transfers | `src/core/trash-bucket.ts` |
 | Task command registration and handlers | `src/cli/commands/tasks/` |
 
-The mutation pipeline is staged and **all-or-nothing before write**: per-entry preflight and reducer dry-run run first, then gate evaluation, then sidecar promotion, then a final dry-run plus drift check, and only then a single fsync'd append. Once the append syscall starts there is no in-process rollback. `src/core/journal-bootstrap.ts` owns the batch-aware tail-recovery primitive; `loaf doctor --check-tail` is not wired yet, so do not promise that command as an available repair path. Read `src/core/journal-mutate.ts` for the current pass order rather than assuming it.
+The mutation pipeline is staged and **all-or-nothing before write**: per-entry preflight and reducer dry-run run first, then gate evaluation, then sidecar promotion, then a final dry-run plus drift check, and only then a single fsync'd append. Once the append syscall starts there is no in-process rollback. `src/core/journal-bootstrap.ts` owns the batch-aware tail-recovery primitive; `loaf doctor --check-tail --feature <name>` explicitly repairs incomplete journal tails and rebuilds projections under the feature lease. `--rebuild` only replays and rebuilds; it never truncates. Read `src/core/journal-mutate.ts` for the current pass order rather than assuming it.
 
 ### Schema source of truth
 

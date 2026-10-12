@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `loaf doctor --check-tail --feature <F>` repairs a torn journal tail under
+  the feature write lease (batch-aware suffix truncation, then full replay
+  and projection rebuild). It refuses tails written by a newer loaf without
+  touching the journal, never repairs interior corruption, and rejects
+  `--dry-run`. Append failures that recommended this command now point at a
+  real repair path.
+
 ### Fixed
 
 - Step-completion evidence now covers its task by default when

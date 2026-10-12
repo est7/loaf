@@ -13,7 +13,12 @@ import {
   writeConfigExclusive,
 } from "../../core/loaf-config.js";
 import { UserConfig, userConfigPath } from "../../core/user-config.js";
-import { replayJournal } from "../../core/journal-bootstrap.js";
+import {
+  replayJournal,
+  tailRecovery,
+  TailRecoveryUpgradeRequiredError,
+  type TailRecoveryResult,
+} from "../../core/journal-bootstrap.js";
 import { writeProjections } from "../../core/projection-writer.js";
 import {
   acquireFeatureWriteLease,
@@ -306,10 +311,11 @@ export function registerProfileConfig(
   });
 
   // ── loaf doctor --rebuild ───────────────────────────────────────────
-  // The shipped doctor surface has one mode: --rebuild performs a full
+  // --rebuild performs a full
   // journal replay and republishes the five journal-derived data projections
   // plus _meta.json under the feature write lease. Bare doctor and the
-  // historical target-design sub-flags are rejected explicitly.
+  // unsupported sub-flags are rejected. --check-tail explicitly repairs a
+  // journal suffix before replay, under the same lease; --rebuild never truncates.
   //
   // Exit codes (Phase 16 SC-2 normalization, was codex r160 pre-normalization):
   //   0 = rebuilt OK
@@ -325,18 +331,27 @@ export function registerProfileConfig(
   declareCommandPolicy(
     program
       .command("doctor")
-      .description("Repository self-check. This release implements --rebuild only")
+      .description("Repair journal tails (--check-tail) or rebuild projections (--rebuild)")
       .option("--rebuild", "Full journal replay → rebuild snapshots/*.json + _meta.json")
-      .option("--feature <name>", "Feature whose snapshots to rebuild (required with --rebuild)")
+      .option(
+        "--check-tail",
+        "Repair an incomplete journal tail, then replay and rebuild projections",
+      )
+      .option("--feature <name>", "Feature to repair or rebuild (required)")
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "recovery", dryRun: "read-only" },
-  ).action(async (opts: { rebuild?: boolean; feature?: string; featureDir?: string }) => {
+  ).action(async (opts: { rebuild?: boolean; checkTail?: boolean; feature?: string; featureDir?: string }) => {
     // Doctor rebuild is a projection writer, not a journal mutator. A
     // dry-run would need a separate replay-preview contract, so both bare
     // doctor and --rebuild reject --dry-run.
 
-
-    if (!opts.rebuild) {
+    if (opts.rebuild && opts.checkTail) {
+      ctx.failure(
+        diagnostic("MUTUALLY_EXCLUSIVE_FLAGS", { conflicting: ["--rebuild", "--check-tail"] }),
+      );
+      return;
+    }
+    if (!opts.rebuild && !opts.checkTail) {
       ctx.failure(diagnostic("DOCTOR_MODE_NOT_IMPLEMENTED", {}));
       return;
     }
@@ -361,7 +376,10 @@ export function registerProfileConfig(
     ctx.recordTraceTarget(opts.feature, featureDir);
     let lease: FeatureWriteLease;
     try {
-      lease = await acquireFeatureWriteLease(featureDir, "doctor:rebuild");
+      lease = await acquireFeatureWriteLease(
+        featureDir,
+        opts.checkTail ? "doctor:check-tail" : "doctor:rebuild",
+      );
     } catch (error) {
       if (error instanceof FeatureWriteLeaseError) {
         ctx.failure(error.diagnostic);
@@ -371,26 +389,56 @@ export function registerProfileConfig(
     }
     try {
       const journalPath = path.join(featureDir, "journal.jsonl");
+      let recovery: TailRecoveryResult | undefined;
+      if (opts.checkTail) {
+        try {
+          recovery = await tailRecovery(journalPath);
+        } catch (error) {
+          if (error instanceof TailRecoveryUpgradeRequiredError) {
+            ctx.failure(diagnostic(error.code, { ...error.detail }));
+            return;
+          }
+          ctx.failure(
+            diagnostic("DOCTOR_REBUILD_FAILED", {
+              reason: "tail_recovery_failed",
+              journal_path: journalPath,
+              cause: error instanceof Error ? error.message : String(error),
+            }),
+          );
+          return;
+        }
+      }
+      const failRebuild = (detail: Record<string, unknown>): void => {
+        if (recovery !== undefined) {
+          ctx.failure(
+            diagnosticVariant("failure.doctor.after_tail_recovery", {
+              ...detail,
+              recovery,
+              recovery_action: recovery.action,
+              truncated_bytes: recovery.truncated_bytes,
+              failure: String(detail["reason"] ?? detail["replay_code"] ?? "rebuild_failed"),
+            }),
+          );
+        } else ctx.failure(diagnostic("DOCTOR_REBUILD_FAILED", detail));
+      };
       const replay = await replayJournal(journalPath, {
         collect_entries: true,
       });
       if (!replay.ok) {
-        ctx.failure(
-          diagnostic("DOCTOR_REBUILD_FAILED", {
-            journal_path: journalPath,
-            replay_code: replay.code,
-            at_seq: replay.at_seq,
-            ...replay.detail,
-            ...(replay.code === "REDUCER_REJECTED"
-              ? { diagnostic: replay.diagnostic }
-              : { cause: replay.message }),
-          }),
-        );
+        failRebuild({
+          journal_path: journalPath,
+          replay_code: replay.code,
+          at_seq: replay.at_seq,
+          ...replay.detail,
+          ...(replay.code === "REDUCER_REJECTED"
+            ? { diagnostic: replay.diagnostic }
+            : { cause: replay.message }),
+        });
         return;
       }
       const entries = replay.entries;
       if (entries === undefined) {
-        ctx.failure(diagnostic("DOCTOR_REBUILD_FAILED", {}));
+        failRebuild({});
         return;
       }
 
@@ -402,13 +450,11 @@ export function registerProfileConfig(
           meta: replay.meta,
         });
       } catch (err) {
-        ctx.failure(
-          diagnostic("DOCTOR_REBUILD_FAILED", {
-            reason: "projection_write_failed",
-            cause: (err as Error).message,
-            feature_dir: featureDir,
-          }),
-        );
+        failRebuild({
+          reason: "projection_write_failed",
+          cause: (err as Error).message,
+          feature_dir: featureDir,
+        });
         return;
       }
 
@@ -417,11 +463,15 @@ export function registerProfileConfig(
         feature: opts.feature,
         feature_dir: featureDir,
         tail_seq: replay.meta.last_applied_seq,
+        ...(recovery !== undefined ? recovery : {}),
         rebuilt,
       };
       ctx.success(
         out,
         (i18n) =>
+          (recovery === undefined
+            ? ""
+            : `tail recovery: ${recovery.action}; truncated ${recovery.truncated_bytes} bytes (${recovery.truncated_entries} entries)\n`) +
           i18n.t(
             rebuilt.length === 1
               ? SUCCESS_KEYS.doctorRebuildTextOne
@@ -445,4 +495,5 @@ export function registerProfileConfig(
       await lease.release();
     }
   });
+
 }

@@ -272,8 +272,8 @@
     "INVALID_PRESET": "ceremony preset 不合法",
     "USAGE": "CLI 用法不合法",
     "DOCTOR_MODE_NOT_IMPLEMENTED": "当前发布版本未实现该 loaf doctor 模式",
-    "DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild 必须带 --feature <name>",
-    "DOCTOR_REBUILD_FAILED": "doctor --rebuild 失败",
+    "DOCTOR_FEATURE_REQUIRED": "loaf doctor 必须带 --feature <name>",
+    "DOCTOR_REBUILD_FAILED": "doctor 修复/重建失败",
     "REDUCER_ERROR": "reducer 内部不变量失败",
     "SCOPE_RECORDED_BATCH_INVALID": "scope:recorded 批次无效:{reason}",
     "SCOPE_RECORDED_ITERATION_DUPLICATE": "iteration {iteration} 已存在 scope:recorded",
@@ -361,11 +361,20 @@
         "covers_invalid": "--covers 必须是有效的 coverage id(当前 {value})",
         "task_invalid": "--task 必须是有效的 task id(当前 {value})",
         "kind_invalid": "--kind 必须是:{allowed_kinds_human}"
+      },
+      "doctor": {
+        "after_tail_recovery": "doctor 在尾部修复 {recovery_action} 后失败（已截断 {truncated_bytes} 字节）：{failure}"
       }
     }
   },
 
-  "diagnostic_variant_fix": {},
+  "diagnostic_variant_fix": {
+    "failure": {
+      "doctor": {
+        "after_tail_recovery": "尾部修复已提交；保留 journal，处理报告的 replay/投影错误后再运行 `loaf doctor --rebuild --feature <name>`。"
+      }
+    }
+  },
 
 
   "success": {

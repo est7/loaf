@@ -988,7 +988,7 @@
     <div class="gate-card">
       <div class="num">#4</div>
       <h4>Batch-aware tail recovery</h4>
-      <p><code>src/core/journal-bootstrap.ts</code> 的 tail recovery primitive <strong>以 batch 为单位</strong>；doctor <code>--check-tail</code> 接线：<strong>未实现（目标设计）</strong>。<br>· 单 entry partial → truncate 单 entry<br>· batch incomplete → truncate <strong>整个 batch</strong> 到 batch 第一个 entry 之前</p>
+      <p><code>src/core/journal-bootstrap.ts</code> 的 tail recovery primitive <strong>以 batch 为单位</strong>；<code>loaf doctor --check-tail --feature &lt;name&gt;</code> 已接线，在 feature lease 内修复后 replay/rebuild。<br>· 单 entry partial → truncate 单 entry<br>· batch incomplete → truncate <strong>整个 batch</strong> 到 batch 第一个 entry 之前</p>
       <div class="test">📌 Stage 3<br>tests/core/tail-corruption.test.ts(7 场景)</div>
     </div>
     <div class="gate-card">
@@ -1211,7 +1211,7 @@
 <section id="doctor">
   <h2>⑫ <code>loaf doctor</code> · target checks</h2>
   <p class="lead"><strong>未实现（目标设计）</strong>：下表描述 doctor 检查与修复设计，不代表启动期自动运行。当前 feature lease 本身在竞争时验证 owner generation：dead owner 可回收，live owner 不偷取，malformed state fail closed。</p>
-  <p class="lead">当前仅实现 <code>loaf doctor --rebuild --feature &lt;X&gt;</code>（full replay 重建 <code>snapshots/</code>）。bare <code>loaf doctor</code> → exit 2 <code>DOCTOR_MODE_NOT_IMPLEMENTED</code>；未注册的 sub-flag → <code>USAGE</code>。</p>
+  <p class="lead">当前实现 <code>loaf doctor --rebuild --feature &lt;X&gt;</code>（只读 journal 的 full replay/rebuild）和 <code>--check-tail --feature &lt;X&gt;</code>（显式尾部修复后 replay/rebuild）；两种 mode 互斥。bare <code>loaf doctor</code> → exit 2 <code>DOCTOR_MODE_NOT_IMPLEMENTED</code>；未注册的 sub-flag → <code>USAGE</code>。</p>
 
   <table class="matrix">
     <thead>
@@ -1236,13 +1236,13 @@
   </table>
 
   <h3>Sub-flags</h3>
-  <p>当前仅实现 <code>--rebuild</code>；下表其它 doctor 专属 flag：<strong>未实现（目标设计）</strong>。<code>--format json</code> 是 live 全局 flag。</p>
+  <p>当前实现 <code>--rebuild</code> 与 <code>--check-tail</code>；下表其它 doctor 专属 flag：<strong>未实现（目标设计）</strong>。<code>--format json</code> 是 live 全局 flag。</p>
   <table class="matrix">
     <thead><tr><th>Flag</th><th>用途</th></tr></thead>
     <tbody>
       <tr><td class="k">--fix</td><td>对可修复 check 尝试 fix(snapshot-seq-mismatch / rolling-checksum 永不自动 fix)</td></tr>
       <tr><td class="k">--rebuild</td><td>full replay from seq=0;rewrite snapshots/* + _meta.json</td></tr>
-      <tr><td class="k">--check-tail</td><td>只跑 Gate #4 batch-aware tail recovery</td></tr>
+      <tr><td class="k">--check-tail</td><td>feature lease 内 Gate #4 batch-aware tail recovery + replay/rebuild；建议先备份 journal</td></tr>
       <tr><td class="k">--scope cwd</td><td>iterate all .loaf/&lt;feat&gt;/ under cwd;mixed-version-cwd 拒</td></tr>
       <tr><td class="k">--verify-checksum</td><td>full chain rolling_checksum 重算(O(N));报中段 corruption</td></tr>
       <tr><td class="k">--rebuild-registry</td><td>等价 --fix 但只跑 registry-* 三项</td></tr>

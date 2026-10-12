@@ -1336,26 +1336,35 @@
     "detail": {},
     "en_message": "requested loaf doctor mode is not implemented in this release",
     "zh_message": "当前发布版本未实现该 loaf doctor 模式",
-    "en_text": "error: DOCTOR_MODE_NOT_IMPLEMENTED — requested loaf doctor mode is not implemented in this release\n  fix: Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.\n  see: protocol.md#§10.15\n",
-    "zh_text": "error: DOCTOR_MODE_NOT_IMPLEMENTED — 当前发布版本未实现该 loaf doctor 模式\n  fix: Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.\n  see: protocol.md#§10.15\n"
+    "en_text": "error: DOCTOR_MODE_NOT_IMPLEMENTED — requested loaf doctor mode is not implemented in this release\n  fix: Use `loaf doctor --rebuild --feature <name>` or `loaf doctor --check-tail --feature <name>`.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_MODE_NOT_IMPLEMENTED — 当前发布版本未实现该 loaf doctor 模式\n  fix: Use `loaf doctor --rebuild --feature <name>` or `loaf doctor --check-tail --feature <name>`.\n  see: protocol.md#§10.15\n"
   },
   {
     "code": "DOCTOR_FEATURE_REQUIRED",
     "context": null,
     "detail": {},
-    "en_message": "loaf doctor --rebuild requires --feature <name>",
-    "zh_message": "loaf doctor --rebuild 必须带 --feature <name>",
-    "en_text": "error: DOCTOR_FEATURE_REQUIRED — loaf doctor --rebuild requires --feature <name>\n  fix: Pass --feature <name> or --feature-dir <path> for the session to rebuild.\n  see: protocol.md#§10.15\n",
-    "zh_text": "error: DOCTOR_FEATURE_REQUIRED — loaf doctor --rebuild 必须带 --feature <name>\n  fix: Pass --feature <name> or --feature-dir <path> for the session to rebuild.\n  see: protocol.md#§10.15\n"
+    "en_message": "loaf doctor requires --feature <name>",
+    "zh_message": "loaf doctor 必须带 --feature <name>",
+    "en_text": "error: DOCTOR_FEATURE_REQUIRED — loaf doctor requires --feature <name>\n  fix: Pass --feature <name>; optionally override its directory with --feature-dir <path>.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_FEATURE_REQUIRED — loaf doctor 必须带 --feature <name>\n  fix: Pass --feature <name>; optionally override its directory with --feature-dir <path>.\n  see: protocol.md#§10.15\n"
   },
   {
     "code": "DOCTOR_REBUILD_FAILED",
     "context": null,
     "detail": {},
-    "en_message": "doctor --rebuild failed",
-    "zh_message": "doctor --rebuild 失败",
-    "en_text": "error: DOCTOR_REBUILD_FAILED — doctor --rebuild failed\n  fix: Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.\n  see: protocol.md#§10.15\n",
-    "zh_text": "error: DOCTOR_REBUILD_FAILED — doctor --rebuild 失败\n  fix: Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.\n  see: protocol.md#§10.15\n"
+    "en_message": "doctor repair/rebuild failed",
+    "zh_message": "doctor 修复/重建失败",
+    "en_text": "error: DOCTOR_REBUILD_FAILED — doctor repair/rebuild failed\n  fix: Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_REBUILD_FAILED — doctor 修复/重建失败\n  fix: Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.\n  see: protocol.md#§10.15\n"
+  },
+  {
+    "code": "DOCTOR_REBUILD_FAILED",
+    "context": "failure.doctor.after_tail_recovery",
+    "detail": {"context": "failure.doctor.after_tail_recovery", "failure": "projection_write_failed", "recovery_action": "drop_partial_line", "truncated_bytes": 11},
+    "en_message": "doctor failed after tail recovery drop_partial_line (11 bytes truncated): projection_write_failed",
+    "zh_message": "doctor 在尾部修复 drop_partial_line 后失败（已截断 11 字节）：projection_write_failed",
+    "en_text": "error: DOCTOR_REBUILD_FAILED — doctor failed after tail recovery drop_partial_line (11 bytes truncated): projection_write_failed\n  fix: The recovery is already committed; preserve the journal and repair the reported replay/projection failure before running `loaf doctor --rebuild --feature <name>`.\n  see: protocol.md#§10.15\n",
+    "zh_text": "error: DOCTOR_REBUILD_FAILED — doctor 在尾部修复 drop_partial_line 后失败（已截断 11 字节）：projection_write_failed\n  fix: 尾部修复已提交；保留 journal，处理报告的 replay/投影错误后再运行 `loaf doctor --rebuild --feature <name>`。\n  see: protocol.md#§10.15\n"
   },
   {
     "code": "REDUCER_ERROR",
@@ -1372,8 +1381,8 @@
     "detail": {},
     "en_message": "journal append failed",
     "zh_message": "journal append failed",
-    "en_text": "error: APPEND_ERROR — journal append failed\n  fix: preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity\n  see: protocol.md#§11.2\n",
-    "zh_text": "error: APPEND_ERROR — journal append failed\n  fix: preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity\n  see: protocol.md#§11.2\n"
+    "en_text": "error: APPEND_ERROR — journal append failed\n  fix: preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: APPEND_ERROR — journal append failed\n  fix: preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity\n  see: protocol.md#§11.2\n"
   },
   {
     "code": "SIDECAR_ERROR",

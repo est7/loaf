@@ -327,8 +327,8 @@
     "INVALID_PRESET": "invalid ceremony preset",
     "USAGE": "invalid CLI usage",
     "DOCTOR_MODE_NOT_IMPLEMENTED": "requested loaf doctor mode is not implemented in this release",
-    "DOCTOR_FEATURE_REQUIRED": "loaf doctor --rebuild requires --feature <name>",
-    "DOCTOR_REBUILD_FAILED": "doctor --rebuild failed",
+    "DOCTOR_FEATURE_REQUIRED": "loaf doctor requires --feature <name>",
+    "DOCTOR_REBUILD_FAILED": "doctor repair/rebuild failed",
     "REDUCER_ERROR": "internal reducer invariant failed",
     "APPEND_ERROR": "journal append failed",
     "SIDECAR_ERROR": "sidecar finalize failed: {err}",
@@ -458,11 +458,11 @@
     "JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again",
     "INVALID_PRESET": "Use one of quick, light, standard, or deep.",
     "USAGE": "Run the command with --help and retry with the required flags/arguments.",
-    "DOCTOR_MODE_NOT_IMPLEMENTED": "Use loaf doctor --rebuild --feature <name>; other doctor modes are deferred.",
-    "DOCTOR_FEATURE_REQUIRED": "Pass --feature <name> or --feature-dir <path> for the session to rebuild.",
+    "DOCTOR_MODE_NOT_IMPLEMENTED": "Use `loaf doctor --rebuild --feature <name>` or `loaf doctor --check-tail --feature <name>`.",
+    "DOCTOR_FEATURE_REQUIRED": "Pass --feature <name>; optionally override its directory with --feature-dir <path>.",
     "DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
     "REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
-    "APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity",
+    "APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity",
     "SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
     "INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
     "SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
@@ -546,6 +546,9 @@
         "covers_invalid": "--covers must be a valid coverage id (got {value})",
         "task_invalid": "--task must be a valid task id (got {value})",
         "kind_invalid": "--kind must be one of: {allowed_kinds_human}"
+      },
+      "doctor": {
+        "after_tail_recovery": "doctor failed after tail recovery {recovery_action} ({truncated_bytes} bytes truncated): {failure}"
       }
     }
   },
@@ -624,6 +627,9 @@
         "covers_invalid": "Run the command with --help and retry with the required flags/arguments.",
         "task_invalid": "Run the command with --help and retry with the required flags/arguments.",
         "kind_invalid": "Run the command with --help and retry with the required flags/arguments."
+      },
+      "doctor": {
+        "after_tail_recovery": "The recovery is already committed; preserve the journal and repair the reported replay/projection failure before running `loaf doctor --rebuild --feature <name>`."
       }
     }
   },

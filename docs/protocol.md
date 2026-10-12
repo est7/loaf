@@ -1670,11 +1670,11 @@ error: <CODE> — <localized catalog message>
 | <code>JOURNAL_TAIL_REQUIRES_NEWER_LOAF</code> | 2 | <code>tail recovery refused at seq &#123;seq&#125;: journal kind &#123;kind&#125; uses entry schema &#123;entry_schema_version&#125; (&#123;reason&#125;)</code> | <code>preserve journal.jsonl byte-for-byte and upgrade loaf to a version that understands this entry before running tail recovery again</code> | <code>protocol.md#§10.15</code> |
 | <code>INVALID_PRESET</code> | 2 | <code>invalid ceremony preset</code> | <code>Use one of quick, light, standard, or deep.</code> | <code>protocol.md#§10.5</code> |
 | <code>USAGE</code> | 2 | <code>invalid CLI usage</code> | <code>Run the command with --help and retry with the required flags/arguments.</code> | <code>protocol.md#§10.5</code> |
-| <code>DOCTOR_MODE_NOT_IMPLEMENTED</code> | 2 | <code>requested loaf doctor mode is not implemented in this release</code> | <code>Use loaf doctor --rebuild --feature &lt;name&gt;; other doctor modes are deferred.</code> | <code>protocol.md#§10.15</code> |
-| <code>DOCTOR_FEATURE_REQUIRED</code> | 2 | <code>loaf doctor --rebuild requires --feature &lt;name&gt;</code> | <code>Pass --feature &lt;name&gt; or --feature-dir &lt;path&gt; for the session to rebuild.</code> | <code>protocol.md#§10.15</code> |
-| <code>DOCTOR_REBUILD_FAILED</code> | 2 | <code>doctor --rebuild failed</code> | <code>Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.</code> | <code>protocol.md#§10.15</code> |
+| <code>DOCTOR_MODE_NOT_IMPLEMENTED</code> | 2 | <code>requested loaf doctor mode is not implemented in this release</code> | <code>Use `loaf doctor --rebuild --feature &lt;name&gt;` or `loaf doctor --check-tail --feature &lt;name&gt;`.</code> | <code>protocol.md#§10.15</code> |
+| <code>DOCTOR_FEATURE_REQUIRED</code> | 2 | <code>loaf doctor requires --feature &lt;name&gt;</code> | <code>Pass --feature &lt;name&gt;; optionally override its directory with --feature-dir &lt;path&gt;.</code> | <code>protocol.md#§10.15</code> |
+| <code>DOCTOR_REBUILD_FAILED</code> | 2 | <code>doctor repair/rebuild failed</code> | <code>Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.</code> | <code>protocol.md#§10.15</code> |
 | <code>REDUCER_ERROR</code> | 2 | <code>internal reducer invariant failed</code> | <code>Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.</code> | <code>protocol.md#§10.5</code> |
-| <code>APPEND_ERROR</code> | 2 | <code>journal append failed</code> | <code>preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor` to verify journal integrity</code> | <code>protocol.md#§11.2</code> |
+| <code>APPEND_ERROR</code> | 2 | <code>journal append failed</code> | <code>preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature &lt;name&gt;` to repair and verify journal integrity</code> | <code>protocol.md#§11.2</code> |
 | <code>SIDECAR_ERROR</code> | 2 | <code>sidecar finalize failed: &#123;err&#125;</code> | <code>inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying</code> | <code>protocol.md#§11.2</code> |
 | <code>INVALID_BATCH</code> | 2 | <code>mutation batch is invalid</code> | <code>rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail</code> | <code>protocol.md#§11.2</code> |
 | <code>SCOPE_RECORDED_BATCH_INVALID</code> | 2 | <code>scope:recorded batch is invalid: &#123;reason&#125;</code> | <code>emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch</code> | <code>protocol.md#§4.6</code> |
@@ -1816,6 +1816,8 @@ TTY no-hang 守卫见 §10.1(stdin TTY + `--input -` → USAGE exit 2,不 hang)�
 | **Wrapping 命令**(`spec edit` 无 `--input`)| reject `--dry-run`(无 mutation 意图直接落到 wrap 程序;`detail.command_type` 携带 `"wrapping"`)；`spec edit --input` 是确定性 mutator，走标准 dry-run transaction，且不改 work copy|
 | **Hook 入口**(`hook <event>`)| 透传给被 hook 的 mutator;`PreToolUse` hook 接 `--dry-run` 时只跑 write-guard 校验不写派生投影 |
 
+doctor 的 dry-run policy 标签仍为 `read-only`（因此拒绝 preview），不代表磁盘只读：`--rebuild` 写派生投影，`--check-tail` 修复 journal 尾部并写投影。两种 mode 都不支持 `--dry-run`。
+
 **Skill / CI 用法示例**:
 
 ```bash
@@ -1916,7 +1918,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf pending list [--feature <value>] [--feature-dir <value>]` | 列 pending projection 全部 entry（包含已 resolve 历史，`resolved:true`）；JSON `{ok,feature,count,pending:[{id,kind,resolved,head}]}`，text head 标 `head`| 0 |
 | `loaf pending status [--feature <value>] [--id <value>] [--feature-dir <value>]` | 查 single entry 详情(**rev 4.1**:default 看 head;`--id` 看队列其它位置 — 只读不动队列)| 0 / 2 |
 | `loaf pending resolve --answer <value> [--feature <value>] [--feature-dir <value>]` | 回答 pending head(**rev 4.1**:FIFO 严格 — 永远 pop `pending[0]`,**不接受 `--id`**;v1.0 不支持跳序)。**v0.1.0**:`--answer` 是 Commander `requiredOption`,任何 stdin/TTY 状态缺 flag → USAGE exit 2;未来 prompt 入口落地后,`--no-input` 强制 fail-closed,TTY + 无 `--no-input` 展示 head 的 `question` + `options` 走 prompt(见 §10.7)。resolve 成功后队列若仍非空,新 head 自动 promote 为 blocker | 0 / 2 |
-| `loaf doctor [--rebuild] [--feature <value>] [--feature-dir <value>]` | 版本 / 装机 / 仓库结构自检 + 修复建议。当前 binary 仅 ship `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`(full replay 重建 snapshots/)。bare `loaf doctor` → exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`；**未实现（目标设计）**：`--check-tail`、`--scope cwd`、`--verify-checksum`。不支持旧 N-file snapshot import；含不受支持 import entry 的 rebuild 失败为 `DOCTOR_REBUILD_FAILED`，`detail.replay_code=INVALID_ENTRY`。详 §10.15 | 0 / 1 / 2 |
+| `loaf doctor [--rebuild] [--check-tail] [--feature <value>] [--feature-dir <value>]` | 版本 / 装机 / 仓库结构自检 + 修复建议。当前 `--rebuild` full replay 重建 snapshots；`--check-tail` 在同一 feature lease 内修复未完成尾部、full replay 并重建 snapshots。两种 mode 互斥，均要求 `--feature`。bare `loaf doctor` → exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`；**未实现（目标设计）**：`--scope cwd`、`--verify-checksum`。不支持旧 N-file snapshot import；含不受支持 import entry 的 rebuild 失败为 `DOCTOR_REBUILD_FAILED`，`detail.replay_code=INVALID_ENTRY`。详 §10.15 | 0 / 1 / 2 |
 
 <!-- inventory:current-end -->
 
@@ -2069,13 +2071,17 @@ git / gh side effect 由 loaf-skill 或用户负责，不进 loaf-cli（§16）�
 
 ### 10.15 `loaf doctor` 诊断与 rebuild
 
-当前只实现 `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`：在 feature lease 内 full replay 并重建 snapshots。bare doctor 返回 exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`；rebuild 缺 feature 返回 `DOCTOR_FEATURE_REQUIRED`。
+`loaf doctor --rebuild --feature <X> [--feature-dir <path>]` 在 feature lease 内 full replay 并重建 snapshots，不截断 journal。
 
-**未实现（目标设计）**：doctor 的综合检查、`--fix`、`--rebuild-registry`、`--check-tail`、`--scope cwd`、`--verify-checksum`，包括 registry GC、orphan temp/attachment 清理、stale-claim 与 checksum repair。当前启动期不自动运行这些清理。
+`loaf doctor --check-tail --feature <X> [--feature-dir <path>]` 显式授权尾部修复：先备份 journal；在同一 lease 内调用 batch-aware tailRecovery，再 full replay 和重建 snapshots。只截断未完成/无效尾部，保留完整 prefix 原始字节；interior corruption 不修复。成功 JSON 增加 `action` / `truncated_bytes` / `truncated_entries`，并包含 `tail_seq` / `rebuilt`。重复运行是 noop。
+
+两种 mode 互斥；bare doctor 返回 `DOCTOR_MODE_NOT_IMPLEMENTED`，缺 feature 返回 `DOCTOR_FEATURE_REQUIRED`，`--dry-run` 拒绝。截断已提交后若 replay/投影写入失败，stderr 返回 `DOCTOR_REBUILD_FAILED`，`detail.recovery` 保留修复结果；不宣称 rollback。
+
+**未实现（目标设计）**：doctor 的综合检查、`--fix`、`--rebuild-registry`、`--scope cwd`、`--verify-checksum`，包括 registry GC、orphan temp/attachment 清理、stale-claim 与 checksum repair。当前启动期不自动运行这些清理。
 
 Reader fast-check 已实现：`status` / `next` / `tasks list` / `pending list` / `finding list` / `evidence list` 六个命令在读投影前及读后做 M0-anchored fast-check。stale 返回 `SNAPSHOT_STALE_REBUILD_REQUIRED`，不静默 replay fallback；`detail.reason` 为 `journal_missing` / `journal_empty` / `tail_offset_mismatch` / `tail_hash_mismatch` / `trailing_partial_line` / `meta_missing` / `meta_invalid` / `projection_missing` / `projection_invalid`。`meta_invalid` 和 `projection_invalid` 的 cause 为 `json_parse` 或 `schema`。`tasks.json` 缺失且 `state.based_on.tasks===0` 是 valid-empty。feature/auto-pick dispatch 也读 state projection；尚未启动的目录返回 `FEATURE_NOT_FOUND`。UUID dispatch 先查 registry，随后 reader 路径由命令决定（§10.8）。
 
-`tailRecovery` 是 core 的 batch-aware recovery primitive，尚未接到 `doctor --check-tail`。它先检查稳定 envelope 结构；未知 kind 或更高 entry schema version 是 newer-writer 证据，truncate 前 fail closed 为 `JOURNAL_TAIL_REQUIRES_NEWER_LOAF`。dead-owner feature lease 的回收由后续 writer 以 PID + generation 证明执行，不由启动期 doctor 清理。
+`tailRecovery` 是 `doctor --check-tail` 复用的 core batch-aware recovery primitive。它先检查稳定 envelope 结构；未知 kind 或更高 entry schema version 是 newer-writer 证据，truncate 前 fail closed 为 `JOURNAL_TAIL_REQUIRES_NEWER_LOAF`。dead-owner feature lease 的回收由后续 writer 以 PID + generation 证明执行，不由启动期 doctor 清理。
 
 ---
 
@@ -2118,7 +2124,7 @@ Reader fast-check 已实现：`status` / `next` / `tasks list` / `pending list` 
 
 所有 mutator 在 feature lease 下串行化；worker 的执行并发不等于 journal mutation 并发。Direct append primitive 绕过此 orchestration，只供明确拥有的 recovery/migration 路径使用。
 
-**Crash recovery**：已实现 owner-fenced lease 回收、reader stale 拒绝和 `doctor --rebuild`。综合 doctor cleanup 尚未实现，core tailRecovery 尚未接 CLI；详 §10.15。
+**Crash recovery**：已实现 owner-fenced lease 回收、reader stale 拒绝和 `doctor --rebuild`。综合 doctor cleanup 尚未实现，`doctor --check-tail` 已接 core tailRecovery；详 §10.15。
 
 **EXECUTE closure scope transaction(ticket #11)**:此专用路径先持有 machine-local runtime lock，再由 `mutateBatch` 获取 feature lock，固定顺序无反向边。batch 为 `[scope:recorded(current iteration), event:phase_advanced(EXECUTE.work→EXECUTE.done)]`；append 是 commit point，只有 journal 证明 commit 后才清 pending。晚到的旧 iteration PostToolUse 路径按 feature-level monotone union carry 到下一 iteration；已被旧 marker 覆盖的路径不重复 carry。actual-scope full replay 会先检查每个 closure 是否有同批 marker，缺失即 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`。
 
