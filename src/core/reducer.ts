@@ -48,6 +48,7 @@ export type {
 
 export function initialSnapshot(): Snapshot {
   return {
+    lesson_count: 0,
     state: null,
     tasks: [],
     evidence: [],
@@ -449,9 +450,9 @@ export function applyValidated(prev: Snapshot, entry: AdmittedEntry): ApplyResul
     }
 
     case "lesson:recorded": {
-      // Lessons are projected directly from journal history. Keep this an
-      // explicit no-op so they cannot leak into evidence-derived gates,
-      // counts, board, TUI, or resume-pack surfaces.
+      // The delivery invariant needs the admitted session-wide count. Lesson
+      // content remains journal-projected and does not become evidence.
+      prev.lesson_count += 1;
       return { ok: true, snapshot: prev };
     }
 

@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Breaking:** deep delivery now enforces `ceremony.lessons_required=must`: at least one
+  admitted session-wide `lesson:recorded` entry is required at SETTLE.lessons.
+  `loaf next` shares delivery admission's predicate and requests a blocking human
+  `lessons add` before routing to delivery.
+  `may`/`skip` are unchanged; markdown files and manual evidence do not count.
+  The shared rule also applies to dry-run, batch ordering and replay. Replaying
+  a historical zero-lesson deep delivery is intentionally rejected.
+
 - Step-completion evidence now covers its task by default when
   `--evidence-covers` is omitted. Explicit coverage, including an empty value,
   remains unchanged; task proof still requires passing evidence of an accepted kind.

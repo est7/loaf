@@ -352,12 +352,13 @@ export function registerLifecycle(
     );
     if (loaded === null) return;
 
+    // Preserve projection fast-check before reading canonical routing facts.
+    const session = await ctx.resolveSession(featureDir);
     let verifyApplicableLanes: ReturnType<typeof deriveVerifyApplicability> | undefined;
     if (loaded.state.sub_state.startsWith("VERIFY.")) {
       // Projection freshness is established above; replay is not a fallback
       // for stale projections. Canonical spec and task obligations come from
       // the same journal snapshot consumed by verify status and approval.
-      const session = await ctx.resolveSession(featureDir);
       const built = buildSpecFrontmatterFromSnapshot(session.snapshot);
       if (!built.ok) {
         ctx.failure(built);
@@ -375,6 +376,7 @@ export function registerLifecycle(
         ceremony: loaded.state.ceremony,
         spec_locked: loaded.state.spec_locked,
         verify_accepted: loaded.state.verify_accepted,
+        lesson_count: session.snapshot.lesson_count,
         pending: loaded.state.pending,
         verify_applicable_lanes: verifyApplicableLanes,
       },

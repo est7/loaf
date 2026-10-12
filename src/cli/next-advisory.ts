@@ -103,6 +103,7 @@ export function nextInputFromSnapshot(
     ceremony: state.ceremony,
     spec_locked: state.spec_locked,
     verify_accepted: state.verify_accepted,
+    lesson_count: snapshot.lesson_count,
     pending: pendingKindsForNext(snapshot.pending),
   };
 }

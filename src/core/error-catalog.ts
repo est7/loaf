@@ -1291,6 +1291,16 @@ export const ERROR_CATALOG = {
     doc_anchor: "protocol.md#§5.2",
     detail_keys: ["sub_state"],
   },
+  DELIVER_LESSONS_REQUIRED: {
+    exit_code: 2,
+    message_template: "deliver from {sub_state} requires at least one recorded lesson when lessons_required={lessons_required}; found {lesson_count}",
+    zh_message_template: "从 {sub_state} deliver 时，lessons_required={lessons_required} 要求至少一条已记录 lesson；当前 {lesson_count} 条",
+    fix_template: "record a session lesson with `loaf lessons add --text <text> --reason <reason>`, then retry delivery",
+    zh_fix_template: "用 `loaf lessons add --text <text> --reason <reason>` 记录 session lesson 后再 deliver",
+    template_keys: ["lesson_count", "lessons_required", "sub_state"],
+    detail_keys: ["lesson_count", "lessons_required", "sub_state"],
+    doc_anchor: "protocol.md#§12.1",
+  },
   DELIVER_SETTLE_PHASE_BYPASS: {
     exit_code: 2,
     message_template:

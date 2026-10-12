@@ -63,6 +63,7 @@ export type BuildNextOutputInput = {
   ceremony: Ceremony;
   spec_locked: boolean;
   verify_accepted: boolean;
+  lesson_count: number;
   pending: readonly { kind: PendingKind }[];
   verify_applicable_lanes?: ReadonlySet<VerifyCheckKind> | undefined;
 };
@@ -126,6 +127,7 @@ function chooseNextAction(input: BuildNextOutputInput): NextAction | null {
     ceremony: input.ceremony,
     spec_locked: input.spec_locked,
     verify_accepted: input.verify_accepted,
+    lesson_count: input.lesson_count,
     verify_next_target: verifyNextTarget(input.sub_state, input.verify_applicable_lanes),
   });
 }

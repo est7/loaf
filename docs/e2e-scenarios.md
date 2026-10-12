@@ -81,9 +81,12 @@ Source: codex independent enumeration r119 (AMQ thread
   `settle` moves VERIFY.accept → SETTLE.lessons, and `deliver` runs
   from SETTLE.lessons.
 - **Then** the session reaches `DONE.delivered`.
-- **Covers** `settle_phase` routing and `strict_spec_review`.
-  `lessons_required` is orchestration-only; this test deliberately delivers
-  without a lesson and does not cover that skill obligation.
+- **Covers** `settle_phase` routing, `strict_spec_review`, and the required
+  session lesson. With zero lessons, next returns a scoped blocking human
+  lessons-add route; after recording a lesson it returns non-blocking deliver.
+  Zero-lesson delivery/dry-run is rejected without appending;
+  a fabricated lessons.md does not count. Recording a lesson permits delivery;
+  replay rejects a historical delivery with its lesson removed.
 
 ---
 

@@ -108,6 +108,7 @@ export type PreflightFailureCode =
   | "VERIFY_PHASE_FORK_VIOLATION"
   // Slice 1.D — `loaf deliver` preflight refines (step 5c).
   | "DELIVER_NOT_ACCEPTED"
+  | "DELIVER_LESSONS_REQUIRED"
   | "DELIVER_SETTLE_PHASE_BYPASS"
   | "DELIVER_VERIFY_MIN_UNAVAILABLE"
   // v0.1.1 — verify-min check landed; quick/light deliver from EXECUTE.done

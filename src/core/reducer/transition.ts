@@ -1,3 +1,4 @@
+import { requiresLessonBeforeDelivery } from "../lesson-policy.js";
 // validateTransition — Gate #1 (ADR-0005 §10).
 //
 // Sub-state transition validator for `event:phase_advanced` only. After
@@ -69,6 +70,7 @@ export const NextOwnerVerb = z.enum([
   "profile escalate",
   "pending resolve",
   "tasks next",
+  "lessons add",
 ]);
 export type NextOwnerVerb =
   | "advance"
@@ -77,7 +79,8 @@ export type NextOwnerVerb =
   | "gate decide"
   | "profile escalate"
   | "pending resolve"
-  | "tasks next";
+  | "tasks next"
+  | "lessons add";
 
 type PendingPromptKindValue =
   | "ask_user_question"
@@ -139,6 +142,7 @@ export type TransitionOwnerInput = {
   ceremony: Ceremony;
   spec_locked: boolean;
   verify_accepted: boolean;
+  lesson_count: number;
   verify_next_target?: SubState | undefined;
 };
 
@@ -191,6 +195,15 @@ export function transitionOwnerFor(input: TransitionOwnerInput): NextAction | nu
   }
 
   if (sub_state === "SETTLE.lessons") {
+    if (requiresLessonBeforeDelivery(sub_state, ceremony, input.lesson_count)) {
+      return {
+        command: 'loaf lessons add --text "<lesson>" --reason "<why>"',
+        owner_verb: "lessons add",
+        target: "SETTLE.lessons",
+        blocking: true,
+        reason: "LESSONS_REQUIRED_BEFORE_DELIVER",
+      };
+    }
     return {
       command: "loaf deliver",
       owner_verb: "deliver",

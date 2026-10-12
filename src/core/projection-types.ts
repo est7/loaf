@@ -135,6 +135,8 @@ export interface SpecHeader {
 }
 
 export interface Snapshot {
+  /** Session-wide admitted lesson entries; internal replay fact, never a serialized projection field. */
+  lesson_count: number;
   state: SessionState | null;
   tasks: TaskState[];
   evidence: EvidenceState[];

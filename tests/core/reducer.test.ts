@@ -478,7 +478,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
     },
   ];
   for (const mode of ["mutation", "replay"] as const) {
-    test.each(recordOnlyEntries)(`$kind preserves the active snapshot in ${mode}`, (partial) => {
+    test.each(recordOnlyEntries)(`$kind preserves the active snapshot except its lesson count in ${mode}`, (partial) => {
       const snap = mustOk(
         admitEntry(
           initialSnapshot(),
@@ -531,6 +531,7 @@ describe("reducer.apply — Stage 2 §11.2 step 7", () => {
         },
         mode === "mutation" ? { tail_seq: 0 } : {},
       );
+      if (partial.kind === "lesson:recorded") before.lesson_count += 1;
       expect(result).toEqual({ ok: true, snapshot: before });
     });
   }

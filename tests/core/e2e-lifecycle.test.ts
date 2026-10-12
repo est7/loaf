@@ -20,6 +20,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { main } from "../../src/cli.js";
+import { replayJournal } from "../../src/core/journal-bootstrap.js";
 import {
   classifySkillAdvice,
   loadSkillSupervisionContract,
@@ -91,14 +92,7 @@ function makeCli(dir: string, env: Record<string, string | undefined>) {
   };
   const writeInput = async (name: string, payload: unknown): Promise<string> => {
     const p = path.join(dir, name);
-    const taskKinds = new Set([
-      "behavioral",
-      "structural",
-      "visual-ui",
-      "docs",
-      "spike",
-      "chore",
-    ]);
+    const taskKinds = new Set(["behavioral", "structural", "visual-ui", "docs", "spike", "chore"]);
     const normalizeTask = (value: unknown, index: number): unknown => {
       if (
         value === null ||
@@ -123,9 +117,7 @@ function makeCli(dir: string, env: Record<string, string | undefined>) {
       typeof payload === "object" &&
       "based_on" in payload &&
       Array.isArray((payload as { tasks?: unknown }).tasks)
-        ? taskAuthoringFixture(
-            payload as unknown as Parameters<typeof taskAuthoringFixture>[0],
-          )
+        ? taskAuthoringFixture(payload as unknown as Parameters<typeof taskAuthoringFixture>[0])
         : Array.isArray(payload)
           ? payload.map(normalizeTask)
           : normalizeTask(payload, 0);
@@ -183,9 +175,9 @@ async function seedToVerifyAccept(
         depends_on: [],
         labels: [],
         execution: {
-          red: { applicability: "must", status: "pending", },
-          implement: { applicability: "must", status: "pending", },
-          refactor: { applicability: "optional", status: "pending", },
+          red: { applicability: "must", status: "pending" },
+          implement: { applicability: "must", status: "pending" },
+          refactor: { applicability: "optional", status: "pending" },
         },
       },
     ],
@@ -334,9 +326,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -557,9 +549,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -1161,9 +1153,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -1286,7 +1278,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     // DELIVER_SETTLE_PHASE_BYPASS rejection above. Closes the /loaf:settle
     // skill routing gap.
     const settleAdvice = await step("next @ VERIFY.accept", ["next", "--feature", F]);
-    expect(settleAdvice.next_action?.command).toBe(`loaf settle --feature ${F} --feature-dir ${dir}`);
+    expect(settleAdvice.next_action?.command).toBe(
+      `loaf settle --feature ${F} --feature-dir ${dir}`,
+    );
     expect(settleAdvice.blocked).toBe(false);
     expect(classifySkillAdvice(supervision, settleAdvice.next_action)).toEqual({
       kind: "automatic",
@@ -1298,23 +1292,78 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
     ]);
     {
       const n = await step("next @ SETTLE.lessons", ["next", "--feature", F]);
-      expect(n.next_action?.command).toBe(`loaf deliver --feature ${F} --feature-dir ${dir}`);
+      expect(n.next_action).toMatchObject({
+        command: `loaf lessons add --text "<lesson>" --reason "<why>" --feature ${F} --feature-dir ${dir}`,
+        owner_verb: "lessons add",
+        blocking: true,
+        reason: "LESSONS_REQUIRED_BEFORE_DELIVER",
+      });
+      expect(n.blocked).toBe(true);
       expect(classifySkillAdvice(supervision, n.next_action)).toEqual({
         kind: "human-stop",
-        id: "deliver",
+        id: "lessons",
       });
-      expect(settled.advisory).toEqual([n.next_action?.command]);
+      expect(settled.advisory?.[0]).toBe(n.next_action.command);
     }
 
-    // NOTE: this case delivers from SETTLE.lessons WITHOUT `loaf lessons add`.
-    // That is intentional — `lessons_required: must` is orchestration-only, not
-    // a kernel gate: the deliver guard (preflight.ts SETTLE.lessons branch) only
-    // checks verify_accepted, and no reducer/gate reads lessons_required at
-    // runtime. The deep-ceremony "must add a lesson" obligation is prompted by
-    // the loaf-skill settle SKILL.md, not enforced here. This block asserts
-    // routing only; do NOT read it as covering the lesson obligation.
+    // A markdown file or unrelated evidence is not an admitted lesson entry.
+    const journalPath = path.join(dir, "journal.jsonl");
+    const beforeLesson = await fs.readFile(journalPath);
+    await fs.writeFile(path.join(dir, "lessons.md"), "# A fabricated lesson file\n");
+    for (const flags of [[], ["--dry-run"]]) {
+      const rejected = await runCli(
+        ["deliver", "--feature", F, "--feature-dir", dir, "--format", "json", ...flags],
+        { env: ENV },
+      );
+      expect(rejected.exit).toBe(2);
+      expect(JSON.parse(rejected.stderr)).toMatchObject({
+        code: "DELIVER_LESSONS_REQUIRED",
+        detail: { sub_state: "SETTLE.lessons", lessons_required: "must", lesson_count: 0 },
+      });
+      expect(await fs.readFile(journalPath)).toEqual(beforeLesson);
+    }
+    await step("record required lesson", [
+      "lessons",
+      "add",
+      "--text",
+      "Keep delivery proof in the typed journal",
+      "--reason",
+      "required retrospective for this completed deep feature",
+      "--feature",
+      F,
+    ]);
+    const afterLessonAdvice = await step("next after lesson", ["next", "--feature", F]);
+    expect(afterLessonAdvice.next_action).toMatchObject({
+      command: `loaf deliver --feature ${F} --feature-dir ${dir}`,
+      owner_verb: "deliver",
+      blocking: false,
+      reason: "SETTLE_COMPLETE_READY_TO_DELIVER",
+    });
+    expect(afterLessonAdvice.blocked).toBe(false);
+    const afterLesson = await fs.readFile(journalPath);
+    await step("preview delivery with lesson", ["deliver", "--feature", F, "--dry-run"]);
+    expect(await fs.readFile(journalPath)).toEqual(afterLesson);
     const delivered = await step("deliver", ["deliver", "--feature", F]);
     expect(delivered.sub_state ?? delivered.state?.sub_state).toBe("DONE.delivered");
+    const replayed = await replayJournal(journalPath);
+    expect(replayed.ok).toBe(true);
+    // Historical zero-lesson delivery intentionally fails shared replay admission.
+    const withoutLesson = (await fs.readFile(journalPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter((entry) => entry.kind !== "lesson:recorded")
+      .map((entry, seq) => ({ ...entry, seq, entry_id: `JE-${String(seq + 1).padStart(6, "0")}` }));
+    const historicalPath = path.join(dir, "historical-without-lesson.jsonl");
+    await fs.writeFile(
+      historicalPath,
+      withoutLesson.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    );
+    expect(await replayJournal(historicalPath)).toMatchObject({
+      ok: false,
+      code: "REDUCER_REJECTED",
+      diagnostic: { code: "DELIVER_LESSONS_REQUIRED" },
+    });
     const term = await step("next @ DONE", ["next", "--feature", F]);
     expect(term.terminal).toBe(true);
     expect(term.next_action).toBeUndefined();
@@ -1363,9 +1412,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -1445,9 +1494,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -1619,9 +1668,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           status: "pending",
           depends_on: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -1735,9 +1784,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            explore: { applicability: "must", status: "pending", },
-            prototype: { applicability: "must", status: "pending", },
-            record: { applicability: "must", status: "pending", },
+            explore: { applicability: "must", status: "pending" },
+            prototype: { applicability: "must", status: "pending" },
+            record: { applicability: "must", status: "pending" },
           },
         },
       ],
@@ -2004,9 +2053,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -2321,9 +2370,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -2555,9 +2604,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -2657,9 +2706,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -2756,7 +2805,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       "--feature",
       F,
     ]);
-    const deferred = afterApproval.findings.find((finding: { id: string }) => finding.id === fnd.id);
+    const deferred = afterApproval.findings.find(
+      (finding: { id: string }) => finding.id === fnd.id,
+    );
     expect(deferred).toMatchObject({ status: "open", action: "defer" });
 
     const delivered = await step("deliver", ["deliver", "--feature", F]);
@@ -2768,7 +2819,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       "--feature",
       F,
     ]);
-    expect(afterDelivery.findings.find((finding: { id: string }) => finding.id === fnd.id)).toMatchObject({
+    expect(
+      afterDelivery.findings.find((finding: { id: string }) => finding.id === fnd.id),
+    ).toMatchObject({
       status: "open",
       action: "defer",
     });
@@ -3048,9 +3101,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -3198,9 +3251,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       depends_on: [],
       labels: [],
       execution: {
-        red: { applicability: "must", status: "pending", },
-        implement: { applicability: "must", status: "pending", },
-        refactor: { applicability: "optional", status: "pending", },
+        red: { applicability: "must", status: "pending" },
+        implement: { applicability: "must", status: "pending" },
+        refactor: { applicability: "optional", status: "pending" },
       },
     });
     const tasksFile = await writeInput("tasks.json", {
@@ -3522,9 +3575,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -3616,9 +3669,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            red: { applicability: "must", status: "pending", },
-            implement: { applicability: "must", status: "pending", },
-            refactor: { applicability: "optional", status: "pending", },
+            red: { applicability: "must", status: "pending" },
+            implement: { applicability: "must", status: "pending" },
+            refactor: { applicability: "optional", status: "pending" },
           },
         },
       ],
@@ -3780,9 +3833,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
             depends_on: [],
             labels: [],
             execution: {
-              red: { applicability: "must", status: "pending", },
-              implement: { applicability: "must", status: "pending", },
-              refactor: { applicability: "optional", status: "pending", },
+              red: { applicability: "must", status: "pending" },
+              implement: { applicability: "must", status: "pending" },
+              refactor: { applicability: "optional", status: "pending" },
             },
           },
         ],
@@ -3958,9 +4011,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
             depends_on: [],
             labels: [],
             execution: {
-              red: { applicability: "must", status: "pending", },
-              implement: { applicability: "must", status: "pending", },
-              refactor: { applicability: "optional", status: "pending", },
+              red: { applicability: "must", status: "pending" },
+              implement: { applicability: "must", status: "pending" },
+              refactor: { applicability: "optional", status: "pending" },
             },
           },
         ],
@@ -4172,9 +4225,9 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
           depends_on: [],
           labels: [],
           execution: {
-            explore: { applicability: "must", status: "pending", },
-            prototype: { applicability: "must", status: "pending", },
-            record: { applicability: "must", status: "pending", },
+            explore: { applicability: "must", status: "pending" },
+            prototype: { applicability: "must", status: "pending" },
+            record: { applicability: "must", status: "pending" },
           },
         },
       ],

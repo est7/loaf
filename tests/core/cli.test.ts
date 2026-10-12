@@ -1781,6 +1781,12 @@ describe("loaf deliver — Slice 1.D sub-cycle 2 (MVP)", () => {
     const dir = await tmpFeatureDir();
     await seedFeatureAtSettleLessons(dir);
 
+    const recorded = await runCli([
+      "lessons", "add", "--text", "Capture the deep delivery lesson",
+      "--reason", "retrospective for the completed deep feature", "--feature", "auth-refresh",
+      "--feature-dir", dir, "--format", "json",
+    ], { env: { LOAF_USER: "tester" } });
+    expect(recorded.exit, recorded.stderr).toBe(0);
     const result = await runCli(
       ["deliver", "--feature", "auth-refresh", "--feature-dir", dir, "--format", "json"],
       { env: { LOAF_USER: "tester@example.invalid" } },
@@ -2142,7 +2148,9 @@ describe("loaf settle", () => {
     // SC-5b2: state-change + next now route to stderr; stdout empty.
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/settle: VERIFY\.accept → SETTLE\.lessons/);
-    expect(result.stderr).toContain(`next: loaf deliver --feature auth-refresh --feature-dir ${dir}`);
+    expect(result.stderr).toContain(
+      `next: run \`loaf next --feature auth-refresh --feature-dir ${dir} --format json\` for the full command`,
+    );
     expect(result.stderr).not.toContain("loaf advance SETTLE.lessons");
     // Compatibility projection must not be presented as current output.
     expect(result.stdout).not.toMatch(/reconcile\.json/);
@@ -4293,6 +4301,13 @@ describe("End-to-end lifecycle CLI — Slice 1.D sub-cycle 4", () => {
     ]);
     expect(r.exit).toBe(0);
     expect(JSON.parse(r.stdout).sub_state).toBe("SETTLE.lessons");
+
+    const recorded = await runCli([
+      "lessons", "add", "--text", "Capture the deep lifecycle lesson",
+      "--reason", "retrospective for the completed deep feature", "--feature", "auth-refresh",
+      "--feature-dir", dir, "--format", "json",
+    ], { env });
+    expect(recorded.exit, recorded.stderr).toBe(0);
 
     // CLI 5: deliver (cursor → DONE.delivered).
     r = await runCli(

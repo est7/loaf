@@ -582,7 +582,7 @@
         <td>同 standard + SETTLE + strict 三件套</td>
         <td class="matrix-must">+ strict_spec_review (actor ≠ implementer)</td>
         <td class="matrix-must">strict_drift_check 字段留痕；内核检查：<strong>未实现（目标设计）</strong></td>
-        <td class="matrix-must">lessons_required=must（skill policy；内核不强制）</td>
+        <td class="matrix-must">lessons_required=must（内核 delivery 检查至少一条 session lesson）</td>
         <td>架构 / 安全 / 跨模块 / public API / schema(score ≥ 70)</td>
       </tr>
     </tbody>
@@ -800,7 +800,7 @@
         <td>verify-accept 通过 且 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only;quick / light / standard 跳过)</td>
         <td><code>loaf settle</code>, <code>lessons add</code></td>
         <td class="k">event:phase_advanced · lesson:recorded</td>
-        <td>lessons.md（存在 lesson entry 时派生；内核不强制）</td>
+        <td>lessons.md（由有效 lesson entry 派生；must delivery 要求至少一条）</td>
         <td><code>deliver</code> / <code>archive</code> / <code>abandon</code></td>
       </tr>
       <tr>
@@ -1097,7 +1097,7 @@
       <tr><td class="k">verify_phase</td>      <td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td class="matrix-must">true</td><td>跳过 VERIFY.* 全部;<code>loaf deliver</code> 入口跑 verify-min（light 额外提示：<strong>未实现（目标设计）</strong>）</td></tr>
       <tr><td class="k">settle_phase</td>      <td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>跳过 SETTLE.*;rev 5.x:deep only</td></tr>
       <tr><td class="k">strict_spec_review</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>spec-lock 额外校验 <code>kind=spec-review</code> evidence 且 <code>actor ≠ implementer</code></td></tr>
-      <tr><td class="k">lessons_required</td> <td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-must">"must"</td><td>skill policy；内核不强制写 lesson，deliver 无 lesson 前置条件</td></tr>
+      <tr><td class="k">lessons_required</td> <td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-must">"must"</td><td>must：SETTLE.lessons 零 lesson 时 next 请求阻塞的 lessons add，记录有效 session lesson 后可 deliver；may/skip 不阻塞</td></tr>
       <tr><td class="k">strict_drift_check</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>ceremony 记录字段；内核 drift check：<strong>未实现（目标设计）</strong></td></tr>
     </tbody>
   </table>

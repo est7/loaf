@@ -4742,3 +4742,93 @@ exports[`current public schema output baseline > input:tasks:submit 1`] = `
 }
 "
 `;
+
+exports[`current public schema output baseline > next-action owner command schema 1`] = `
+"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner_verb": {
+      "type": "string",
+      "enum": [
+        "advance",
+        "deliver",
+        "settle",
+        "gate decide",
+        "profile escalate",
+        "pending resolve",
+        "tasks next",
+        "lessons add"
+      ]
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "TRIAGE.score",
+            "TRIAGE.confirm",
+            "SPEC.proposal",
+            "SPEC.spec",
+            "SPEC.plan",
+            "SPEC.design",
+            "EXECUTE.plan",
+            "EXECUTE.work",
+            "EXECUTE.done",
+            "VERIFY.plan",
+            "VERIFY.run",
+            "VERIFY.review",
+            "VERIFY.acceptance",
+            "VERIFY.visual",
+            "VERIFY.accept",
+            "SETTLE.lessons",
+            "DONE.delivered",
+            "DONE.archived",
+            "DONE.abandoned"
+          ]
+        },
+        {
+          "type": "string",
+          "enum": [
+            "spec-lock",
+            "verify-accept"
+          ]
+        },
+        {
+          "type": "string",
+          "enum": [
+            "ask_user_question",
+            "gate_decision",
+            "spec_clarification",
+            "finding_decision",
+            "profile_escalation"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "task-level"
+        }
+      ]
+    },
+    "blocking": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "command",
+    "owner_verb",
+    "blocking",
+    "reason"
+  ],
+  "additionalProperties": false
+}
+"
+`;

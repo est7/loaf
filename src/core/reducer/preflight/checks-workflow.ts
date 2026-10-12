@@ -1,3 +1,4 @@
+import { requiresLessonBeforeDelivery } from "../../lesson-policy.js";
 import {
   requireFindingSponsor,
   checkFindingRaise,
@@ -225,6 +226,17 @@ export function checkSessionDelivered(c: PreflightCheckCtx): PreflightFailure | 
           ok: false,
           code: "DELIVER_NOT_ACCEPTED",
           detail: { sub_state, verify_accepted },
+        };
+      }
+      if (requiresLessonBeforeDelivery(sub_state, ceremony, ctx.snapshot.lesson_count)) {
+        return {
+          ok: false,
+          code: "DELIVER_LESSONS_REQUIRED",
+          detail: {
+            sub_state,
+            lessons_required: ceremony.lessons_required,
+            lesson_count: ctx.snapshot.lesson_count,
+          },
         };
       }
     }

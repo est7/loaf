@@ -41,9 +41,13 @@ remaining in `SETTLE.lessons`.
 
 ## Step 3 — Capture lessons
 
-`deep` expects at least one lesson (`lessons_required: must`), but the kernel
-does not enforce it: `loaf next` already offers `deliver` with zero lessons.
-Record lessons before handing off. Record each:
+For `lessons_required: must`, the kernel rejects delivery from SETTLE.lessons
+until the session contains at least one admitted `lesson:recorded` entry.
+`loaf next` uses the same predicate as delivery admission: with zero lessons it
+returns blocking `lessons add` with reason `LESSONS_REQUIRED_BEFORE_DELIVER`.
+Surface this human fact request; never invent a lesson. After a human supplies
+the lesson, record it before handing off. An earlier-iteration lesson already
+satisfies the session-wide requirement. Record each:
 
 `loaf lessons add --text "<lesson>" --reason "<why it matters, ≥10 chars>"`
 (or `--file <path>` instead of `--text`). This appends a strict
@@ -64,8 +68,8 @@ Report enough that the user can continue by hand: (1) `next_action.command` +
 `EXECUTE` / `VERIFY` / `SETTLE` are same-named; `DONE` = finished). Or suggest
 `/loaf:run` to drive the rest automatically.
 
-(At `SETTLE.lessons`, `loaf next` points at `loaf deliver` — `/loaf:run` runs it
-as the deliver stop. To close without delivering, the human may instead run
+(At `SETTLE.lessons`, `loaf next` first requests a human lesson when required;
+after recording it, the route points at `loaf deliver` as the deliver stop. To close without delivering, the human may instead run
 `loaf archive --reason "<…>"` or `loaf abandon --reason "<…>"`.)
 
 ## Skeleton invariants (every phase skill carries these)

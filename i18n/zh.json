@@ -240,6 +240,7 @@
     "OPEN_FINDINGS_PRESENT": "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
     "COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
     "DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
+    "DELIVER_LESSONS_REQUIRED": "从 {sub_state} deliver 时，lessons_required={lessons_required} 要求至少一条已记录 lesson；当前 {lesson_count} 条",
     "DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
     "DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
     "DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
@@ -283,6 +284,7 @@
   },
 
   "diagnostic_fix": {
+    "DELIVER_LESSONS_REQUIRED": "用 `loaf lessons add --text <text> --reason <reason>` 记录 session lesson 后再 deliver",
     "JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
     "ACTUAL_SCOPE_HISTORY_INCOMPLETE": "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。"
   },

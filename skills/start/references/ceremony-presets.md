@@ -25,9 +25,9 @@ deep      TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE → DONE   (+ strict
 are rejected and the session delivers from `EXECUTE.done`.
 
 `deep`'s "strict trio": `strict_spec_review` makes verify-accept check 5 a hard
-gate (independent spec-review evidence). `lessons_required: must` and
-`strict_drift_check` are recorded in the journal but not currently enforced by
-the kernel; the `/loaf:settle` skill owns the lessons obligation.
+gate (independent spec-review evidence). `lessons_required: must` blocks delivery
+from SETTLE.lessons until the session contains an admitted lesson entry.
+`strict_drift_check` remains recorded but is not enforced by the kernel.
 
 The preset is a **label only**. The kernel stores the expanded six flags in the
 journal and enforces everything off those flags; the label is for display. You

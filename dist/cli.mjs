@@ -1008,6 +1008,24 @@ const ERROR_CATALOG = {
 		doc_anchor: "protocol.md#§5.2",
 		detail_keys: ["sub_state"]
 	},
+	DELIVER_LESSONS_REQUIRED: {
+		exit_code: 2,
+		message_template: "deliver from {sub_state} requires at least one recorded lesson when lessons_required={lessons_required}; found {lesson_count}",
+		zh_message_template: "从 {sub_state} deliver 时，lessons_required={lessons_required} 要求至少一条已记录 lesson；当前 {lesson_count} 条",
+		fix_template: "record a session lesson with `loaf lessons add --text <text> --reason <reason>`, then retry delivery",
+		zh_fix_template: "用 `loaf lessons add --text <text> --reason <reason>` 记录 session lesson 后再 deliver",
+		template_keys: [
+			"lesson_count",
+			"lessons_required",
+			"sub_state"
+		],
+		detail_keys: [
+			"lesson_count",
+			"lessons_required",
+			"sub_state"
+		],
+		doc_anchor: "protocol.md#§12.1"
+	},
 	DELIVER_SETTLE_PHASE_BYPASS: {
 		exit_code: 2,
 		message_template: "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
@@ -3170,6 +3188,12 @@ function installCommandActionPolicy(program, ctx) {
 //#region package.json
 var version = "0.12.0";
 //#endregion
+//#region src/core/lesson-policy.ts
+/** Session-wide delivery obligation shared by admission and owner routing. */
+function requiresLessonBeforeDelivery(subState, ceremony, lessonCount) {
+	return subState === "SETTLE.lessons" && ceremony.lessons_required === "must" && lessonCount === 0;
+}
+//#endregion
 //#region src/core/machine.ts
 /** Preserve literal inference while rejecting missing and extra state keys. */
 function defineMachine(machine) {
@@ -3542,7 +3566,8 @@ const NextOwnerVerb = z.enum([
 	"gate decide",
 	"profile escalate",
 	"pending resolve",
-	"tasks next"
+	"tasks next",
+	"lessons add"
 ]);
 const NextAction = z.object({
 	command: z.string().min(1),
@@ -3608,13 +3633,22 @@ function transitionOwnerFor(input) {
 		blocking: false,
 		reason: "VERIFY_PHASE_DISABLED_READY_TO_DELIVER"
 	};
-	if (sub_state === "SETTLE.lessons") return {
-		command: "loaf deliver",
-		owner_verb: "deliver",
-		target: "DONE.delivered",
-		blocking: false,
-		reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
-	};
+	if (sub_state === "SETTLE.lessons") {
+		if (requiresLessonBeforeDelivery(sub_state, ceremony, input.lesson_count)) return {
+			command: "loaf lessons add --text \"<lesson>\" --reason \"<why>\"",
+			owner_verb: "lessons add",
+			target: "SETTLE.lessons",
+			blocking: true,
+			reason: "LESSONS_REQUIRED_BEFORE_DELIVER"
+		};
+		return {
+			command: "loaf deliver",
+			owner_verb: "deliver",
+			target: "DONE.delivered",
+			blocking: false,
+			reason: "SETTLE_COMPLETE_READY_TO_DELIVER"
+		};
+	}
 	if (sub_state.startsWith("DONE.")) return null;
 	const targets = nextLegalTargets(sub_state, ceremony, verify_accepted, spec_locked);
 	const target = verify_next_target !== void 0 && targets.includes(verify_next_target) ? verify_next_target : targets[0];
@@ -4182,6 +4216,7 @@ function checkFindingReset(payload, snapshot, sub_state) {
 //#region src/core/reducer.ts
 function initialSnapshot() {
 	return {
+		lesson_count: 0,
 		state: null,
 		tasks: [],
 		evidence: [],
@@ -4535,10 +4570,12 @@ function applyValidated(prev, entry) {
 				snapshot: prev
 			};
 		}
-		case "lesson:recorded": return {
-			ok: true,
-			snapshot: prev
-		};
+		case "lesson:recorded":
+			prev.lesson_count += 1;
+			return {
+				ok: true,
+				snapshot: prev
+			};
 		case "scope:recorded": return {
 			ok: true,
 			snapshot: prev
@@ -5768,6 +5805,15 @@ function checkSessionDelivered(c) {
 				detail: {
 					sub_state,
 					verify_accepted
+				}
+			};
+			if (requiresLessonBeforeDelivery(sub_state, ceremony, ctx.snapshot.lesson_count)) return {
+				ok: false,
+				code: "DELIVER_LESSONS_REQUIRED",
+				detail: {
+					sub_state,
+					lessons_required: ceremony.lessons_required,
+					lesson_count: ctx.snapshot.lesson_count
 				}
 			};
 		}
@@ -7525,6 +7571,7 @@ var en_default = {
 		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "verify-accept check 5: every passing spec-review actor is in the implementer set; no independent reviewer signed off (actors={spec_review_actors}, implementers={implementers})",
 		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "verify-accept check 5: cannot establish implementer set (all done-task evidence actors are cli:* automation); strict_spec_review fails closed",
 		"DELIVER_NOT_ACCEPTED": "deliver requires verify_accepted=true at sub_state={sub_state}; run `loaf gate decide verify-accept --approve` first",
+		"DELIVER_LESSONS_REQUIRED": "deliver from {sub_state} requires at least one recorded lesson when lessons_required={lessons_required}; found {lesson_count}",
 		"DELIVER_SETTLE_PHASE_BYPASS": "deliver from VERIFY.accept requires ceremony.settle_phase=false (standard); deep ceremony must run `loaf settle` first",
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min was unavailable in this build (ceremony_label={ceremony_label}) — superseded at v0.1.1 by DELIVER_VERIFY_MIN_INCOMPLETE; no longer emitted",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min: {count} done task(s) lack required evidence to deliver (ceremony_label={ceremony_label}); add evidence or waive, then re-deliver",
@@ -7656,6 +7703,7 @@ var en_default = {
 		"SPEC_REVIEW_IMPLEMENTER_CONFLICT": "have a non-implementer (someone other than the actors on done-task task-summary/local-check evidence) submit an additional evidence with kind=spec-review and result `passed` or `approved`. One independent reviewer is sufficient — implementer self-reviews can coexist.",
 		"SPEC_REVIEW_IMPLEMENTER_UNKNOWN": "ensure at least one done-task evidence (task-summary or local-check) carries a non-cli:* actor (e.g. human:dev@example.com); the strict_spec_review comparison requires a real implementer identity to compare against. Without it, the gate cannot prove the spec reviewer is independent.",
 		"DELIVER_NOT_ACCEPTED": "run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry",
+		"DELIVER_LESSONS_REQUIRED": "record a session lesson with `loaf lessons add --text <text> --reason <reason>`, then retry delivery",
 		"DELIVER_SETTLE_PHASE_BYPASS": "for ceremony.settle_phase=true (deep), run `loaf settle` to enter SETTLE.lessons, record lessons, then `loaf deliver`; only standard ceremony delivers directly from VERIFY.accept",
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "upgrade to v0.1.1+ where quick / light deliver runs the verify-min per-task evidence check; on failure see DELIVER_VERIFY_MIN_INCOMPLETE",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "for each listed task add evidence covering it — code tasks need a `local-check` (test/lint/typecheck) run, visual-ui needs visual-review or manual, docs needs task-summary or manual — or `loaf waive` it; then `loaf deliver` again",
@@ -8339,6 +8387,7 @@ var zh_default = {
 		"OPEN_FINDINGS_PRESENT": "verify-accept 检查 2: 仍有 {count} 个可执行 finding 未关闭(ids={open_ids});请在 verify-accept 前解决或关闭",
 		"COVERAGE_NOT_SATISFIED": "{covered_id} 没有任何证据满足覆盖(canSatisfy 对所有候选 evidence 都失败)",
 		"DELIVER_NOT_ACCEPTED": "deliver 要求 verify_accepted=true(sub_state={sub_state});先运行 `loaf gate decide verify-accept --approve`",
+		"DELIVER_LESSONS_REQUIRED": "从 {sub_state} deliver 时，lessons_required={lessons_required} 要求至少一条已记录 lesson；当前 {lesson_count} 条",
 		"DELIVER_SETTLE_PHASE_BYPASS": "VERIFY.accept 直接 deliver 要求 ceremony.settle_phase=false(standard);deep ceremony 必须先运行 `loaf settle`",
 		"DELIVER_VERIFY_MIN_UNAVAILABLE": "verify-min 在此 build 不可用(ceremony_label={ceremony_label})—— v0.1.1 起由 DELIVER_VERIFY_MIN_INCOMPLETE 取代,已不再触发",
 		"DELIVER_VERIFY_MIN_INCOMPLETE": "verify-min:{count} 个 done task 缺少 deliver 所需 evidence(ceremony_label={ceremony_label});补 evidence 或 waive 后重试 deliver",
@@ -8381,6 +8430,7 @@ var zh_default = {
 		"PROTECTED_FILE_WRITE": "写入被拦截:`{normalized_path}` 命中 protected_files 条目 `{matched_deny}` —— 受保护文件永不可写"
 	},
 	diagnostic_fix: {
+		"DELIVER_LESSONS_REQUIRED": "用 `loaf lessons add --text <text> --reason <reason>` 记录 session lesson 后再 deliver",
 		"JOURNAL_TAIL_REQUIRES_NEWER_LOAF": "保持 journal.jsonl 字节不变，升级到能识别该 entry 的 loaf 版本后再运行 tail recovery",
 		"ACTUAL_SCOPE_HISTORY_INCOMPLETE": "不要伪造空 actual_scope;保留 journal,使用支持 F-027 的 loaf 版本重新执行该 feature 的 EXECUTE work 后再审计 scope。pre-F-027 closure scope 无法从 journal 历史重建。"
 	},
@@ -12663,6 +12713,7 @@ function chooseNextAction(input) {
 		ceremony: input.ceremony,
 		spec_locked: input.spec_locked,
 		verify_accepted: input.verify_accepted,
+		lesson_count: input.lesson_count,
 		verify_next_target: verifyNextTarget(input.sub_state, input.verify_applicable_lanes)
 	});
 }
@@ -12745,6 +12796,7 @@ function nextInputFromSnapshot(snapshot, featureDir) {
 		ceremony: state.ceremony,
 		spec_locked: state.spec_locked,
 		verify_accepted: state.verify_accepted,
+		lesson_count: snapshot.lesson_count,
 		pending: pendingKindsForNext(snapshot.pending)
 	};
 }
@@ -13019,9 +13071,9 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			"pending"
 		], opts.feature, "failure.no_session.status");
 		if (loaded === null) return;
+		const session = await ctx.resolveSession(featureDir);
 		let verifyApplicableLanes;
 		if (loaded.state.sub_state.startsWith("VERIFY.")) {
-			const session = await ctx.resolveSession(featureDir);
 			const built = buildSpecFrontmatterFromSnapshot(session.snapshot);
 			if (!built.ok) {
 				ctx.failure(built);
@@ -13037,6 +13089,7 @@ function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow,
 			ceremony: loaded.state.ceremony,
 			spec_locked: loaded.state.spec_locked,
 			verify_accepted: loaded.state.verify_accepted,
+			lesson_count: session.snapshot.lesson_count,
 			pending: loaded.state.pending,
 			verify_applicable_lanes: verifyApplicableLanes
 		}, selector);

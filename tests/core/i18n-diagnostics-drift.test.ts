@@ -83,8 +83,8 @@ describe("generated i18n diagnostic sections", () => {
   test("fixes and existing-context variants are catalog projections, without invented zh", async () => {
     const en = JSON.parse(await readBundle("en"));
     const zh = JSON.parse(await readBundle("zh"));
-    expect(Object.keys(en.diagnostic_fix)).toHaveLength(129);
-    expect(Object.keys(zh.diagnostic_fix)).toHaveLength(2);
+    expect(Object.keys(en.diagnostic_fix)).toHaveLength(130);
+    expect(Object.keys(zh.diagnostic_fix)).toHaveLength(3);
     for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
       expect(en.diagnostic_fix[code]).toBe(entry.fix_template);
       expect(zh.diagnostic_fix[code]).toBe(

@@ -972,6 +972,15 @@
     "zh_text": "error: DELIVER_NOT_ACCEPTED — deliver 要求 verify_accepted=true(sub_state=value_sub_state);先运行 `loaf gate decide verify-accept --approve`\n  fix: run `loaf gate decide verify-accept --approve --reason \"...\"` first; the gate flips snapshot.state.verify_accepted before `loaf deliver` will accept the session:delivered entry\n  see: protocol.md#§5.2\n"
   },
   {
+    "code": "DELIVER_LESSONS_REQUIRED",
+    "context": null,
+    "detail": {"lesson_count": 0, "lessons_required": "must", "sub_state": "SETTLE.lessons"},
+    "en_message": "deliver from SETTLE.lessons requires at least one recorded lesson when lessons_required=must; found 0",
+    "zh_message": "从 SETTLE.lessons deliver 时，lessons_required=must 要求至少一条已记录 lesson；当前 0 条",
+    "en_text": "error: DELIVER_LESSONS_REQUIRED — deliver from SETTLE.lessons requires at least one recorded lesson when lessons_required=must; found 0\n  fix: record a session lesson with `loaf lessons add --text <text> --reason <reason>`, then retry delivery\n  see: protocol.md#§12.1\n",
+    "zh_text": "error: DELIVER_LESSONS_REQUIRED — 从 SETTLE.lessons deliver 时，lessons_required=must 要求至少一条已记录 lesson；当前 0 条\n  fix: 用 `loaf lessons add --text <text> --reason <reason>` 记录 session lesson 后再 deliver\n  see: protocol.md#§12.1\n"
+  },
+  {
     "code": "DELIVER_SETTLE_PHASE_BYPASS",
     "context": null,
     "detail": {},

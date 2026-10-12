@@ -8,6 +8,8 @@
 //   - finding ↔ findings.json singular/plural mismatch preserved
 
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
+import { NextAction } from "../../src/core/reducer/transition.js";
 
 import {
   ARTIFACT_SCHEMA_KINDS,
@@ -23,10 +25,7 @@ import {
   SpecAddScenarioInput,
   SpecAddVisualInput,
 } from "../../src/core/spec-schema.js";
-import {
-  TaskAuthoringInputBatched,
-  TasksSubmitInput,
-} from "../../src/core/task-schema.js";
+import { TaskAuthoringInputBatched, TasksSubmitInput } from "../../src/core/task-schema.js";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 
@@ -172,6 +171,9 @@ describe("hasPropertyDeep — schema walker", () => {
 });
 
 describe("current public schema output baseline", () => {
+  test("next-action owner command schema", () => {
+    expect(formatSchema(z.toJSONSchema(NextAction))).toMatchSnapshot();
+  });
   const inputSurfaces: Array<Parameters<typeof emitInputSchema>[0]> = [
     "spec:add-req",
     "spec:add-scenario",

@@ -42,6 +42,7 @@ describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {
   test("snapshot drift equality ignores object key order", () => {
     const a = initialSnapshot();
     const b: Snapshot = {
+      lesson_count: a.lesson_count,
       tasks_based_on: a.tasks_based_on,
       visual_contracts: a.visual_contracts,
       scenarios: a.scenarios,

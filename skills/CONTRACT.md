@@ -67,7 +67,7 @@ unresolved human question.
 |---|---|---|
 | Machine work | non-blocking `loaf next` routes, in-phase advances, task execution using non-manual evidence | may continue |
 | Human decision | `gate decide`, `deliver`, `archive`, `abandon`, `pending resolve`, `profile escalate` | stop and surface the exact command/reason |
-| Human fact | waiver or manual evidence/attestation | never synthesize; request the fact from a human |
+| Human fact | `lessons add`, waiver or manual evidence/attestation | never synthesize; request the fact from a human |
 
 Skills re-read `loaf status` and `loaf next` after a human response. They never
 infer approval from `LOAF_USER`, prior prose, or the absence of a CLI error.

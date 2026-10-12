@@ -69,6 +69,7 @@ function run(
     ceremony: STANDARD,
     spec_locked: false,
     verify_accepted: false,
+    lesson_count: 0,
     pending: [],
     ...overrides,
   });
@@ -174,6 +175,47 @@ describe("buildNextOutput — VERIFY.accept gate / settle / deliver fork", () =>
       target: "SETTLE.lessons",
       blocking: false,
     });
+  });
+});
+
+describe("buildNextOutput — required session lesson", () => {
+  test("must with zero lessons requests the human fact", () => {
+    const out = run("SETTLE.lessons", { ceremony: DEEP });
+    expect(out.blocked).toBe(true);
+    expect(out.next_action).toEqual({
+      command: 'loaf lessons add --text "<lesson>" --reason "<why>"',
+      owner_verb: "lessons add",
+      target: "SETTLE.lessons",
+      blocking: true,
+      reason: "LESSONS_REQUIRED_BEFORE_DELIVER",
+    });
+  });
+
+  test("an admitted session lesson restores delivery routing", () => {
+    const out = run("SETTLE.lessons", { ceremony: DEEP, lesson_count: 1 });
+    expect(out.blocked).toBe(false);
+    expect(out.next_action).toMatchObject({
+      owner_verb: "deliver",
+      blocking: false,
+      reason: "SETTLE_COMPLETE_READY_TO_DELIVER",
+    });
+  });
+
+  test.each(["may", "skip"] as const)("%s permits delivery without a lesson", (policy) => {
+    expect(
+      run("SETTLE.lessons", {
+        ceremony: { ...DEEP, lessons_required: policy },
+      }).next_action,
+    ).toMatchObject({ owner_verb: "deliver", blocking: false });
+  });
+
+  test("pending resolution retains precedence over required lessons", () => {
+    expect(
+      run("SETTLE.lessons", {
+        ceremony: DEEP,
+        pending: [makePending("ask_user_question")],
+      }).next_action,
+    ).toMatchObject({ owner_verb: "pending resolve", blocking: true });
   });
 });
 

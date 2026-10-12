@@ -26,6 +26,7 @@ function input(overrides: Partial<BuildNextOutputInput> = {}): BuildNextOutputIn
     ceremony: STANDARD,
     spec_locked: false,
     verify_accepted: false,
+    lesson_count: 0,
     pending: [],
     ...overrides,
   };

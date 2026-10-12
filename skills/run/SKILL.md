@@ -34,7 +34,7 @@ Repeat:
 | Result | Action |
 |---|---|
 | `terminal: true` | Lifecycle done — report `DONE` and stop. |
-| `blocked: true` (`gate decide` / `pending resolve` / `profile escalate`) | **Human stop.** Surface `next_action.command` + `reason`; let the human decide. On their reply run the authorized command, then loop. Never auto-run a blocking action. |
+| `blocked: true` (`gate decide` / `pending resolve` / `profile escalate` / `lessons add`) | **Human stop.** Surface `next_action.command` + `reason`; request the human decision or lesson fact. On their reply run the authorized command, then loop. Never auto-run a blocking action. |
 | `next_action.owner_verb` is `deliver` | **Deliver stop.** Confirm with the human, then run `loaf deliver` (human-owned). Report `DONE`. |
 | `next_action.target` prefix is another phase | **Phase boundary** — see Step 3. |
 | `next_action.target` is `task-level` (or an `advance` inside the current phase) | You are mid-phase — the current phase skill owns this. Reached only if a phase skill returned early; re-invoke it to finish its loop. |
@@ -57,6 +57,11 @@ targets and commands.
   "route_command": "loaf next",
   "automatic_owner_verbs": ["advance", "tasks next", "settle"],
   "human_stops": [
+    {
+      "id": "lessons",
+      "command_prefix": "loaf lessons add",
+      "owner_verb": "lessons add"
+    },
     {
       "id": "spec-lock",
       "command_prefix": "loaf gate decide spec-lock",
@@ -108,7 +113,7 @@ After a phase skill returns, loop (Step 2). After any human stop, re-read
 - **Routing lives here** — phase skills no longer self-route; you are the only
   driver. Always re-derive the next hop from `loaf next`, never hardcode it.
 - **Human facts stay human-owned** — gates, terminal choices, waivers, and
-  manual attestations are never synthesized. `LOAF_USER` identifies an actor;
+  lessons, and manual attestations are never synthesized. `LOAF_USER` identifies an actor;
   it does not approve anything.
 - **Re-entry safe** — `loaf status` first on every (re-)entry; resume from the
   real cursor.

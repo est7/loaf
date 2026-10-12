@@ -347,7 +347,7 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
 
   test("session:delivered @ SETTLE.lessons + verify_accepted=true (deep) → OK", () => {
     const r = preflight(deliverEntry(), {
-      snapshot: mkSnapshot("SETTLE.lessons", DEEP_CEREMONY, { verify_accepted: true }),
+      snapshot: { ...mkSnapshot("SETTLE.lessons", DEEP_CEREMONY, { verify_accepted: true }), lesson_count: 1 },
       tail_seq: -1,
     });
     expect(r.ok).toBe(true);
