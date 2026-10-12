@@ -39,6 +39,25 @@ beforeAll(() => {
 }, 90_000);
 
 describe("ga-package-smoke.sh", () => {
+  test("HOME isolation without XDG_CACHE_HOME keeps the install-time cache", () => {
+    const { tmpHome } = track(makePackageSmokeFixture({ withDist: false }));
+    expect(process.env["BUN_INSTALL_CACHE_DIR"]).toBeTruthy();
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: tmpHome,
+      USERPROFILE: tmpHome,
+      TMPDIR: tmpHome,
+    };
+    delete env["XDG_CACHE_HOME"];
+    const result = spawnSync(
+      "bash",
+      [path.join(REPO_ROOT, "scripts", "ga-package-smoke.sh"), "--package-root", REPO_ROOT],
+      { cwd: REPO_ROOT, env, encoding: "utf8", timeout: 90_000 },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(ownedLeftovers(tmpHome)).toEqual([]);
+  }, 100_000);
+
   test("real tarball install works from cache with registry unavailable", () => {
     const { tmpHome } = track(makePackageSmokeFixture({ withDist: false }));
     const result = runShellScript("ga-package-smoke.sh", ["--package-root", REPO_ROOT], {

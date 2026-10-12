@@ -107,6 +107,14 @@ fi
 # Install the actual tarball in a clean directory from the resolved lock graph
 # and local cache. Missing lock/cache fails explicitly; registry availability is
 # not part of this artifact smoke. Each install step has a 30s timeout.
+# Use Bun's own cache resolution for ordinary ga:check invocations too. An
+# explicit cache (including the one bound before test HOME isolation) wins.
+if [ -z "${BUN_INSTALL_CACHE_DIR+x}" ]; then
+  if ! BUN_INSTALL_CACHE_DIR=$(bun pm cache); then
+    fail "INSTALL_FAILED" "could not resolve the configured Bun package cache"
+  fi
+  export BUN_INSTALL_CACHE_DIR
+fi
 install_out=""
 if ! install_out=$(bun "$script_dir/package-smoke-install.mjs" "$package_root" "$tarball" "$installdir" 2>&1); then
   fail "INSTALL_FAILED" "locked local install failed: $install_out"

@@ -1681,6 +1681,8 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 | `LOAF_ISSUE_URL` | build-only | tsdown build-time crash-report URL stamping | ✅ |
 | `HOME` | test-only | CLI exit-semantics test process-home override；production source 不直接读取 | 通用 |
 | `USERPROFILE` | test-only | Windows test process-home override；production source 不直接读取 | Windows |
+| `BUN_INSTALL_CACHE_DIR` | test-only | HOME 隔离前固定 Bun 安装缓存，并传给 package smoke 子进程；显式 override 保留。`ga:check` 的 shell smoke 同样按 Bun 配置解析缓存，production kernel source 不直接读取 | 通用 |
+| `XDG_CACHE_HOME` | test-only | package smoke 回归测试取消该变量，验证无 XDG 配置时 HOME 隔离仍复用安装缓存；production source 不直接读取 | 通用 |
 
 **`LOAF_*` 命名**:UPPER_SNAKE,单行。**Secrets 不走 env**(loaf 不处理 secret,future-proof)。
 

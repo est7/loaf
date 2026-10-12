@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Package smoke now binds Bun's configured cache before test HOME isolation,
+  so CI reuses the cache populated by its frozen checkout install even without
+  `XDG_CACHE_HOME`. Explicit cache overrides remain honored, and `ga:check`
+  resolves the same configured cache without enabling registry access.
+
 - Package smoke now installs the real packed tarball from the checkout's
   resolved lock graph and local Bun cache, with lifecycle scripts disabled
   and bounded install steps. Registry metadata stalls cannot hang the smoke;
