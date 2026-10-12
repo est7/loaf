@@ -1,9 +1,11 @@
+import { parse as parseYaml } from "yaml";
+import { SpecFrontmatter } from "../../src/core/spec-schema.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { main, type MainDeps } from "../../src/cli.js";
-import { readSpecFrontmatter } from "../../src/core/spec-frontmatter.js";
+import { splitFrontmatter } from "../../src/core/spec-frontmatter.js";
 
 async function runCli(args: string[], deps: MainDeps) {
   const stdout: string[] = [];
@@ -118,5 +120,7 @@ test("ordinary spec init still writes parser-valid scaffold without changing the
     spec_md_path: path.join(f.featureDir, "spec.md"),
   });
   expect(await fs.readFile(path.join(f.featureDir, "journal.jsonl"))).toEqual(journal);
-  expect((await readSpecFrontmatter(f.featureDir)).ok).toBe(true);
+  const split = splitFrontmatter(await fs.readFile(path.join(f.featureDir, "spec.md"), "utf8"));
+  expect(split.frontmatter).not.toBeNull();
+  expect(SpecFrontmatter.parse(parseYaml(split.frontmatter!)).feature.id).toBe("F-000");
 });

@@ -1,3 +1,6 @@
+import { parse as parseYaml } from "yaml";
+import { splitFrontmatter } from "../../src/core/spec-frontmatter.js";
+import { SpecFrontmatter } from "../../src/core/spec-schema.js";
 // Slice 4 SC4 — `loaf spec init` scaffold + Slice 4 e2e walk
 // (init → submit → add-* → SPEC.design). Gate decide spec-lock approve
 // is intentionally outside the SC4 scope; the trim is explained in the
@@ -217,7 +220,7 @@ describe("loaf spec init — SC4 scaffold", () => {
     expect(secondContent).toBe(firstContent);
   });
 
-  test("init accepts --feature-id / --feature-name / --intent overrides (round-trip via readSpecFrontmatter)", async () => {
+  test("init accepts --feature-id / --feature-name / --intent overrides (round-trip via YAML parser and schema)", async () => {
     const { dir, feature } = await seedAtSpecProposal();
     const r = await runCli([
       "spec",
@@ -236,41 +239,31 @@ describe("loaf spec init — SC4 scaffold", () => {
       "json",
     ]);
     expect(r.exit).toBe(0);
-    const { readSpecFrontmatter } = await import("../../src/core/spec-frontmatter.js");
-    const result = await readSpecFrontmatter(dir);
-    if (!result.ok) {
-      throw new Error(
-        `readSpecFrontmatter rejected init scaffold: ${result.code} ${JSON.stringify(result)}`,
-      );
-    }
-    expect(result.frontmatter.feature.id).toBe("F-001");
-    expect(result.frontmatter.feature.name).toBe("OAuth token refresh");
-    expect(result.frontmatter.intent).toBe(
-      "users should not perceive auth recovery flows in flight",
-    );
+    const split = splitFrontmatter(await fs.readFile(path.join(dir, "spec.md"), "utf8"));
+    expect(split.frontmatter).not.toBeNull();
+    const frontmatter = SpecFrontmatter.parse(parseYaml(split.frontmatter!));
+    expect(frontmatter.feature.id).toBe("F-001");
+    expect(frontmatter.feature.name).toBe("OAuth token refresh");
+    expect(frontmatter.intent).toBe("users should not perceive auth recovery flows in flight");
   });
 
-  test("init's spec.md is accepted by production readSpecFrontmatter() YAML reader (codex r80 BLOCK)", async () => {
+  test("init's spec.md is accepted by frontmatter fence, YAML parser and schema (codex r80 BLOCK)", async () => {
     // The earlier zod test reconstructs the object via regex — that
     // bypasses the production YAML reader's quoting rules. This test
-    // calls readSpecFrontmatter() directly on the written file so we
+    // parses the actual written file with yaml.parse and SpecFrontmatter so we
     // catch any scalar-with-colon issues at the production parse path.
     const { dir, feature } = await seedAtSpecProposal();
     await runCli(["spec", "init", "--feature", feature, "--feature-dir", dir, "--format", "json"]);
-    const { readSpecFrontmatter } = await import("../../src/core/spec-frontmatter.js");
-    const result = await readSpecFrontmatter(dir);
-    if (!result.ok) {
-      throw new Error(
-        `readSpecFrontmatter rejected init scaffold: ${result.code} ${JSON.stringify(result)}`,
-      );
-    }
-    expect(result.frontmatter.spec_version).toBe(1);
-    expect(result.frontmatter.feature.id).toBe("F-000");
-    expect(result.frontmatter.requirements).toEqual([]);
+    const split = splitFrontmatter(await fs.readFile(path.join(dir, "spec.md"), "utf8"));
+    expect(split.frontmatter).not.toBeNull();
+    const frontmatter = SpecFrontmatter.parse(parseYaml(split.frontmatter!));
+    expect(frontmatter.spec_version).toBe(1);
+    expect(frontmatter.feature.id).toBe("F-000");
+    expect(frontmatter.requirements).toEqual([]);
   });
 
   // Earlier zod-parse-from-regex test removed: redundant with the
-  // production readSpecFrontmatter() test above, which already uses
+  // written-file YAML/schema test above, which already uses
   // SpecFrontmatter for the strict validation step internally and
   // catches placeholder drift on the actual YAML the production parser
   // sees (codex r80 BLOCK was caught by exactly this path).

@@ -1,3 +1,5 @@
+import { parse as parseYaml } from "yaml";
+import { SpecFrontmatter } from "../../src/core/spec-schema.js";
 // Slice A SC-A2 — spec.md projection writer unit tests.
 //
 // Covers the pure compose + IO write split (codex r84/r90):
@@ -18,7 +20,7 @@ import { initialSnapshot, type Snapshot, type SpecHeader } from "../../src/core/
 import { emptyMeta } from "../../src/core/snapshot.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 import type { Ceremony } from "../../src/core/journal-entry.js";
-import { readSpecFrontmatter } from "../../src/core/spec-frontmatter.js";
+import { splitFrontmatter } from "../../src/core/spec-frontmatter.js";
 
 const STANDARD_CEREMONY: Ceremony = {
   spec_phase: true,
@@ -80,7 +82,7 @@ describe("composeSpecMdFrontmatter — Slice A SC-A2 pure compose", () => {
     expect(() => composeSpecMdFrontmatter(snap)).toThrow(/spec_header is null/);
   });
 
-  test("produces SpecFrontmatter-valid YAML that round-trips through readSpecFrontmatter", async () => {
+  test("produces SpecFrontmatter-valid YAML that round-trips through the frontmatter parser and schema", async () => {
     const snap = snapshotWithSpec(makeHeader());
     snap.requirements = [
       {
@@ -106,21 +108,20 @@ describe("composeSpecMdFrontmatter — Slice A SC-A2 pure compose", () => {
 
     const content = composeSpecMdFrontmatter(snap);
 
-    // Write to a temp file and round-trip via the production reader.
+    // Parse the written file using the same fence/YAML/schema used by standalone check.
     const dir = await mkdtemp(path.join(tmpdir(), "loaf-spec-projection-"));
     try {
       await writeFile(path.join(dir, "spec.md"), content);
-      const result = await readSpecFrontmatter(dir);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.frontmatter.feature.id).toBe("F-001");
-        expect(result.frontmatter.feature.name).toBe("OAuth access token refresh");
-        expect(result.frontmatter.spec_version).toBe(1);
-        expect(result.frontmatter.requirements).toHaveLength(1);
-        expect(result.frontmatter.requirements[0]!.id).toBe("REQ-AUTH-001");
-        expect(result.frontmatter.scenarios).toHaveLength(1);
-        expect(result.frontmatter.scenarios[0]!.id).toBe("SCEN-AUTH-E2E-001");
-      }
+      const split = splitFrontmatter(await readFile(path.join(dir, "spec.md"), "utf8"));
+      expect(split.frontmatter).not.toBeNull();
+      const frontmatter = SpecFrontmatter.parse(parseYaml(split.frontmatter!));
+      expect(frontmatter.feature.id).toBe("F-001");
+      expect(frontmatter.feature.name).toBe("OAuth access token refresh");
+      expect(frontmatter.spec_version).toBe(1);
+      expect(frontmatter.requirements).toHaveLength(1);
+      expect(frontmatter.requirements[0]!.id).toBe("REQ-AUTH-001");
+      expect(frontmatter.scenarios).toHaveLength(1);
+      expect(frontmatter.scenarios[0]!.id).toBe("SCEN-AUTH-E2E-001");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

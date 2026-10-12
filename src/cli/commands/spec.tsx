@@ -358,7 +358,7 @@ export function registerSpec(
       // codex r81 BLOCK fix: validate the composed scaffold against
       // SpecFrontmatter BEFORE writing. Otherwise caller overrides like
       // `--feature-id BAD --feature-name x --intent short` would emit a
-      // file that immediately fails the production readSpecFrontmatter()
+      // file that immediately fails the standalone frontmatter/YAML/schema
       // parser, giving scripts a false-success result. Validation here
       // catches feature.id regex / feature.name min length / intent
       // min length / etc. upfront with SCHEMA_VALIDATION_FAILED.
@@ -377,7 +377,7 @@ export function registerSpec(
       // SpecFrontmatter BEFORE any disk write. Caller overrides
       // (--feature-id BAD / --feature-name x / --intent short) would
       // otherwise write a spec.md that immediately fails the production
-      // readSpecFrontmatter() parser. Validation here catches feature.id
+      // frontmatter/YAML/schema parser. Validation here catches feature.id
       // regex / feature.name min length / intent min length upfront with
       // SCHEMA_VALIDATION_FAILED and zero partial-write risk.
       const scaffoldObj = {
@@ -406,7 +406,7 @@ export function registerSpec(
       // would otherwise be parsed as nested mappings or comments. Quote
       // every interpolated scalar via JSON.stringify — JSON-encoded
       // strings are also valid double-quoted YAML scalars, so the
-      // production readSpecFrontmatter() parser accepts them.
+      // standalone frontmatter/YAML/schema parser accepts them.
       const md =
         `---\n` +
         `schema_version: 2\n` +

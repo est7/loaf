@@ -10846,8 +10846,7 @@ const FRONTMATTER_RE = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/;
 * `---\n` (preserves trailing content verbatim). If no frontmatter block
 * is present, frontmatter is null and body is the whole input.
 *
-* Symmetric companion to readSpecFrontmatter() that returns ONLY the
-* structural split — caller validates YAML / SpecFrontmatter separately.
+* Callers validate YAML / SpecFrontmatter separately.
 */
 function splitFrontmatter(raw) {
 	const match = FRONTMATTER_RE.exec(raw);
