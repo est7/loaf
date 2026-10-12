@@ -10,7 +10,7 @@
 # Steps (first failure exits non-zero with a stable code on stderr):
 #   1. DIST_MISSING       — $package_root/dist/cli.mjs missing
 #   2. PACK_FAILED        — bun pm pack errored or produced no tarball
-#   3. INSTALL_FAILED     — bun add of the tarball errored
+#   3. INSTALL_FAILED     — locked local-cache install of the tarball errored
 #   4. VERSION_MISMATCH   — `loaf --version` != package.json.version
 #   5. START_FAILED       — `loaf start` errored
 #   6. STATUS_FAILED      — `loaf status` errored
@@ -26,8 +26,13 @@
 #
 # Cleanup: trap on EXIT removes pack dir + install dir under TMPDIR.
 # Repo is never written to.
+# Prerequisite: run bun install in the checkout to populate its resolved lock
+# graph and local cache. This smoke verifies that graph and packed artifact;
+# it deliberately does not resolve fresh dependency versions from a registry.
 
 set -euo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 package_root="$PWD"
 expected_pin=""
@@ -87,10 +92,10 @@ cleanup() {
 trap cleanup EXIT
 
 # ── 2. PACK_FAILED ───────────────────────────────────────────────
-# `bun pm pack --quiet --destination` writes the tarball there; --quiet
+# `bun pm pack --ignore-scripts --quiet --destination` writes the tarball there; --quiet
 # emits only the filename on stdout. Run from package_root.
 pack_out=""
-if ! pack_out=$(cd "$package_root" && bun pm pack --quiet --destination "$packdir" 2>&1); then
+if ! pack_out=$(cd "$package_root" && bun pm pack --ignore-scripts --quiet --destination "$packdir" 2>&1); then
   fail "PACK_FAILED" "bun pm pack errored: $pack_out"
 fi
 tarball=$(find "$packdir" -maxdepth 1 -name '*.tgz' -print -quit 2>/dev/null || true)
@@ -99,12 +104,12 @@ if [ -z "$tarball" ] || [ ! -f "$tarball" ]; then
 fi
 
 # ── 3. INSTALL_FAILED ────────────────────────────────────────────
-# Use absolute tarball path per codex r184 Q2. Run install in an
-# isolated install dir; suppress lifecycle scripts to keep the smoke
-# deterministic.
+# Install the actual tarball in a clean directory from the resolved lock graph
+# and local cache. Missing lock/cache fails explicitly; registry availability is
+# not part of this artifact smoke. Each install step has a 30s timeout.
 install_out=""
-if ! install_out=$(cd "$installdir" && bun add "$tarball" --no-save --silent 2>&1); then
-  fail "INSTALL_FAILED" "bun add failed: $install_out"
+if ! install_out=$(bun "$script_dir/package-smoke-install.mjs" "$package_root" "$tarball" "$installdir" 2>&1); then
+  fail "INSTALL_FAILED" "locked local install failed: $install_out"
 fi
 loaf_bin="$installdir/node_modules/.bin/loaf"
 if [ ! -x "$loaf_bin" ]; then

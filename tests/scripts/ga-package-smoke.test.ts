@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach, beforeAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import {
   makePackageSmokeFixture,
@@ -39,6 +39,30 @@ beforeAll(() => {
 }, 90_000);
 
 describe("ga-package-smoke.sh", () => {
+  test("real tarball install works from cache with registry unavailable", () => {
+    const { tmpHome } = track(makePackageSmokeFixture({ withDist: false }));
+    const result = runShellScript("ga-package-smoke.sh", ["--package-root", REPO_ROOT], {
+      env: { TMPDIR: tmpHome, BUN_CONFIG_DEFAULT_REGISTRY: "http://127.0.0.1:1" },
+      timeoutMs: 90_000,
+    });
+    expect(result.exit, result.stderr).toBe(0);
+    expect(ownedLeftovers(tmpHome)).toEqual([]);
+  }, 100_000);
+
+  test("missing local cache fails at INSTALL_FAILED without registry retries", () => {
+    const { tmpHome } = track(makePackageSmokeFixture({ withDist: false }));
+    const cache = path.join(tmpHome, "empty-cache");
+    mkdirSync(cache);
+    const result = runShellScript("ga-package-smoke.sh", ["--package-root", REPO_ROOT], {
+      env: { TMPDIR: tmpHome, BUN_INSTALL_CACHE_DIR: cache },
+      timeoutMs: 90_000,
+    });
+    expect(result.exit).not.toBe(0);
+    expect(result.stderr).toContain("INSTALL_FAILED");
+    expect(result.stderr).toContain("local package cache required");
+    expect(ownedLeftovers(tmpHome)).toEqual([]);
+  }, 100_000);
+
   test("DIST_MISSING: --package-root has no dist/cli.mjs → fails fast with DIST_MISSING", () => {
     const { packageRoot, tmpHome } = track(makePackageSmokeFixture({ withDist: false }));
 
