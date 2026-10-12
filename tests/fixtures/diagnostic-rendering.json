@@ -1401,8 +1401,8 @@
     },
     "en_message": "sidecar finalize failed: value_err",
     "zh_message": "sidecar finalize failed: value_err",
-    "en_text": "error: SIDECAR_ERROR — sidecar finalize failed: value_err\n  fix: inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying\n  see: protocol.md#§11.2\n",
-    "zh_text": "error: SIDECAR_ERROR — sidecar finalize failed: value_err\n  fix: inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying\n  see: protocol.md#§11.2\n"
+    "en_text": "error: SIDECAR_ERROR — sidecar finalize failed: value_err\n  fix: inspect the emitted error and source/destination attachment permissions; if materialization began, inspect orphan sidecar residue before retrying\n  see: protocol.md#§11.2\n",
+    "zh_text": "error: SIDECAR_ERROR — sidecar finalize failed: value_err\n  fix: inspect the emitted error and source/destination attachment permissions; if materialization began, inspect orphan sidecar residue before retrying\n  see: protocol.md#§11.2\n"
   },
   {
     "code": "INVALID_BATCH",

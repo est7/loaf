@@ -146,7 +146,14 @@ describe("canSatisfy — happy paths (allowed evidence kinds)", () => {
       canSatisfy(
         ev({
           kind: "visual-review",
-          attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+          attachments: [
+            {
+              path: "attachments/JE-000001/evidence-000001.bin",
+              sha256: SHA,
+              mime: "image/png",
+              bytes: 1,
+            },
+          ],
         }),
         "VIS-AUTH-001",
       ),
@@ -212,7 +219,14 @@ describe("canSatisfy — kind mismatch rejects", () => {
       canSatisfy(
         ev({
           kind: "visual-review",
-          attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+          attachments: [
+            {
+              path: "attachments/JE-000001/evidence-000001.bin",
+              sha256: SHA,
+              mime: "image/png",
+              bytes: 1,
+            },
+          ],
         }),
         "REQ-AUTH-001",
       ),
@@ -325,7 +339,14 @@ describe("canSatisfy — VIS visual-review attachment invariant", () => {
       canSatisfy(
         ev({
           kind: "visual-review",
-          attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+          attachments: [
+            {
+              path: "attachments/JE-000001/evidence-000001.bin",
+              sha256: SHA,
+              mime: "image/png",
+              bytes: 1,
+            },
+          ],
         }),
         "VIS-AUTH-001",
       ),

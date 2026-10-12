@@ -465,7 +465,7 @@
     "DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
     "REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
     "APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity",
-    "SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+    "SIDECAR_ERROR": "inspect the emitted error and source/destination attachment permissions; if materialization began, inspect orphan sidecar residue before retrying",
     "INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
     "SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
     "SCOPE_RECORDED_ITERATION_DUPLICATE": "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",

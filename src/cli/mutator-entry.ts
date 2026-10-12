@@ -6,4 +6,7 @@ import type { JournalEntry } from "../core/journal-entry.js";
 // Defined from JournalEntry (not from the mutate partial) so the contract
 // boundary is a named type, distinct from buildSpecSubmitBatch's pre-stamped
 // `Parameters<typeof mutateBatch>[0]` contract.
-export type MutatorEntry = Pick<JournalEntry, "kind" | "payload" | "actor">;
+import type { EvidenceAttachmentInput } from "../core/evidence-schema.js";
+export type MutatorEntry = Pick<JournalEntry, "kind" | "payload" | "actor"> & {
+  attachment_sources?: readonly EvidenceAttachmentInput[];
+};

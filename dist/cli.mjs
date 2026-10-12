@@ -1685,7 +1685,7 @@ const ERROR_CATALOG = {
 	SIDECAR_ERROR: {
 		exit_code: 2,
 		message_template: "sidecar finalize failed: {err}",
-		fix_template: "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+		fix_template: "inspect the emitted error and source/destination attachment permissions; if materialization began, inspect orphan sidecar residue before retrying",
 		template_keys: ["err"],
 		detail_keys: ["err"],
 		doc_anchor: "protocol.md#§11.2"
@@ -2529,10 +2529,10 @@ const VerifyCheckKind = z.enum([
 ]);
 const GateNamePayload = z.enum(["spec-lock", "verify-accept"]);
 const AttachmentPayload = z.object({
-	path: z.string().min(3),
+	path: AttachmentPath,
 	sha256: z.string().regex(/^[a-f0-9]{64}$/),
-	mime: z.string().min(3),
-	bytes: z.number().int().positive().optional()
+	mime: z.string(),
+	bytes: z.number().int().nonnegative()
 }).strict();
 const LongTextFieldPayload = LongTextField$1;
 const SummaryField = z.union([z.string().min(3), LongTextFieldPayload]);
@@ -2579,8 +2579,15 @@ const EvidenceFullPayload = EvidenceFullShape.refine((e) => {
 	}
 	return true;
 }, { message: "evidence kind=visual-review requires ≥1 attachment (per §5.4 + §1695-1700)" });
+const EvidenceAttachmentInput = z.object({
+	path: z.string().min(1),
+	mime: z.string().optional()
+}).strict();
 const EvidenceAuthoringSummary = z.union([z.string().min(3), InlineLongTextField]);
-const EvidenceAddInput = EvidenceFullShape.extend({ summary: EvidenceAuthoringSummary }).omit({ id: true }).strict();
+const EvidenceAddInput = EvidenceFullShape.extend({
+	summary: EvidenceAuthoringSummary,
+	attachments: z.array(EvidenceAttachmentInput).optional()
+}).omit({ id: true }).strict();
 const EvidenceAddInputBatched = z.union([EvidenceAddInput, z.array(EvidenceAddInput).nonempty()]);
 //#endregion
 //#region src/cli/input-schemas.ts
@@ -3187,6 +3194,208 @@ function installCommandActionPolicy(program, ctx) {
 //#endregion
 //#region package.json
 var version = "0.12.0";
+//#endregion
+//#region src/core/attachment-authority.ts
+const LONG_TEXT_SLOTS = {
+	"evidence:added": { summary: "summary.txt" },
+	"lesson:recorded": { summary: "summary.txt" },
+	"scope:recorded": { paths: "paths.txt" }
+};
+var AttachmentAuthorityError = class extends Error {
+	code;
+	detail;
+	constructor(code, message, detail = {}) {
+		super(message);
+		this.code = code;
+		this.detail = detail;
+		this.name = "AttachmentAuthorityError";
+	}
+};
+function attachmentFieldsFor(kind) {
+	return Object.keys(LONG_TEXT_SLOTS[kind] ?? {});
+}
+function expectedRelativePath(owner, field) {
+	const slots = LONG_TEXT_SLOTS[owner.kind];
+	const binary = owner.kind === "evidence:added" && /^evidence\.([1-9]\d*)$/.exec(field);
+	const suffix = binary ? `evidence-${binary[1].padStart(6, "0")}.bin` : slots?.[field];
+	if (!suffix) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment slot ${owner.kind}.${field} is not registered`, {
+		entry_id: owner.entry_id,
+		kind: owner.kind,
+		field
+	});
+	return `attachments/${owner.entry_id}/${suffix}`;
+}
+function assertAuthorizedRef(owner, field, ref) {
+	const expected = expectedRelativePath(owner, field);
+	if (ref.path !== expected) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment ref ${ref.path} does not own slot ${owner.entry_id}:${owner.kind}.${field}`, {
+		expected,
+		actual: ref.path,
+		entry_id: owner.entry_id,
+		kind: owner.kind,
+		field
+	});
+	return expected;
+}
+function assertAttachmentOwnership(owner, field, ref) {
+	assertAuthorizedRef(owner, field, ref);
+}
+function isInside(root, candidate) {
+	const relative = path.relative(root, candidate);
+	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== "..";
+}
+async function realFeatureRoot(featureDir) {
+	const root = await promises.realpath(featureDir);
+	if (!(await promises.lstat(root)).isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `feature attachment root is not a directory: ${featureDir}`);
+	return root;
+}
+async function prepareParent(root, relativeFile, create) {
+	const parentSegments = path.posix.dirname(relativeFile).split("/");
+	let current = root;
+	for (const segment of parentSegments) {
+		current = path.join(current, segment);
+		if (create) await promises.mkdir(current).catch((error) => {
+			if (error.code !== "EEXIST") throw error;
+		});
+		let stat;
+		try {
+			stat = await promises.lstat(current);
+		} catch (error) {
+			if (error.code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment directory is missing: ${current}`, { path: current });
+			throw error;
+		}
+		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory must not be a symlink: ${current}`, { path: current });
+		if (!stat.isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment path component is not a directory: ${current}`, { path: current });
+		const real = await promises.realpath(current);
+		if (!isInside(root, real)) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory escapes the feature root: ${current}`, {
+			path: current,
+			resolved: real
+		});
+	}
+	return current;
+}
+async function inspectFinalPath(finalPath) {
+	try {
+		const stat = await promises.lstat(finalPath);
+		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file must not be a symlink: ${finalPath}`, { path: finalPath });
+		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${finalPath}`, { path: finalPath });
+		return "file";
+	} catch (error) {
+		if (error.code === "ENOENT") return "missing";
+		throw error;
+	}
+}
+async function readAttachment(featureDir, owner, field, ref) {
+	const relative = assertAuthorizedRef(owner, field, ref);
+	const root = await realFeatureRoot(featureDir);
+	await prepareParent(root, relative, false);
+	const finalPath = path.join(root, ...relative.split("/"));
+	if (await inspectFinalPath(finalPath) === "missing") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
+	let handle;
+	try {
+		handle = await promises.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+	} catch (error) {
+		const code = error.code;
+		if (code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
+		if (code === "ELOOP") throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file became a symlink: ${ref.path}`, { path: ref.path });
+		throw error;
+	}
+	try {
+		const stat = await handle.stat();
+		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${ref.path}`, { path: ref.path });
+		const body = await handle.readFile();
+		const actualSha256 = createHash("sha256").update(body).digest("hex");
+		if (stat.size !== body.byteLength || body.byteLength !== ref.size || actualSha256 !== ref.sha256) throw new AttachmentAuthorityError("ATTACHMENT_INTEGRITY", `attachment ${ref.path} integrity mismatch`, {
+			expected_size: ref.size,
+			actual_size: body.byteLength,
+			expected_sha256: ref.sha256,
+			actual_sha256: actualSha256
+		});
+		return body;
+	} finally {
+		await handle.close();
+	}
+}
+async function writeAttachment(featureDir, owner, field, content, opts = {}) {
+	const relative = expectedRelativePath(owner, field);
+	const root = await realFeatureRoot(featureDir);
+	const parent = await prepareParent(root, relative, true);
+	const finalPath = path.join(root, ...relative.split("/"));
+	await inspectFinalPath(finalPath);
+	const body = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
+	const tmpPath = path.join(parent, `.${path.basename(finalPath)}.tmp-${randomBytes(6).toString("hex")}`);
+	let handle;
+	try {
+		handle = await promises.open(tmpPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 420);
+		await handle.writeFile(body);
+		if (opts.fsync ?? true) await handle.sync();
+		await handle.close();
+		handle = void 0;
+		await inspectFinalPath(finalPath);
+		await promises.rename(tmpPath, finalPath);
+		if (opts.fsync ?? true) {
+			const directory = await promises.open(parent, constants.O_RDONLY);
+			try {
+				await directory.sync();
+			} finally {
+				await directory.close();
+			}
+		}
+	} finally {
+		if (handle) await handle.close().catch(() => {});
+		await promises.unlink(tmpPath).catch(() => {});
+	}
+	return {
+		path: relative,
+		sha256: createHash("sha256").update(body).digest("hex"),
+		size: body.byteLength
+	};
+}
+/** Read the selected source once; the captured bytes are both hashed and copied.
+* O_NONBLOCK avoids hanging on a FIFO before the opened-handle file check. */
+async function readAttachmentSource(sourcePath) {
+	let handle;
+	try {
+		handle = await promises.open(sourcePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	} catch (error) {
+		const code = error.code;
+		if (code === "ENOENT" || code === "ELOOP") throw new AttachmentAuthorityError(code === "ENOENT" ? "ATTACHMENT_MISSING" : "ATTACHMENT_UNSAFE_PATH", `cannot open evidence attachment source: ${sourcePath}`, { path: sourcePath });
+		throw error;
+	}
+	try {
+		if (!(await handle.stat()).isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", "evidence source is not a regular file", { path: sourcePath });
+		return await handle.readFile();
+	} finally {
+		await handle.close();
+	}
+}
+function binaryAttachmentRef(owner, index, body) {
+	return {
+		path: expectedRelativePath(owner, `evidence.${index + 1}`),
+		sha256: createHash("sha256").update(body).digest("hex"),
+		size: body.byteLength
+	};
+}
+async function verifyEvidenceAttachments(featureDir, entry) {
+	if (entry.kind !== "evidence:added") return;
+	const payload = entry.payload;
+	for (const [index, attachment] of (payload.attachments ?? []).entries()) await readAttachment(featureDir, entry, `evidence.${index + 1}`, {
+		path: attachment.path,
+		sha256: attachment.sha256,
+		size: attachment.bytes
+	});
+}
+/** Validate an existing destination without creating missing directories. */
+async function validateAttachmentDestination(featureDir, owner, field) {
+	const relative = expectedRelativePath(owner, field);
+	const root = await realFeatureRoot(featureDir);
+	try {
+		await prepareParent(root, relative, false);
+	} catch (error) {
+		if (error instanceof AttachmentAuthorityError && error.code === "ATTACHMENT_MISSING") return;
+		throw error;
+	}
+	await inspectFinalPath(path.join(root, ...relative.split("/")));
+}
 //#endregion
 //#region src/core/lesson-policy.ts
 /** Session-wide delivery obligation shared by admission and owner routing. */
@@ -5920,6 +6129,27 @@ function preflight(rawEntry, ctx) {
 	}
 	const admitted = checkPerKindPayload(envelopeCtx);
 	if (!admitted.ok) return admitted;
+	if (admitted.entry.kind === "evidence:added") {
+		const payload = admitted.entry.payload;
+		try {
+			for (const [index, ref] of (payload.attachments ?? []).entries()) assertAttachmentOwnership(admitted.entry, `evidence.${index + 1}`, {
+				path: ref.path,
+				sha256: ref.sha256,
+				size: ref.bytes
+			});
+		} catch (error) {
+			if (!(error instanceof AttachmentAuthorityError)) throw error;
+			return {
+				ok: false,
+				code: "INVALID_PAYLOAD",
+				detail: {
+					kind: admitted.entry.kind,
+					reason: error.message,
+					...error.detail
+				}
+			};
+		}
+	}
 	const checkCtx = {
 		entry: admitted.entry,
 		ctx,
@@ -6145,6 +6375,16 @@ async function replayJournal(filePath, opts = {}) {
 					...result.detail,
 					inner_code: result.code
 				}
+			};
+		}
+		try {
+			await verifyEvidenceAttachments(path.dirname(filePath), entry);
+		} catch (error) {
+			return {
+				ok: false,
+				code: "INVALID_ENTRY",
+				message: String(error),
+				at_seq: entry.seq
 			};
 		}
 		snapshot = result.snapshot;
@@ -6480,160 +6720,6 @@ function carryForwardStepProgress(replacement, canonical) {
 		if (prior.reason !== void 0) step.reason = prior.reason;
 	}
 	return out;
-}
-//#endregion
-//#region src/core/attachment-authority.ts
-const LONG_TEXT_SLOTS = {
-	"evidence:added": { summary: "summary.txt" },
-	"lesson:recorded": { summary: "summary.txt" },
-	"scope:recorded": { paths: "paths.txt" }
-};
-var AttachmentAuthorityError = class extends Error {
-	code;
-	detail;
-	constructor(code, message, detail = {}) {
-		super(message);
-		this.code = code;
-		this.detail = detail;
-		this.name = "AttachmentAuthorityError";
-	}
-};
-function attachmentFieldsFor(kind) {
-	return Object.keys(LONG_TEXT_SLOTS[kind] ?? {});
-}
-function expectedRelativePath(owner, field) {
-	const suffix = LONG_TEXT_SLOTS[owner.kind]?.[field];
-	if (!suffix) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment slot ${owner.kind}.${field} is not registered`, {
-		entry_id: owner.entry_id,
-		kind: owner.kind,
-		field
-	});
-	return `attachments/${owner.entry_id}/${suffix}`;
-}
-function assertAuthorizedRef(owner, field, ref) {
-	const expected = expectedRelativePath(owner, field);
-	if (ref.path !== expected) throw new AttachmentAuthorityError("ATTACHMENT_UNAUTHORIZED", `attachment ref ${ref.path} does not own slot ${owner.entry_id}:${owner.kind}.${field}`, {
-		expected,
-		actual: ref.path,
-		entry_id: owner.entry_id,
-		kind: owner.kind,
-		field
-	});
-	return expected;
-}
-function assertAttachmentOwnership(owner, field, ref) {
-	assertAuthorizedRef(owner, field, ref);
-}
-function isInside(root, candidate) {
-	const relative = path.relative(root, candidate);
-	return relative === "" || !relative.startsWith(`..${path.sep}`) && relative !== "..";
-}
-async function realFeatureRoot(featureDir) {
-	const root = await promises.realpath(featureDir);
-	if (!(await promises.lstat(root)).isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `feature attachment root is not a directory: ${featureDir}`);
-	return root;
-}
-async function prepareParent(root, relativeFile, create) {
-	const parentSegments = path.posix.dirname(relativeFile).split("/");
-	let current = root;
-	for (const segment of parentSegments) {
-		current = path.join(current, segment);
-		if (create) await promises.mkdir(current).catch((error) => {
-			if (error.code !== "EEXIST") throw error;
-		});
-		let stat;
-		try {
-			stat = await promises.lstat(current);
-		} catch (error) {
-			if (error.code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment directory is missing: ${current}`, { path: current });
-			throw error;
-		}
-		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory must not be a symlink: ${current}`, { path: current });
-		if (!stat.isDirectory()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment path component is not a directory: ${current}`, { path: current });
-		const real = await promises.realpath(current);
-		if (!isInside(root, real)) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment directory escapes the feature root: ${current}`, {
-			path: current,
-			resolved: real
-		});
-	}
-	return current;
-}
-async function inspectFinalPath(finalPath) {
-	try {
-		const stat = await promises.lstat(finalPath);
-		if (stat.isSymbolicLink()) throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file must not be a symlink: ${finalPath}`, { path: finalPath });
-		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${finalPath}`, { path: finalPath });
-		return "file";
-	} catch (error) {
-		if (error.code === "ENOENT") return "missing";
-		throw error;
-	}
-}
-async function readAttachment(featureDir, owner, field, ref) {
-	const relative = assertAuthorizedRef(owner, field, ref);
-	const root = await realFeatureRoot(featureDir);
-	await prepareParent(root, relative, false);
-	const finalPath = path.join(root, ...relative.split("/"));
-	if (await inspectFinalPath(finalPath) === "missing") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
-	let handle;
-	try {
-		handle = await promises.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-	} catch (error) {
-		const code = error.code;
-		if (code === "ENOENT") throw new AttachmentAuthorityError("ATTACHMENT_MISSING", `attachment file is missing: ${ref.path}`, { path: ref.path });
-		if (code === "ELOOP") throw new AttachmentAuthorityError("ATTACHMENT_UNSAFE_PATH", `attachment file became a symlink: ${ref.path}`, { path: ref.path });
-		throw error;
-	}
-	try {
-		const stat = await handle.stat();
-		if (!stat.isFile()) throw new AttachmentAuthorityError("ATTACHMENT_NOT_FILE", `attachment target is not a regular file: ${ref.path}`, { path: ref.path });
-		const body = await handle.readFile();
-		const actualSha256 = createHash("sha256").update(body).digest("hex");
-		if (stat.size !== body.byteLength || body.byteLength !== ref.size || actualSha256 !== ref.sha256) throw new AttachmentAuthorityError("ATTACHMENT_INTEGRITY", `attachment ${ref.path} integrity mismatch`, {
-			expected_size: ref.size,
-			actual_size: body.byteLength,
-			expected_sha256: ref.sha256,
-			actual_sha256: actualSha256
-		});
-		return body;
-	} finally {
-		await handle.close();
-	}
-}
-async function writeAttachment(featureDir, owner, field, content, opts = {}) {
-	const relative = expectedRelativePath(owner, field);
-	const root = await realFeatureRoot(featureDir);
-	const parent = await prepareParent(root, relative, true);
-	const finalPath = path.join(root, ...relative.split("/"));
-	await inspectFinalPath(finalPath);
-	const body = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
-	const tmpPath = path.join(parent, `.${path.basename(finalPath)}.tmp-${randomBytes(6).toString("hex")}`);
-	let handle;
-	try {
-		handle = await promises.open(tmpPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 420);
-		await handle.writeFile(body);
-		if (opts.fsync ?? true) await handle.sync();
-		await handle.close();
-		handle = void 0;
-		await inspectFinalPath(finalPath);
-		await promises.rename(tmpPath, finalPath);
-		if (opts.fsync ?? true) {
-			const directory = await promises.open(parent, constants.O_RDONLY);
-			try {
-				await directory.sync();
-			} finally {
-				await directory.close();
-			}
-		}
-	} finally {
-		if (handle) await handle.close().catch(() => {});
-		await promises.unlink(tmpPath).catch(() => {});
-	}
-	return {
-		path: relative,
-		sha256: createHash("sha256").update(body).digest("hex"),
-		size: body.byteLength
-	};
 }
 //#endregion
 //#region src/core/lessons-projection.ts
@@ -7740,7 +7826,7 @@ var en_default = {
 		"DOCTOR_REBUILD_FAILED": "Inspect the emitted error message; fix the journal/projection issue, then rerun doctor --rebuild.",
 		"REDUCER_ERROR": "Preserve the journal and command stderr; this indicates a loaf-cli bug or inconsistent projection state.",
 		"APPEND_ERROR": "preserve journal.jsonl and the emitted detail, then inspect the append error before retrying; if a write may have started, run `loaf doctor --check-tail --feature <name>` to repair and verify journal integrity",
-		"SIDECAR_ERROR": "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+		"SIDECAR_ERROR": "inspect the emitted error and source/destination attachment permissions; if materialization began, inspect orphan sidecar residue before retrying",
 		"INVALID_BATCH": "rebuild the batch through the CLI mutator without caller-owned envelope fields and with entries + meta matching the current journal tail",
 		"SCOPE_RECORDED_BATCH_INVALID": "emit at most one scope:recorded immediately before exactly one EXECUTE.work to EXECUTE.done transition in the same batch",
 		"SCOPE_RECORDED_ITERATION_DUPLICATE": "reuse the recorded closure result for this iteration or advance through a finding back-edge before recording a new closure",
@@ -11332,8 +11418,9 @@ async function mutateBatchUnderLease(partials, ctx) {
 	const batchId = isBatch ? crypto.randomUUID() : void 0;
 	let snapshotAcc = structuredClone(ctx.snapshot);
 	const candidates = [];
+	const binaryBodies = /* @__PURE__ */ new Map();
 	for (let i = 0; i < partials.length; i++) {
-		const partial = partials[i];
+		const { attachment_sources, ...partial } = partials[i];
 		const seq = ctx.tail_seq + 1 + i;
 		const entry_id = `JE-${String(seq + 1).padStart(6, "0")}`;
 		const candidate = isBatch ? {
@@ -11348,6 +11435,55 @@ async function mutateBatchUnderLease(partials, ctx) {
 			seq,
 			entry_id
 		};
+		if (attachment_sources !== void 0) {
+			if (candidate.kind !== "evidence:added") return {
+				ok: false,
+				code: "INVALID_BATCH",
+				failed_index: i,
+				detail: { reason: "attachment sources require evidence:added" }
+			};
+			if (typeof candidate.payload !== "object" || candidate.payload === null || "attachments" in candidate.payload) return {
+				ok: false,
+				code: "INVALID_BATCH",
+				failed_index: i,
+				detail: { reason: "attachment sources cannot accompany canonical attachments" }
+			};
+			const sources = EvidenceAttachmentInput.array().safeParse(attachment_sources);
+			if (!sources.success) return {
+				ok: false,
+				code: "SCHEMA_VALIDATION_FAILED",
+				failed_index: i,
+				detail: { reason: sources.error.message }
+			};
+			try {
+				const bodies = [];
+				const attachments = [];
+				for (const [index, source] of sources.data.entries()) {
+					const body = await readAttachmentSource(source.path);
+					bodies.push(body);
+					const ref = binaryAttachmentRef(candidate, index, body);
+					await validateAttachmentDestination(ctx.feature_dir, candidate, `evidence.${index + 1}`);
+					attachments.push({
+						path: ref.path,
+						sha256: ref.sha256,
+						bytes: ref.size,
+						mime: source.mime ?? "application/octet-stream"
+					});
+				}
+				binaryBodies.set(i, bodies);
+				candidate.payload = {
+					...candidate.payload,
+					attachments
+				};
+			} catch (error) {
+				return {
+					ok: false,
+					code: "SIDECAR_ERROR",
+					failed_index: i,
+					detail: { err: String(error) }
+				};
+			}
+		}
 		const dryRun = admitEntry(snapshotAcc, candidate, { tail_seq: ctx.tail_seq + i });
 		if (!dryRun.ok && dryRun.stage === "admission") {
 			if (dryRun.code === "NO_SESSION") return {
@@ -11450,6 +11586,19 @@ async function mutateBatchUnderLease(partials, ctx) {
 			}
 		};
 	}
+	for (const [index, candidate] of candidates.entries()) {
+		if (binaryBodies.has(index)) continue;
+		try {
+			await verifyEvidenceAttachments(ctx.feature_dir, candidate);
+		} catch (error) {
+			return {
+				ok: false,
+				code: "SIDECAR_ERROR",
+				failed_index: index,
+				detail: { err: String(error) }
+			};
+		}
+	}
 	if (ctx.dryRun) return {
 		ok: true,
 		snapshot: snapshotAcc,
@@ -11459,6 +11608,8 @@ async function mutateBatchUnderLease(partials, ctx) {
 	const promoted = [];
 	for (let i = 0; i < candidates.length; i++) try {
 		const p = await promoteSidecars(candidates[i], ctx.feature_dir, { fsync: ctx.fsync ?? true });
+		for (const [index, body] of (binaryBodies.get(i) ?? []).entries()) await writeAttachment(ctx.feature_dir, p, `evidence.${index + 1}`, body, { fsync: ctx.fsync ?? true });
+		await verifyEvidenceAttachments(ctx.feature_dir, p);
 		promoted.push(p);
 	} catch (err) {
 		return {
@@ -12010,7 +12161,8 @@ function createCommandMutator(ctx, deps) {
 			actor: e.actor,
 			entry_schema_version: ENTRY_SCHEMA_VERSIONS[e.kind],
 			kind: e.kind,
-			payload: e.payload
+			payload: e.payload,
+			...e.attachment_sources !== void 0 ? { attachment_sources: e.attachment_sources } : {}
 		});
 		const mctx = createMutationContext(featureDir, session);
 		return acceptResult(Array.isArray(input) ? await mutateBatch(input.map(stamp), mctx) : await mutate(stamp(input), mctx));
@@ -12022,7 +12174,8 @@ function createCommandMutator(ctx, deps) {
 			actor: entry.actor,
 			entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
 			kind: entry.kind,
-			payload: entry.payload
+			payload: entry.payload,
+			...entry.attachment_sources !== void 0 ? { attachment_sources: entry.attachment_sources } : {}
 		})));
 	}
 	async function runPreparedBatch(featureDir, session, entries) {
@@ -12040,7 +12193,8 @@ function createCommandMutator(ctx, deps) {
 					actor: entry.actor,
 					entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
 					kind: entry.kind,
-					payload: entry.payload
+					payload: entry.payload,
+					...entry.attachment_sources !== void 0 ? { attachment_sources: entry.attachment_sources } : {}
 				}))
 			};
 		}, createMutationContext(featureDir, session)));
@@ -15266,32 +15420,21 @@ function registerEvidence(program, ctx, mutator, actor, input) {
 			return;
 		}
 		const evIds = allocateNextEvidenceIds(session.snapshot, validatedInputs.length);
-		const compatibilityMismatches = validatedInputs.flatMap((input, i) => {
-			const evidence = {
-				id: evIds[i],
-				kind: input.kind,
-				result: input.result,
-				covers: input.covers,
-				actor: input.actor,
-				...input.check !== void 0 ? { check: input.check } : {},
-				...input.reason !== void 0 ? { reason: input.reason } : {},
-				...input.attachments !== void 0 ? { attachments: input.attachments } : {}
-			};
-			return evidence.covers.flatMap((coveredId) => {
-				const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
-				return mismatch === null ? [] : [mismatch];
-			});
-		});
-		const entries = validatedInputs.map((input, i) => ({
+		const entries = validatedInputs.map(({ attachments, ...input }, i) => ({
 			kind: "evidence:added",
 			payload: {
 				...input,
 				id: evIds[i]
 			},
+			...attachments !== void 0 ? { attachment_sources: attachments } : {},
 			actor
 		}));
 		const result = await mutator.run(featureDir, session, entries);
 		if (!result) return;
+		const compatibilityMismatches = result.snapshot.evidence.filter((evidence) => evIds.includes(evidence.id)).flatMap((evidence) => evidence.covers.flatMap((coveredId) => {
+			const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
+			return mismatch === null ? [] : [mismatch];
+		}));
 		const isBatch = Array.isArray(parsed);
 		const evidenceItems = validatedInputs.map((input, i) => ({
 			id: evIds[i],

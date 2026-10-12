@@ -1159,7 +1159,7 @@
       <tr><td class="k">loaf spec add-scenario</td><td class="k">event:spec_scenario_added</td><td>SPEC.*（spec_version &gt; 0 且未 lock）</td><td>Gherkin SCEN</td></tr>
       <tr><td class="k">loaf spec add-visual</td><td class="k">event:spec_visual_added</td><td>SPEC.*（spec_version &gt; 0 且未 lock）</td><td>Visual contract VIS</td></tr>
       <tr><td class="k">loaf tasks add</td><td class="k">event:tasks_amended<br>(SPEC.design: event:tasks_planned)</td><td>SPEC.design / EXECUTE.work（sponsored <code>--finding</code>）</td><td>batch atomic id range</td></tr>
-      <tr><td class="k">loaf evidence add</td><td class="k">evidence:added</td><td>EXECUTE.* / VERIFY.*</td><td>Phase 16 SC-4c:<code>--input &lt;src&gt;</code> + batch(single/array)。attachments 当前要求完整 <code>[{path,sha256,mime,bytes?}]</code>;<code>[{path}]</code> + 自动 sha256/mime/bytes：<strong>未实现（目标设计）</strong>（ADR-0004 A6）</td></tr>
+      <tr><td class="k">loaf evidence add</td><td class="k">evidence:added</td><td>EXECUTE.* / VERIFY.*</td><td>Phase 16 SC-4c:<code>--input &lt;src&gt;</code> + batch(single/array)。attachments 输入为 <code>[{path,mime?}]</code>；CLI copy/hash 到 owning JE bucket，派生 sha256/bytes。MIME 为 caller label，默认 application/octet-stream，不推断。caller hash/bytes 与历史 external refs 拒绝</td></tr>
     </tbody>
   </table>
 

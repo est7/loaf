@@ -1064,6 +1064,8 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       "--feature",
       F,
     ]);
+    const visualSource = path.join(dir, "visual-source.png");
+    await fs.writeFile(visualSource, Buffer.from([0, 255, 18, 42]));
     const vsEvidence = await writeInput("ev-visual-review.json", {
       kind: "visual-review",
       iteration: 1,
@@ -1072,14 +1074,10 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       summary: "visual contract VIS-CORE-001 matches the mockup",
       check: "visual",
       covers: ["VIS-CORE-001"],
-      // visual-review requires >=1 pre-hashed attachment; the CLI does not
-      // stat/hash/copy the file in this slice — it is passthrough metadata.
       attachments: [
         {
-          path: "screenshots/vis-core-001.png",
-          sha256: "a".repeat(64),
+          path: visualSource,
           mime: "image/png",
-          bytes: 1024,
         },
       ],
     });
@@ -3485,9 +3483,8 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       "--feature",
       F,
     ]);
-    // visual-review evidence carries a pre-hashed attachment payload — the
-    // CLI does not stat/hash/copy the file in this slice, it is passthrough
-    // metadata. The visual-review covers VIS-CORE-001 so VIS coverage holds.
+    const visualSource = path.join(dir, "visual-source.png");
+    await fs.writeFile(visualSource, Buffer.from([0, 255, 18, 42]));
     const vsEvidence = await writeInput("ev-visual-review.json", {
       kind: "visual-review",
       iteration: 1,
@@ -3498,10 +3495,8 @@ describe("E2E — full worker lifecycle (standard ceremony)", { timeout: 30_000 
       covers: ["VIS-CORE-001"],
       attachments: [
         {
-          path: "screenshots/vis-core-001.png",
-          sha256: "b".repeat(64),
+          path: visualSource,
           mime: "image/png",
-          bytes: 2048,
         },
       ],
     });

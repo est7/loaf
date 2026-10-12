@@ -447,3 +447,20 @@ ADR 接受后(即 commit 本文件后)按以下顺序展开:
 每 commit 各自 atomic + 不依赖后续 commit;rollback 单 commit 不破坏 ADR 整体决策(decision 在文本,落盘在文件,两者解耦)。
 
 **ADR 接受标志**:本文件 commit 到 main(scope = `loaf-cli`,type = `docs`)。后续协议改动 commit message 必须引 `ADR-0004 A<N>` 标明决策源。
+
+## Amendment 2026-10-12 — A6 implemented (G3)
+
+The A6 decision above is preserved as history. As implemented in 0.13.0:
+
+`loaf evidence add` accepts `attachments: [{path, mime?}]`.
+The CLI captures each regular source file once and hashes/copies the same binary
+bytes into the owning journal entry's `attachments/<JE-id>/evidence-<index>.bin`
+slot. Journal and projections store feature-relative path, computed SHA-256,
+required nonnegative byte count, and MIME label. Caller hash/bytes are rejected.
+MIME is an opaque optional caller label, default `application/octet-stream`;
+there is no inference table or content validation. The former EV-id/basename
+layout and MIME inference proposal are superseded. Existing attachment authority
+owns destination slots, no-symlink checks, atomic rename/fsync, and read integrity.
+Dry-run reads/validates without creating attachments. Historical external refs
+are rejected without a compatibility branch. See protocol §4.4 for failure and
+batch semantics.

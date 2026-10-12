@@ -1992,7 +1992,7 @@ export const ERROR_CATALOG = {
     exit_code: 2,
     message_template: "sidecar finalize failed: {err}",
     fix_template:
-      "inspect the emitted error and attachment path permissions; validation already passed, so remove any orphan sidecar residue before retrying",
+      "inspect the emitted error and source/destination attachment permissions; if materialization began, inspect orphan sidecar residue before retrying",
     template_keys: ["err"],
     detail_keys: ["err"],
     doc_anchor: "protocol.md#§11.2",

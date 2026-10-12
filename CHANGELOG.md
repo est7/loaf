@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Breaking:** evidence attachments now accept source `{path, mime?}` only.
+  The CLI copies captured bytes into the owning journal entry bucket and derives
+  SHA-256/byte count; caller hashes/sizes and historical external refs are rejected.
+  MIME is an opaque label defaulting to `application/octet-stream`, with no inference.
+  Dry-run validates without copying; replay verifies owner slots and binary integrity.
+
 - **Breaking:** deep delivery now enforces `ceremony.lessons_required=must`: at least one
   admitted session-wide `lesson:recorded` entry is required at SETTLE.lessons.
   `loaf next` shares delivery admission's predicate and requests a blocking human

@@ -39,7 +39,9 @@ For each lane `loaf next` routes you to, do the check and record proof:
 
 - `loaf evidence add --input <file>` with the lane's evidence `kind`
   (`local-check`/`task-summary` for run, `verify-review` for review,
-  `acceptance` for acceptance, `visual-review` + attachments for visual). Set
+  `acceptance` for acceptance, `visual-review` + attachments for visual). Supply
+  attachments as `{path, mime?}` source files; never supply hash/bytes. The CLI
+  copies and hashes the bytes; MIME is an optional label, never inferred. Set
   payload `check: "<lane>"` for explicit lane linkage; kind is the fallback,
   and `spec-review` also counts for the review lane.
 - In evidence input, payload `actor` is the evidence attester. The journal

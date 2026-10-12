@@ -34,6 +34,7 @@ import { z } from "zod";
 import { ReqIdPayload, ScenIdPayload, VisIdPayload } from "./spec-schema.js";
 import { TaskIdPayload } from "./task-schema.js";
 import {
+  AttachmentPath,
   InlineLongTextField,
   LongTextField,
   type LongTextField as LongTextFieldValue,
@@ -81,10 +82,10 @@ export type GateNamePayload = z.infer<typeof GateNamePayload>;
 
 export const AttachmentPayload = z
   .object({
-    path: z.string().min(3), // relative to feature dir
+    path: AttachmentPath, // owned feature-relative binary slot
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    mime: z.string().min(3),
-    bytes: z.number().int().positive().optional(),
+    mime: z.string(), // opaque caller label, never inferred
+    bytes: z.number().int().nonnegative(),
   })
   .strict();
 export type AttachmentPayload = z.infer<typeof AttachmentPayload>;
@@ -209,12 +210,23 @@ export type EvidenceFull = z.infer<typeof EvidenceFullPayload>;
 // Built from EvidenceFullShape (NOT EvidenceFullPayload) because the
 // latter is .refine()'d and Zod can't .omit() a ZodEffects. .strict()
 // rejects caller-supplied `id` / unknown keys at the contract layer.
-// Attachments require full metadata (path/sha256/mime/bytes?) until
-// ADR-0004 A6 auto-hash materialization lands in a future SC. Internal
+// Attachment authoring accepts source paths and optional opaque MIME labels.
+// The mutation pipeline owns copying, hash/bytes and destination allocation. Internal
 // LongTextField sidecar refs are persistence state: callers may submit only a
 // string or inline text and let the mutation pipeline materialize any sidecar.
+export const EvidenceAttachmentInput = z
+  .object({
+    path: z.string().min(1),
+    mime: z.string().optional(),
+  })
+  .strict();
+export type EvidenceAttachmentInput = z.infer<typeof EvidenceAttachmentInput>;
+
 const EvidenceAuthoringSummary = z.union([z.string().min(3), InlineLongTextField]);
-export const EvidenceAddInput = EvidenceFullShape.extend({ summary: EvidenceAuthoringSummary })
+export const EvidenceAddInput = EvidenceFullShape.extend({
+  summary: EvidenceAuthoringSummary,
+  attachments: z.array(EvidenceAttachmentInput).optional(),
+})
   .omit({ id: true })
   .strict();
 export type EvidenceAddInput = z.infer<typeof EvidenceAddInput>;

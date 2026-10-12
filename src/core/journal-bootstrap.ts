@@ -1,3 +1,5 @@
+import path from "node:path";
+import { verifyEvidenceAttachments } from "./attachment-authority.js";
 // journal-bootstrap — replay + tail recovery (ADR-0005 §3.6 + §4.13, Gate #4).
 //
 // Two responsibilities:
@@ -176,6 +178,11 @@ export async function replayJournal(
         at_seq: entry.seq,
         detail: { ...result.detail, inner_code: result.code },
       };
+    }
+    try {
+      await verifyEvidenceAttachments(path.dirname(filePath), entry);
+    } catch (error) {
+      return { ok: false, code: "INVALID_ENTRY", message: String(error), at_seq: entry.seq };
     }
     snapshot = result.snapshot;
     lastSeq = entry.seq;

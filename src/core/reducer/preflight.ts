@@ -1,3 +1,4 @@
+import { assertAttachmentOwnership, AttachmentAuthorityError } from "../attachment-authority.js";
 import type { Diagnostic } from "../error-catalog.js";
 // Preflight validation (§11.2 step 3 + ADR-0005 §3.6).
 //
@@ -349,6 +350,28 @@ export function preflight(rawEntry: unknown, ctx: PreflightContext): PreflightRe
   }
   const admitted = checkPerKindPayload(envelopeCtx);
   if (!admitted.ok) return admitted;
+
+  if (admitted.entry.kind === "evidence:added") {
+    const payload = admitted.entry.payload as {
+      attachments?: { path: string; sha256: string; bytes: number }[];
+    };
+    try {
+      for (const [index, ref] of (payload.attachments ?? []).entries()) {
+        assertAttachmentOwnership(admitted.entry, `evidence.${index + 1}`, {
+          path: ref.path,
+          sha256: ref.sha256,
+          size: ref.bytes,
+        });
+      }
+    } catch (error) {
+      if (!(error instanceof AttachmentAuthorityError)) throw error;
+      return {
+        ok: false,
+        code: "INVALID_PAYLOAD",
+        detail: { kind: admitted.entry.kind, reason: error.message, ...error.detail },
+      };
+    }
+  }
 
   const checkCtx: PreflightCheckCtx = {
     entry: admitted.entry,

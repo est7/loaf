@@ -131,23 +131,37 @@ describe("evidence-schema enums", () => {
     expect(VerifyCheckKind.options).toEqual(["run", "review", "acceptance", "visual"]);
   });
 
-  test("AttachmentPayload requires path min 3 + sha256 64-hex + mime min 3", () => {
-    expect(() => AttachmentPayload.parse({ path: "x", sha256: SHA, mime: "image/png" })).toThrow(
-      ZodError,
-    );
+  test("AttachmentPayload requires owned path, hash and computed byte count", () => {
     expect(() =>
-      AttachmentPayload.parse({ path: "screenshot.png", sha256: "short", mime: "image/png" }),
+      AttachmentPayload.parse({ path: "x", sha256: SHA, mime: "image/png", bytes: 1 }),
     ).toThrow(ZodError);
     expect(() =>
-      AttachmentPayload.parse({ path: "screenshot.png", sha256: SHA, mime: "x" }),
+      AttachmentPayload.parse({
+        path: "attachments/JE-000001/evidence-000001.bin",
+        sha256: "short",
+        mime: "image/png",
+      }),
+    ).toThrow(ZodError);
+    expect(() =>
+      AttachmentPayload.parse({
+        path: "attachments/JE-000001/evidence-000001.bin",
+        sha256: SHA,
+        mime: "image/png",
+        bytes: -1,
+      }),
     ).toThrow(ZodError);
     const ok = AttachmentPayload.parse({
-      path: "screenshot.png",
+      path: "attachments/JE-000001/evidence-000001.bin",
       sha256: SHA,
       mime: "image/png",
       bytes: 1024,
     });
-    expect(ok).toEqual({ path: "screenshot.png", sha256: SHA, mime: "image/png", bytes: 1024 });
+    expect(ok).toEqual({
+      path: "attachments/JE-000001/evidence-000001.bin",
+      sha256: SHA,
+      mime: "image/png",
+      bytes: 1024,
+    });
   });
 });
 
@@ -174,7 +188,14 @@ describe("EvidenceFullPayload — happy paths", () => {
         covers: ["VIS-AUTH-001"],
         actor: "human:reviewer@example.com",
         check: "visual",
-        attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+        attachments: [
+          {
+            path: "attachments/JE-000001/evidence-000001.bin",
+            sha256: SHA,
+            mime: "image/png",
+            bytes: 1,
+          },
+        ],
       }),
     );
     expect(parsed.check).toBe("visual");
@@ -466,7 +487,14 @@ describe("reducer evidence:added — projection extracts new fields", () => {
 
   test("attachments field extracted (for visual-review)", () => {
     const snap = execSnapshot();
-    const attachments = [{ path: "shot.png", sha256: SHA, mime: "image/png", bytes: 2048 }];
+    const attachments = [
+      {
+        path: "attachments/JE-000001/evidence-000001.bin",
+        sha256: SHA,
+        mime: "image/png",
+        bytes: 2048,
+      },
+    ];
     const result = admitEntry(
       snap,
       ev(

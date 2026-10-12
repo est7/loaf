@@ -1,3 +1,11 @@
+import {
+  readAttachmentSource,
+  binaryAttachmentRef,
+  writeAttachment,
+  verifyEvidenceAttachments,
+  validateAttachmentDestination,
+} from "./attachment-authority.js";
+import { EvidenceAttachmentInput } from "./evidence-schema.js";
 // journal-mutate — the single transactional mutator API.
 //
 // `mutateBatch(partials[], ctx)` is the protocol-level multi-entry mutator.
@@ -230,7 +238,7 @@ function classifyCommitState(
 export type PartialMutationEntry = Omit<
   JournalEntry,
   "seq" | "entry_id" | "batch_id" | "batch_index" | "batch_count"
->;
+> & { attachment_sources?: readonly EvidenceAttachmentInput[] };
 
 export type MutationPlan =
   | { ok: true; partials: PartialMutationEntry[] }
@@ -339,7 +347,7 @@ async function mutateBatchUnderLease(
   }
 
   // Per protocol §11.2 + codex r12/r13: validate the ENTIRE batch first
-  // (no disk I/O), promote sidecars, then re-validate the promoted form
+  // (read-only binary source capture, no writes), promote sidecars, then re-validate the promoted form
   // before appending. Three passes:
   //   Pass 1 — preflight + reducer dry-run on
   //            UNPROMOTED candidates (snapshot accumulator threads through
@@ -375,13 +383,15 @@ async function mutateBatchUnderLease(
   const isBatch = partials.length >= 2;
   const batchId = isBatch ? crypto.randomUUID() : undefined;
 
-  // Pass 1: pure validation, no I/O. Build candidate entries with seq + id +
+  // Pass 1: validate and capture binary sources without filesystem writes.
+  // Build candidate entries with seq + id +
   // batch envelope; accumulate snapshot.
   let snapshotAcc: Snapshot = structuredClone(ctx.snapshot);
   const candidates: JournalEntry[] = [];
+  const binaryBodies = new Map<number, Buffer[]>();
 
   for (let i = 0; i < partials.length; i++) {
-    const partial = partials[i]!;
+    const { attachment_sources, ...partial } = partials[i]!;
     const seq = ctx.tail_seq + 1 + i;
     const entry_id = `JE-${String(seq + 1).padStart(6, "0")}`;
     const candidate: JournalEntry = isBatch
@@ -394,6 +404,63 @@ async function mutateBatchUnderLease(
           batch_count: partials.length,
         } as JournalEntry)
       : ({ ...partial, seq, entry_id } as JournalEntry);
+
+    if (attachment_sources !== undefined) {
+      if (candidate.kind !== "evidence:added") {
+        return {
+          ok: false,
+          code: "INVALID_BATCH",
+          failed_index: i,
+          detail: { reason: "attachment sources require evidence:added" },
+        };
+      }
+      if (
+        typeof candidate.payload !== "object" ||
+        candidate.payload === null ||
+        "attachments" in candidate.payload
+      ) {
+        return {
+          ok: false,
+          code: "INVALID_BATCH",
+          failed_index: i,
+          detail: { reason: "attachment sources cannot accompany canonical attachments" },
+        };
+      }
+      const sources = EvidenceAttachmentInput.array().safeParse(attachment_sources);
+      if (!sources.success) {
+        return {
+          ok: false,
+          code: "SCHEMA_VALIDATION_FAILED",
+          failed_index: i,
+          detail: { reason: sources.error.message },
+        };
+      }
+      try {
+        const bodies: Buffer[] = [];
+        const attachments = [];
+        for (const [index, source] of sources.data.entries()) {
+          const body = await readAttachmentSource(source.path);
+          bodies.push(body);
+          const ref = binaryAttachmentRef(candidate, index, body);
+          await validateAttachmentDestination(ctx.feature_dir, candidate, `evidence.${index + 1}`);
+          attachments.push({
+            path: ref.path,
+            sha256: ref.sha256,
+            bytes: ref.size,
+            mime: source.mime ?? "application/octet-stream",
+          });
+        }
+        binaryBodies.set(i, bodies);
+        candidate.payload = { ...(candidate.payload as Record<string, unknown>), attachments };
+      } catch (error) {
+        return {
+          ok: false,
+          code: "SIDECAR_ERROR",
+          failed_index: i,
+          detail: { err: String(error) },
+        };
+      }
+    }
 
     const dryRun = admitEntry(snapshotAcc, candidate, { tail_seq: ctx.tail_seq + i });
     if (!dryRun.ok && dryRun.stage === "admission") {
@@ -569,6 +636,21 @@ async function mutateBatchUnderLease(
     };
   }
 
+  // Direct canonical references must pass the same integrity IO as replay.
+  for (const [index, candidate] of candidates.entries()) {
+    if (binaryBodies.has(index)) continue;
+    try {
+      await verifyEvidenceAttachments(ctx.feature_dir, candidate);
+    } catch (error) {
+      return {
+        ok: false,
+        code: "SIDECAR_ERROR",
+        failed_index: index,
+        detail: { err: String(error) },
+      };
+    }
+  }
+
   // SC-6c dry-run early-return: skip remaining disk-touching passes
   // (sidecar promote, final reducer + drift, journal append, spec.md +
   // snapshots projection). Returns the would-be snapshot from Pass 1's
@@ -593,6 +675,12 @@ async function mutateBatchUnderLease(
       const p = await promoteSidecars(candidates[i]!, ctx.feature_dir, {
         fsync: ctx.fsync ?? true,
       });
+      for (const [index, body] of (binaryBodies.get(i) ?? []).entries()) {
+        await writeAttachment(ctx.feature_dir, p, `evidence.${index + 1}`, body, {
+          fsync: ctx.fsync ?? true,
+        });
+      }
+      await verifyEvidenceAttachments(ctx.feature_dir, p);
       promoted.push(p);
     } catch (err) {
       return {

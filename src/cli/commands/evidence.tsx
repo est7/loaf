@@ -10,7 +10,6 @@ import { buildWaiveEvidencePayload } from "../waive.js";
 import { CoversRefPayload, EvidenceAddInput, EvidenceKind } from "../../core/evidence-schema.js";
 import { TaskIdPayload } from "../../core/task-schema.js";
 import { evidenceCompatibilityMismatch } from "../../core/evidence-compat.js";
-import type { EvidenceState } from "../../core/projection-types.js";
 import {
   jsonInputHelp,
   type JsonInputDeclaration,
@@ -90,11 +89,8 @@ export function registerEvidence(
   //     schema layer, not silently stripped. EvidenceFullPayload refines
   //     (manual/waiver actor=human:* + reason≥10; visual-review ≥1
   //     attachment) run later in mutateBatch preflight AFTER id injection.
-  //   - Attachments still require full AttachmentPayload {path, sha256,
-  //     mime, bytes?} in SC-4c. ADR-0004 A6 auto-hash materialization
-  //     (path → full Attachment) is DEFERRED to a future SC; runtime +
-  //     input-schemas.ts INPUT_SCHEMAS["evidence:add"] machine schema +
-  //     this CLI handler all match on the full-metadata requirement.
+  //   - Attachment sources accept {path, mime?}; the mutation transaction
+  //     captures bytes once and owns hash/size and JE-bucket destinations.
   //   - No `--external-ref` CLI flag; `external_ref` is allowed only
   //     as an --input field (passthrough via EvidenceFullPayload).
   const inputDeclaration: JsonInputDeclaration = {
@@ -187,33 +183,25 @@ export function registerEvidence(
       // input-time diagnostic. Wire it now without rejecting the append:
       // evidence is cumulative and one entry may legitimately cover a mix
       // of compatible and incompatible obligation families.
-      const compatibilityMismatches = validatedInputs.flatMap((input, i) => {
-        const evidence: EvidenceState = {
-          id: evIds[i]!,
-          kind: input.kind,
-          result: input.result,
-          covers: input.covers,
-          actor: input.actor,
-          ...(input.check !== undefined ? { check: input.check } : {}),
-          ...(input.reason !== undefined ? { reason: input.reason } : {}),
-          ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
-        };
-        return evidence.covers.flatMap((coveredId) => {
-          const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
-          return mismatch === null ? [] : [mismatch];
-        });
-      });
-
       // Materialize full payloads (inject CLI-allocated EV-id; refines
       // in EvidenceFullPayload run during mutateBatch preflight).
-      const entries: MutatorEntry[] = validatedInputs.map((input, i) => ({
+      const entries: MutatorEntry[] = validatedInputs.map(({ attachments, ...input }, i) => ({
         kind: "evidence:added",
         payload: { ...input, id: evIds[i] },
+        ...(attachments !== undefined ? { attachment_sources: attachments } : {}),
         actor,
       }));
 
       const result = await mutator.run(featureDir, session, entries);
       if (!result) return;
+      const compatibilityMismatches = result.snapshot.evidence
+        .filter((evidence) => evIds.includes(evidence.id))
+        .flatMap((evidence) =>
+          evidence.covers.flatMap((coveredId) => {
+            const mismatch = evidenceCompatibilityMismatch(evidence, coveredId);
+            return mismatch === null ? [] : [mismatch];
+          }),
+        );
 
       // Output preserves single-input bare-EV-id text (back-compat per
       // codex r230 Q6 + r236) and adds {ok, feature, ev_ids, count,
@@ -293,7 +281,6 @@ export function registerEvidence(
       feature: string;
       featureDir?: string;
     }) => {
-
       if (opts.covers !== undefined && !CoversRefPayload.safeParse(opts.covers).success) {
         ctx.failure(
           diagnosticVariant("failure.evidence.covers_invalid", {

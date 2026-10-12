@@ -52,7 +52,8 @@ function expectedRelativePath(owner: AttachmentOwner, field: string): string {
   const slots = LONG_TEXT_SLOTS[owner.kind as keyof typeof LONG_TEXT_SLOTS] as
     | Readonly<Record<string, string>>
     | undefined;
-  const suffix = slots?.[field];
+  const binary = owner.kind === "evidence:added" && /^evidence\.([1-9]\d*)$/.exec(field);
+  const suffix = binary ? `evidence-${binary[1]!.padStart(6, "0")}.bin` : slots?.[field];
   if (!suffix) {
     throw new AttachmentAuthorityError(
       "ATTACHMENT_UNAUTHORIZED",
@@ -300,4 +301,85 @@ export async function writeAttachment(
     sha256: createHash("sha256").update(body).digest("hex"),
     size: body.byteLength,
   };
+}
+
+/** Read the selected source once; the captured bytes are both hashed and copied.
+ * O_NONBLOCK avoids hanging on a FIFO before the opened-handle file check. */
+export async function readAttachmentSource(sourcePath: string): Promise<Buffer> {
+  let handle: FileHandle;
+  try {
+    handle = await fs.open(
+      sourcePath,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ELOOP") {
+      throw new AttachmentAuthorityError(
+        code === "ENOENT" ? "ATTACHMENT_MISSING" : "ATTACHMENT_UNSAFE_PATH",
+        `cannot open evidence attachment source: ${sourcePath}`,
+        { path: sourcePath },
+      );
+    }
+    throw error;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new AttachmentAuthorityError(
+        "ATTACHMENT_NOT_FILE",
+        "evidence source is not a regular file",
+        { path: sourcePath },
+      );
+    }
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+}
+
+export function binaryAttachmentRef(
+  owner: AttachmentOwner,
+  index: number,
+  body: Buffer,
+): AttachmentRef {
+  return {
+    path: expectedRelativePath(owner, `evidence.${index + 1}`),
+    sha256: createHash("sha256").update(body).digest("hex"),
+    size: body.byteLength,
+  };
+}
+
+export async function verifyEvidenceAttachments(
+  featureDir: string,
+  entry: JournalEntry,
+): Promise<void> {
+  if (entry.kind !== "evidence:added") return;
+  const payload = entry.payload as {
+    attachments?: { path: string; sha256: string; bytes: number }[];
+  };
+  for (const [index, attachment] of (payload.attachments ?? []).entries()) {
+    await readAttachment(featureDir, entry, `evidence.${index + 1}`, {
+      path: attachment.path,
+      sha256: attachment.sha256,
+      size: attachment.bytes,
+    });
+  }
+}
+
+/** Validate an existing destination without creating missing directories. */
+export async function validateAttachmentDestination(
+  featureDir: string,
+  owner: AttachmentOwner,
+  field: string,
+): Promise<void> {
+  const relative = expectedRelativePath(owner, field);
+  const root = await realFeatureRoot(featureDir);
+  try {
+    await prepareParent(root, relative, false);
+  } catch (error) {
+    if (error instanceof AttachmentAuthorityError && error.code === "ATTACHMENT_MISSING") return;
+    throw error;
+  }
+  await inspectFinalPath(path.join(root, ...relative.split("/")));
 }

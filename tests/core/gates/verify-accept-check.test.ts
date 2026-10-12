@@ -199,7 +199,14 @@ function happySnapshot(
         covers: ["VIS-AUTH-001"],
         check: "visual",
         result: "approved",
-        attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+        attachments: [
+          {
+            path: "attachments/JE-000001/evidence-000001.bin",
+            sha256: SHA,
+            mime: "image/png",
+            bytes: 1,
+          },
+        ],
       }),
     ],
   };
@@ -448,23 +455,20 @@ describe("verifyAcceptCheck — check 3 coverage (canSatisfy)", () => {
     const fm = makeFrontmatter();
     const snap = happySnapshot(fm);
     snap.evidence = snap.evidence.filter((e) => !e.covers.includes("REQ-AUTH-001"));
-    const applied = admitEntry(
-      snap,
-      {
-        seq: 1,
-        entry_id: "JE-000001",
-        at: "2026-07-16T12:00:00.000Z",
-        actor: "human:tester",
-        entry_schema_version: 1,
-        kind: "lesson:recorded",
-        payload: {
-          id: "LSN-001",
-          iteration: 1,
-          reason: "captured during coverage testing",
-          summary: "a lesson is not verification evidence",
-        },
-      } as JournalEntry,
-    );
+    const applied = admitEntry(snap, {
+      seq: 1,
+      entry_id: "JE-000001",
+      at: "2026-07-16T12:00:00.000Z",
+      actor: "human:tester",
+      entry_schema_version: 1,
+      kind: "lesson:recorded",
+      payload: {
+        id: "LSN-001",
+        iteration: 1,
+        reason: "captured during coverage testing",
+        summary: "a lesson is not verification evidence",
+      },
+    } as JournalEntry);
     expect(applied.ok).toBe(true);
     if (!applied.ok) throw new Error("unreachable");
 
@@ -590,7 +594,14 @@ describe("verifyAcceptCheck — check 3 coverage (canSatisfy)", () => {
         covers: ["VIS-AUTH-001"],
         check: "visual",
         result: "rejected",
-        attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+        attachments: [
+          {
+            path: "attachments/JE-000001/evidence-000001.bin",
+            sha256: SHA,
+            mime: "image/png",
+            bytes: 1,
+          },
+        ],
       }),
     );
     const result = verifyAcceptCheck(snap, fm);

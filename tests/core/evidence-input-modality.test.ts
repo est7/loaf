@@ -9,8 +9,7 @@
 //   - hard-cut: --input <src> (was --input <file>)
 //   - batch: array input enabled (was USAGE reject)
 //   - runtime mirror: src/core/evidence-schema.ts EvidenceAddInput[Batched]
-//     via EvidenceFullShape.omit({id:true}).strict() — full attachment
-//     metadata required (ADR-0004 A6 auto-hash materialization deferred)
+//     via strict EvidenceAddInput; G3 attachments use source {path, mime?}.
 //   - evidence-schema.ts EvidenceAddInput: omit {schema_version,
 //     evidence_id, at} + .strict() — machine schema honest
 //   - caller-supplied id: SCHEMA_VALIDATION_FAILED + detail.index
@@ -294,29 +293,44 @@ describe("Phase 16 SC-4c — `loaf evidence add` error paths", () => {
     expect(r.stderr).toContain("validation failed: evidence_batch_empty");
   });
 
-  test("attachment-shape regression: {path}-only attachment → SCHEMA_VALIDATION_FAILED (full metadata required)", async () => {
-    // Phase 16 SC-4c retains the full attachment metadata requirement
-    // (codex r230 PATCH B + r232 confirmation): ADR-0004 A6 auto-hash
-    // materialization is deferred to a future SC; runtime input still
-    // requires {path, sha256, mime, bytes?}. This test proves the
-    // runtime EvidenceAddInput mirror keeps the contract.
+  test("path-only binary attachment is copied and hashed by the CLI", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
+    const source = path.join(await tmpFeatureDir(), "screen.png");
+    const body = Buffer.from([0, 255, 42, 10, 0, 128]);
+    await fs.writeFile(source, body);
     const r = await runCli([
       "evidence",
       "add",
       "--input",
       JSON.stringify({
         ...baseInput("visual-review"),
-        actor: "human:tester@example.invalid",
-        attachments: [{ path: "screenshot.png" }], // {path}-only — missing sha256/mime
+        attachments: [{ path: source }],
       }),
       "--feature",
       feature,
       "--feature-dir",
       dir,
     ]);
-    expect(r.exit).toBe(2);
-    expect(r.stderr).toContain("SCHEMA_VALIDATION_FAILED");
+    expect(r.exit, r.stderr).toBe(0);
+    const entries = (await fs.readFile(path.join(dir, "journal.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const entry = entries.at(-1);
+    expect(entry).not.toHaveProperty("attachment_sources");
+    const attachment = entry.payload.attachments[0];
+    expect(attachment).toEqual({
+      path: `attachments/${entry.entry_id}/evidence-000001.bin`,
+      sha256: createHash("sha256").update(body).digest("hex"),
+      bytes: body.length,
+      mime: "application/octet-stream",
+    });
+    expect(await fs.readFile(path.join(dir, attachment.path))).toEqual(body);
+    await fs.unlink(source);
+    const replay = await import("../../src/core/journal-bootstrap.js");
+    expect((await replay.replayJournal(path.join(dir, "journal.jsonl"))).ok).toBe(true);
+    await fs.writeFile(path.join(dir, attachment.path), Buffer.from([1, 2, 3]));
+    expect((await replay.replayJournal(path.join(dir, "journal.jsonl"))).ok).toBe(false);
   });
 
   test("caller-supplied persistence sidecar is rejected before append or projection read", async () => {
@@ -419,7 +433,7 @@ describe("Phase 16 SC-4c — machine-schema regression (runtime INPUT_SCHEMAS['e
     expect(r.success).toBe(true);
   });
 
-  test("runtime schema REJECTS {attachments:[{path:...}]} without sha256/mime (full metadata required)", async () => {
+  test("runtime schema accepts path-only attachments and rejects caller metadata", async () => {
     const runtimeSchema = await import("../../src/cli/input-schemas.js");
     const schema = runtimeSchema.INPUT_SCHEMAS["evidence:add"];
     const r = schema.safeParse({
@@ -430,7 +444,12 @@ describe("Phase 16 SC-4c — machine-schema regression (runtime INPUT_SCHEMAS['e
       summary: "visual review attempt",
       attachments: [{ path: "x.png" }],
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
+    for (const extra of [{ sha256: "a".repeat(64) }, { bytes: 1 }]) {
+      expect(
+        schema.safeParse({ ...baseInput(), attachments: [{ path: "x.png", ...extra }] }).success,
+      ).toBe(false);
+    }
   });
 
   test("runtime schema REJECTS caller-supplied runtime `id`", async () => {
@@ -478,5 +497,151 @@ describe("Phase 16 SC-4c — machine-schema regression (runtime INPUT_SCHEMAS['e
       },
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("CLI-owned binary attachment integrity", () => {
+  const evidence = (attachments: unknown[]) => ({ ...baseInput("visual-review"), attachments });
+  const args = (dir: string, feature: string, payload: unknown, dryRun = false) => [
+    "evidence",
+    "add",
+    "--input",
+    JSON.stringify(payload),
+    "--feature",
+    feature,
+    "--feature-dir",
+    dir,
+    "--format",
+    "json",
+    ...(dryRun ? ["--dry-run"] : []),
+  ];
+
+  test("dry-run reads sources but creates no attachments or journal change", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const source = path.join(await tmpFeatureDir(), "zero.png");
+    await fs.writeFile(source, Buffer.alloc(0));
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"));
+    expect((await runCli(args(dir, feature, evidence([{ path: source }]), true))).exit).toBe(0);
+    expect(await fs.readFile(path.join(dir, "journal.jsonl"))).toEqual(before);
+    await expect(fs.stat(path.join(dir, "attachments"))).rejects.toMatchObject({ code: "ENOENT" });
+    const committed = await runCli(
+      args(dir, feature, evidence([{ path: source, mime: "opaque label" }])),
+    );
+    expect(committed.exit, committed.stderr).toBe(0);
+    const last = JSON.parse(
+      (await fs.readFile(path.join(dir, "journal.jsonl"), "utf8")).trim().split("\n").at(-1)!,
+    );
+    expect(last.payload.attachments[0]).toMatchObject({
+      bytes: 0,
+      mime: "opaque label",
+      sha256: createHash("sha256").digest("hex"),
+    });
+  });
+
+  test.each(["sha256", "bytes"])("caller %s is rejected before any write", async (field) => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"));
+    const r = await runCli(
+      args(
+        dir,
+        feature,
+        evidence([{ path: "nonexistent", [field]: field === "bytes" ? 1 : "a".repeat(64) }]),
+      ),
+    );
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).code).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(await fs.readFile(path.join(dir, "journal.jsonl"))).toEqual(before);
+  });
+
+  test("missing, directory and symlink sources refuse normal and dry-run without append", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const outside = await tmpFeatureDir();
+    const file = path.join(outside, "file");
+    await fs.writeFile(file, "source");
+    const link = path.join(outside, "link");
+    await fs.symlink(file, link);
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"));
+    for (const source of [path.join(outside, "missing"), outside, link]) {
+      for (const preview of [false, true]) {
+        const r = await runCli(args(dir, feature, evidence([{ path: source }]), preview));
+        expect(r.exit).toBe(2);
+        expect(JSON.parse(r.stderr).code).toBe("SIDECAR_ERROR");
+        expect(await fs.readFile(path.join(dir, "journal.jsonl"))).toEqual(before);
+      }
+    }
+    await expect(fs.stat(path.join(dir, "attachments"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("destination symlink is refused in normal and dry-run", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const outside = await tmpFeatureDir();
+    const source = path.join(outside, "source");
+    await fs.writeFile(source, "preserve outside");
+    await fs.symlink(outside, path.join(dir, "attachments"));
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"));
+    for (const preview of [false, true]) {
+      const r = await runCli(args(dir, feature, evidence([{ path: source }]), preview));
+      expect(r.exit).toBe(2);
+      expect(JSON.parse(r.stderr).detail.err).toContain("must not be a symlink");
+      expect(await fs.readFile(path.join(dir, "journal.jsonl"))).toEqual(before);
+      expect(await fs.readdir(outside)).toEqual(["source"]);
+    }
+  });
+
+  test("a later invalid source makes the whole batch write-free", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const source = path.join(await tmpFeatureDir(), "valid");
+    await fs.writeFile(source, "valid bytes");
+    const before = await fs.readFile(path.join(dir, "journal.jsonl"));
+    const r = await runCli(
+      args(dir, feature, [evidence([{ path: source }]), evidence([{ path: source + "-missing" }])]),
+    );
+    expect(r.exit).toBe(2);
+    expect(JSON.parse(r.stderr).detail.err).toContain(source + "-missing");
+    expect(await fs.readFile(path.join(dir, "journal.jsonl"))).toEqual(before);
+    await expect(fs.stat(path.join(dir, "attachments"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("distinct binary slots and summary sidecar coexist; replay refuses external or cross-owner refs", async () => {
+    const { dir, feature } = await seedQuickAtExecuteWork();
+    const source = path.join(await tmpFeatureDir(), "same-name.txt");
+    const body = Buffer.from([0, 233, 17]);
+    await fs.writeFile(source, body);
+    const r = await runCli(
+      args(dir, feature, {
+        ...evidence([{ path: source, mime: "" }, { path: source }]),
+        summary: { mode: "inline", text: "s".repeat(9000) },
+      }),
+    );
+    expect(r.exit, r.stderr).toBe(0);
+    const journal = path.join(dir, "journal.jsonl");
+    const original = await fs.readFile(journal, "utf8");
+    const entries = original
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const entry = entries.at(-1);
+    expect(entry.payload.attachments.map((a: { path: string }) => a.path)).toEqual([
+      `attachments/${entry.entry_id}/evidence-000001.bin`,
+      `attachments/${entry.entry_id}/evidence-000002.bin`,
+    ]);
+    expect(entry.payload.attachments.map((a: { mime: string }) => a.mime)).toEqual([
+      "",
+      "application/octet-stream",
+    ]);
+    expect(entry.payload.summary.ref.path).toBe(`attachments/${entry.entry_id}/summary.txt`);
+    const { replayJournal } = await import("../../src/core/journal-bootstrap.js");
+    for (const wrongPath of [
+      source,
+      "attachments/JE-999999/evidence-000001.bin",
+      `attachments/${entry.entry_id}/summary.txt`,
+    ]) {
+      entry.payload.attachments[0].path = wrongPath;
+      await fs.writeFile(journal, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+      expect((await replayJournal(journal)).ok).toBe(false);
+    }
+    await fs.writeFile(journal, original);
+    await fs.unlink(path.join(dir, entry.payload.attachments[1].path));
+    expect((await replayJournal(journal)).ok).toBe(false);
   });
 });

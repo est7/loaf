@@ -163,7 +163,14 @@ function happySnapshot(frontmatter: SpecFrontmatter): Snapshot {
         covers: ["VIS-AUTH-001"],
         check: "visual",
         result: "approved",
-        attachments: [{ path: "shot.png", sha256: SHA, mime: "image/png" }],
+        attachments: [
+          {
+            path: "attachments/JE-000001/evidence-000001.bin",
+            sha256: SHA,
+            mime: "image/png",
+            bytes: 1,
+          },
+        ],
       }),
     ],
   };

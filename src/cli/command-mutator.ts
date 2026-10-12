@@ -124,6 +124,7 @@ export function createCommandMutator(
       entry_schema_version: ENTRY_SCHEMA_VERSIONS[e.kind],
       kind: e.kind,
       payload: e.payload,
+      ...(e.attachment_sources !== undefined ? { attachment_sources: e.attachment_sources } : {}),
     });
     const mctx = createMutationContext(featureDir, session);
     const result = Array.isArray(input)
@@ -146,6 +147,9 @@ export function createCommandMutator(
         entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
         kind: entry.kind,
         payload: entry.payload,
+        ...(entry.attachment_sources !== undefined
+          ? { attachment_sources: entry.attachment_sources }
+          : {}),
       }),
     );
     return runPreparedBatch(featureDir, session, prepared);
@@ -180,6 +184,9 @@ export function createCommandMutator(
             entry_schema_version: ENTRY_SCHEMA_VERSIONS[entry.kind],
             kind: entry.kind,
             payload: entry.payload,
+            ...(entry.attachment_sources !== undefined
+              ? { attachment_sources: entry.attachment_sources }
+              : {}),
           })),
         };
       },

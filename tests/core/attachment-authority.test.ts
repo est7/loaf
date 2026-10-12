@@ -8,6 +8,8 @@ import { describe, expect, test } from "vitest";
 import {
   AttachmentAuthorityError,
   readAttachment,
+  readAttachmentSource,
+  binaryAttachmentRef,
   writeAttachment,
 } from "../../src/core/attachment-authority.js";
 import type { AttachmentRef, JournalEntry } from "../../src/core/journal-entry.js";
@@ -134,4 +136,26 @@ describe("attachment authority writes", () => {
     );
     await expect(fs.readFile(outside, "utf8")).resolves.toBe("keep");
   });
+});
+
+test("binary capture remains authoritative if the source pathname is replaced before copy", async () => {
+  const root = await tmpRoot();
+  const source = path.join(await tmpRoot(), "screen.png");
+  const capturedBytes = Buffer.from([0, 255, 12, 24, 128]);
+  await fs.writeFile(source, capturedBytes);
+  const body = await readAttachmentSource(source);
+  const newSource = source + ".new";
+  await fs.writeFile(newSource, "replacement bytes");
+  await fs.rename(newSource, source);
+  const evidenceOwner = owner("evidence:added");
+  const expected = binaryAttachmentRef(evidenceOwner, 0, body);
+  const actual = await writeAttachment(root, evidenceOwner, "evidence.1", body, { fsync: false });
+  expect(actual).toEqual({
+    path: "attachments/JE-000009/evidence-000001.bin",
+    sha256: createHash("sha256").update(capturedBytes).digest("hex"),
+    size: capturedBytes.length,
+  });
+  expect(actual).toEqual(expected);
+  expect(await readAttachment(root, evidenceOwner, "evidence.1", actual)).toEqual(capturedBytes);
+  expect(await fs.readFile(source, "utf8")).toBe("replacement bytes");
 });

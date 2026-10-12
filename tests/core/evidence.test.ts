@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // Slice 3 SC2 + Phase 16 SC-4c — `loaf evidence add --input <src>` surface.
 //
 // Original Slice 3 SC2 (codex r62 → r66) shipped the single-entry file-
@@ -19,8 +20,7 @@
 //     (manual/waiver actor=human:* + reason ≥10; visual-review ≥1
 //     attachment) — these still surface as INVALID_PAYLOAD because
 //     they're semantic refines, not pure shape violations
-//   - Attachments require full AttachmentPayload metadata
-//     (ADR-0004 A6 auto-hash materialization deferred to future SC)
+//   - G3 supersedes attachment metadata authoring with source {path, mime?}.
 //   - No `--external-ref` CLI flag; `external_ref` passthrough only
 
 import { describe, expect, test } from "vitest";
@@ -225,18 +225,14 @@ describe("loaf evidence add — SC2 happy paths", () => {
     expect(r2.stdout.trim()).toBe("EV-000002");
   });
 
-  test("visual-review with pre-hashed attachment succeeds", async () => {
+  test("visual-review copies a source attachment and computes its metadata", async () => {
     const { dir, feature } = await seedQuickAtExecuteWork();
+    const source = path.join(dir, "screen.png");
+    const body = Buffer.from([0, 255, 17]);
+    await fs.writeFile(source, body);
     const input = await writeInput(dir, {
       ...baseInput("visual-review"),
-      attachments: [
-        {
-          path: "screenshots/login.png",
-          sha256: "a".repeat(64),
-          mime: "image/png",
-          bytes: 1024,
-        },
-      ],
+      attachments: [{ path: source, mime: "image/png" }],
     });
     const r = await runCli([
       "evidence",
@@ -254,8 +250,8 @@ describe("loaf evidence add — SC2 happy paths", () => {
     const s = await loadSnapshot(dir);
     expect(s.snapshot.evidence[0].attachments).toHaveLength(1);
     expect(s.snapshot.evidence[0].attachments[0]).toMatchObject({
-      path: "screenshots/login.png",
-      sha256: "a".repeat(64),
+      path: expect.stringMatching(/^attachments\/JE-\d+\/evidence-000001\.bin$/),
+      sha256: createHash("sha256").update(body).digest("hex"),
       mime: "image/png",
     });
   });
