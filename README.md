@@ -80,9 +80,10 @@ Task authoring input is semantic and strict: every task supplies a unique
 `{ "task_id": "T-..." }` references. The CLI allocates permanent task IDs
 under the feature write lease and returns `task_ids_by_local_key`. Callers must
 not send journal-owned `id`, `status`, `execution`, or `based_on` fields.
-Existing full task-plan input is intentionally rejected; historical journal
-entries remain replay-compatible. Run `loaf tasks submit --schema --format
-json` for the exact contract.
+Existing full task-plan input is intentionally rejected. Replay also enforces
+the current closed journal schemas: historical entries with now-disallowed keys
+are rejected rather than migrated or accepted through a loose parser. Run
+`loaf tasks submit --schema --format json` for the exact contract.
 
 `loaf board` starts a read-only local browser board on loopback
 (`http://127.0.0.1:41738/` by default). It reads the same registry and snapshot

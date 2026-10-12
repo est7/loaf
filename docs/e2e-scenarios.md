@@ -14,7 +14,7 @@ not-yet-built slice.
   (protocol.md §9.3 forbids Cucumber or any Gherkin runner). The runner is
   **Vitest**; each test drives the CLI through `runCli([...argv])` only —
   no raw `mutate`. `tests/core/e2e-lifecycle.test.ts` is the home file.
-- **`master` stays green.** The repo forbids committed RED tests. A
+- **`main` stays green.** The repo forbids committed RED tests. A
   scenario whose implementation is absent lands as `test.todo("SCEN-E2E-NNN
   …")` — a runner-visible checklist entry that does not break the green
   bar. When the implementing slice lands, the `todo` becomes a real test.
@@ -78,11 +78,12 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Given** a deep-ceremony feature with implementer evidence and a separate
   human/skill spec-review actor (deep sets `strict_spec_review`).
 - **When** VERIFY.accept is approved, a direct `deliver` is rejected,
-  `settle` moves VERIFY.accept → SETTLE.reconcile, `advance` reaches
-  SETTLE.lessons, and `deliver` runs from SETTLE.lessons.
+  `settle` moves VERIFY.accept → SETTLE.lessons, and `deliver` runs
+  from SETTLE.lessons.
 - **Then** the session reaches `DONE.delivered`.
-- **Covers** `settle_phase`, `strict_spec_review`, the
-  `strict_drift_check` / `lessons_required` deep branch.
+- **Covers** `settle_phase` routing and `strict_spec_review`.
+  `lessons_required` is orchestration-only; this test deliberately delivers
+  without a lesson and does not cover that skill obligation.
 
 ---
 
@@ -167,7 +168,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **When** `deliver` is called from an otherwise deliverable source.
 - **Then** the CLI returns `DELIVER_SPIKE_TASKS`.
 - **Covers** the session-level spike hard block (spike exits —
-  archive/abandon/convert — are SCEN-E2E-035..037, future).
+  archive/abandon/convert — are SCEN-E2E-035..037, green).
 
 ---
 
@@ -187,7 +188,7 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Given** `spec_locked=true` in EXECUTE / VERIFY.
 - **When** `spec add-*` is called directly.
 - **Then** `SPEC_LOCKED_NO_DIRECT_EDIT` (or sub_state authority) rejects;
-  the caller must use a `finding amend-spec`.
+  the caller must use a `finding raise --action amend-spec`.
 - **Covers** the post-lock mutation boundary.
 
 ### SCEN-E2E-017 — tasks add at SPEC.design
@@ -217,7 +218,8 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Then** the cursor returns to SPEC.spec, `spec_locked` resets to false,
   spec content changes, spec-lock must be re-approved, and the session can
   still reach `DONE.delivered`.
-- **Covers** the amend-spec finding back-edge wired in `src/cli.tsx`.
+- **Covers** the amend-spec finding back-edge wired in
+  `src/cli/commands/finding.tsx` and `src/cli/batch-builders.ts`.
 
 ### SCEN-E2E-020 — amend-tasks back-edge
 - **Tier** inventory · **Status** green
@@ -226,8 +228,9 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Then** the cursor returns to EXECUTE.work, iteration is bumped, the
   `amend-tasks` finding stays open, and the journal carries the atomic
   `[finding:raised, event:phase_advanced(back_edge)]` batch.
-- **Covers** the amend-tasks back-edge (SC1 is back-edge-only — the task
-  graph is not yet amended; that lands in SC1b).
+- **Covers** the amend-tasks back-edge. The back-edge alone does not amend
+  the graph; sponsored `tasks amend --input --finding` and
+  `tasks add --finding` perform the graph mutations at EXECUTE.work.
 
 ### SCEN-E2E-021 — fix-impl loop
 - **Tier** inventory · **Status** green
@@ -339,8 +342,8 @@ Source: codex independent enumeration r119 (AMQ thread
   `profile_escalation` head and proceeds after resolve; `advance` is NOT
   blocked by the `spec_clarification` head.
 - **Covers** the exact `advance` block set — head kind ∈
-  `{gate_decision, profile_escalation}` only (protocol.md §4.1 / :207;
-  `src/core/reducer/preflight/checks-workflow.ts`). `ask_user_question` / `spec_clarification`
+  `{gate_decision, profile_escalation}` only (protocol.md §4.1;
+  `src/core/intervention-policy.ts` → `checkPendingAdvance`). `ask_user_question` / `spec_clarification`
   / `finding_decision` pendings are FIFO-visible but never block `advance`.
   `gate_decision` blocking is exercised via SCEN-E2E-027.
 
@@ -440,11 +443,9 @@ Source: codex independent enumeration r119 (AMQ thread
 - **Covers** the non-delivered abandon exit.
 
 ### SCEN-E2E-037 — spike convert
-- **Tier** future · **Status** todo · **Impl** `loaf spike convert` IS
-  implemented in `src/cli.tsx` (emits `spike:converted`). Tier/Status stay
-  future/todo: SC-16 corrects only the prior "absent" factual error;
-  promoting this to a real e2e (test.todo → green) is deferred to a
-  dedicated cycle.
+- **Tier** optional · **Status** green · **Impl**
+  `src/cli/commands/profile-config.tsx`; executable coverage lives in
+  `tests/core/e2e-lifecycle.test.ts` (SCEN-E2E-037).
 - **Given** a session with a non-abandoned spike task.
 - **When** `spike convert --to-feature F-N --reason "..."` runs.
 - **Then** the old session reaches `DONE.archived` and a `spike:converted`
@@ -452,13 +453,13 @@ Source: codex independent enumeration r119 (AMQ thread
   start` invocation, out of scope for this scenario.
 - **Covers** the spike-to-feature conversion exit.
 
-### SCEN-E2E-038 — doctor / migration rebuild
+### SCEN-E2E-038 — doctor snapshot rebuild
 - **Tier** not-e2e · **Status** n/a · **Impl** belongs to the
-  migration/doctor integration suite, not the worker lifecycle.
-- **Given** legacy or corrupt snapshots.
-- **When** `doctor --rebuild` / `--migrate-v2` runs.
+  doctor integration suite, not the worker lifecycle.
+- **Given** missing, stale, or corrupt snapshots with a valid journal.
+- **When** `doctor --rebuild` runs.
 - **Then** it repairs or reports.
-- **Covers** snapshot rebuild / v0.0.x migration.
+- **Covers** journal replay and snapshot rebuild.
 
 ---
 
@@ -484,7 +485,7 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
   block (SCEN-E2E-040); grid coherence lives in preflight unit tests.
 - **Commander usage errors** for every missing flag — CLI unit tests for
   deterministic stderr / exit 2.
-- **Journal tail corruption, checksum, migration sidecars, crash recovery** —
+- **Journal tail corruption, checksum, crash recovery** —
   storage / doctor integration tests.
 - **Text-mode formatting snapshots** for list / status / next — E2E uses
   `--format json`; formatting tests stay narrow.
@@ -500,6 +501,6 @@ elsewhere. Recorded so the boundary is explicit, not forgotten.
    `fold` scenarios 010/011/017/018/029 absorbed into 002/003). One
    sub-cycle per scenario or per coherent cluster.
 3. **`optional` tier** — as budget allows.
-4. **`future` tier** — each scenario's `test.todo` becomes a real test in
-   the slice that implements its command / back-edge (amend-tasks,
-   fix-impl/fix-test, archive, abandon, spike convert).
+4. **`future` tier** — currently empty; the listed back-edges and terminal
+   commands have executable coverage. Reserve this tier for new acceptance
+   scenarios whose commands are not implemented.

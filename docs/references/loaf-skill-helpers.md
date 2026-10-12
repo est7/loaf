@@ -43,6 +43,6 @@ The runtime Ceremony schema and presets are owned by the sources indexed from
 selection guidance lives in
 [`skills/start/references/ceremony-presets.md`](../../skills/start/references/ceremony-presets.md).
 
-Do not infer reconcile availability from a ceremony flag: the current release
-has no full reconcile writer or canonical `planned_scope` owner, and
-`loaf doctor --rebuild` does not produce `reconcile.json`.
+Ceremony flags do not add stages: no reconcile stage exists. Actual scope is
+derived from journal `scope:recorded` entries; `loaf doctor --rebuild`
+replays the journal and rebuilds its projections.

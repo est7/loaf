@@ -342,11 +342,11 @@
   </div>
   <div class="badges">
     <span class="badge accent">SCHEMA_VERSION = 2</span>
-    <span class="badge">6 phase · 20 sub-state</span>
-    <span class="badge">25 EntryKind</span>
+    <span class="badge">6 phase · 19 sub-state</span>
+    <span class="badge">27 EntryKind</span>
     <span class="badge">10-step journal transaction</span>
     <span class="badge gate">2 human gates</span>
-    <span class="badge gate">5 implementation gates</span>
+    <span class="badge gate">4 active implementation gates · #3 retired</span>
     <span class="badge rec">append-only journal + reducer-derived snapshots</span>
   </div>
 </header>
@@ -359,13 +359,12 @@
     <li><a href="#phase-io">④ Phase I/O</a></li>
     <li><a href="#truth-model">⑤ Truth model</a></li>
     <li><a href="#transaction">⑥ 10-step transaction</a></li>
-    <li><a href="#gates">⑦ 5 gate</a></li>
+    <li><a href="#gates">⑦ 4 active gate · #3 retired</a></li>
     <li><a href="#kinds">⑧ EntryKind</a></li>
     <li><a href="#ceremony">⑨ Ceremony</a></li>
     <li><a href="#findings">⑩ Finding 6×6</a></li>
     <li><a href="#commands">⑪ Command 表</a></li>
     <li><a href="#doctor">⑫ Doctor</a></li>
-    <li><a href="#migration">⑬ v0.0.x 迁移</a></li>
   </ol>
 </nav>
 
@@ -378,7 +377,7 @@
       <div class="tag">PRINCIPLE 15a · TRUTH MODEL</div>
       <div class="head">Single typed journal + reducer-derived projection</div>
       <div class="body">
-        Canonical workflow truth = <code>.loaf/&lt;feature&gt;/journal.jsonl</code>(append-only,typed envelope)+ <code>attachments/&lt;entry_id&gt;/</code>(journal-owned sidecar)；<code>loaf.config.json</code> 是独立 project config。<code>state.json</code> / <code>tasks.json</code> / <code>evidence.json</code> / <code>findings.json</code> / <code>spec.md</code> / <code>lessons.md</code> 是 journal-replay 派生视图。Gate 使用 journal-replayed facts；spec-lock 另在 IO boundary 校验受控的 <code>spec.md</code>。
+        Canonical workflow truth = <code>.loaf/&lt;feature&gt;/journal.jsonl</code>(append-only,typed envelope)+ <code>attachments/&lt;entry_id&gt;/</code>(journal-owned sidecar)；<code>loaf.config.json</code> 是独立 project config。<code>state.json</code> / <code>tasks.json</code> / <code>evidence.json</code> / <code>findings.json</code> / <code>spec.md</code> / <code>lessons.md</code> 是 journal-replay 派生视图。Gate 使用 journal-replayed facts；spec-lock 也只基于 journal-replayed snapshot，不读取 <code>spec.md</code>。
       </div>
     </div>
     <div class="principle">
@@ -406,7 +405,7 @@
   <p style="margin:0.5em 0 1em;color:var(--muted);font-size:0.9em">
     <strong>rev 5.x 4-profile 路径速读</strong>:
     <code>quick</code> = TRIAGE → EXECUTE → DONE(verify-min @ deliver);
-    <code>light</code> = TRIAGE → SPEC → EXECUTE → DONE(verify-min @ deliver + "REQ not closed" 提示);
+    <code>light</code> = TRIAGE → SPEC → EXECUTE → DONE(verify-min @ deliver；"REQ not closed" 提示：<strong>未实现（目标设计）</strong>);
     <code>standard</code> = TRIAGE → SPEC → EXECUTE → VERIFY → DONE(rev 5.x:SETTLE 砍);
     <code>deep</code> = TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE → DONE(+ strict 三件套)。
     下图节点级 skip 边以 <code>verify_phase=false</code> / <code>settle_phase=false</code> 表达,对应所有 4 个 profile。
@@ -495,8 +494,6 @@
       <text class="gate-text" x="765" y="270">★ verify-accept</text>
     </g>
 
-    <g><rect class="node-rect" x="780" y="160" width="130" height="36" rx="4"/>
-       <text class="node-text" x="845" y="178">SETTLE.reconcile (legacy)</text></g>
     <g><rect class="node-rect" x="780" y="220" width="130" height="36" rx="4"/>
        <text class="node-text bold" x="845" y="238">SETTLE.lessons</text></g>
 
@@ -525,8 +522,7 @@
     <path class="edge edge-forward" d="M 694,192 L 694,200" marker-end="url(#arr)"/>
     <path class="edge edge-forward" d="M 614,232 C 614,250 640,250 640,260" marker-end="url(#arr)"/>
     <path class="edge edge-forward" d="M 694,232 C 694,250 670,250 670,260" marker-end="url(#arr)"/>
-    <path class="edge edge-forward" d="M 730,278 C 760,278 770,178 780,178" marker-end="url(#arr)"/>
-    <path class="edge edge-forward" d="M 845,196 L 845,220" marker-end="url(#arr)"/>
+    <path class="edge edge-forward" d="M 730,278 C 760,278 770,238 780,238" marker-end="url(#arr)"/>
     <path class="edge edge-forward" d="M 910,238 C 935,238 945,178 960,178" marker-end="url(#arr)"/>
 
     <path class="edge edge-skip" d="M 170,210 C 230,400 360,400 400,178" marker-end="url(#arr-skip)"/>
@@ -569,7 +565,7 @@
         <td class="k">light</td>
         <td>TRIAGE → SPEC → EXECUTE → DONE</td>
         <td class="matrix-must">all 4 sub + spec-lock</td>
-        <td class="matrix-skip">verify-min at <code>loaf deliver</code><br>+ "REQ not closed" hint</td>
+        <td class="matrix-skip">verify-min at <code>loaf deliver</code><br>"REQ not closed" hint：<strong>未实现（目标设计）</strong></td>
         <td class="matrix-skip">skipped</td>
         <td>新 API endpoint / 单 UI 模块 / 配置 feature(score 20-40);要 spec 锚不要 4-check</td>
       </tr>
@@ -578,15 +574,15 @@
         <td>TRIAGE → SPEC → EXECUTE → VERIFY → DONE</td>
         <td class="matrix-must">all 4 sub + spec-lock</td>
         <td class="matrix-must">4 check + verify-accept</td>
-        <td class="matrix-skip">skipped (rev 5.x;no reconcile writer is shipped)</td>
+        <td class="matrix-skip">skipped (rev 5.x)</td>
         <td>典型 feature(score 40-70)</td>
       </tr>
       <tr>
         <td class="k">deep</td>
         <td>同 standard + SETTLE + strict 三件套</td>
         <td class="matrix-must">+ strict_spec_review (actor ≠ implementer)</td>
-        <td class="matrix-must">+ strict_drift_check</td>
-        <td class="matrix-must">lessons MUST (reconcile retired)</td>
+        <td class="matrix-must">strict_drift_check 字段留痕；内核检查：<strong>未实现（目标设计）</strong></td>
+        <td class="matrix-must">lessons_required=must（skill policy；内核不强制）</td>
         <td>架构 / 安全 / 跨模块 / public API / schema(score ≥ 70)</td>
       </tr>
     </tbody>
@@ -594,12 +590,12 @@
   <p style="margin-top:1em;color:var(--muted);font-size:0.9em">
     <strong>rev 5.x 设计原则</strong>:4 档单调递增 ceremony,每档加一件事——
     <code>quick</code>(EXECUTE 直跳) → <code>light</code>(+SPEC) → <code>standard</code>(+VERIFY) → <code>deep</code>(+SETTLE + strict)。
-    <code>standard</code> 不跑 SETTLE；deep 进入真实的 <code>SETTLE.lessons</code>，旧 reconcile stage 仅保留历史 replay compatibility。
+    <code>standard</code> 不跑 SETTLE；deep 进入真实的 <code>SETTLE.lessons</code>；replay 只接受当前 closed schema。
   </p>
 </section>
 
 <section id="state-machine">
-  <h2>③ 完整状态机(6 phase × 20 sub-state)</h2>
+  <h2>③ 完整状态机(6 phase × 19 sub-state)</h2>
   <p class="lead">
     所有 first-class transition。Forward edge 由 <code>loaf advance</code> 或 <code>loaf gate decide</code> 触发,reducer 在 §11.2 step 3 复用同一 <code>validateTransition</code> helper(Gate #1)校验合法性。
   </p>
@@ -685,8 +681,6 @@
       <text class="gate-text" x="762" y="270">★ verify-accept</text>
     </g>
 
-    <g><rect class="node-rect" x="780" y="160" width="130" height="34" rx="4"/>
-       <text class="node-text" x="845" y="177">SETTLE.reconcile (legacy)</text></g>
     <g><rect class="node-rect" x="780" y="220" width="130" height="34" rx="4"/>
        <text class="node-text bold" x="845" y="237">SETTLE.lessons</text></g>
 
@@ -712,8 +706,7 @@
     <path class="edge edge-forward" d="M 690,192 L 690,200" marker-end="url(#arr2)"/>
     <path class="edge edge-forward" d="M 610,232 C 610,250 640,250 640,260" marker-end="url(#arr2)"/>
     <path class="edge edge-forward" d="M 690,232 C 690,250 660,250 660,260" marker-end="url(#arr2)"/>
-    <path class="edge edge-forward" d="M 725,277 C 760,277 770,177 780,177" marker-end="url(#arr2)"/>
-    <path class="edge edge-forward" d="M 845,194 L 845,220" marker-end="url(#arr2)"/>
+    <path class="edge edge-forward" d="M 725,277 C 760,277 770,237 780,237" marker-end="url(#arr2)"/>
     <path class="edge edge-forward" d="M 910,237 C 935,237 945,177 960,177" marker-end="url(#arr2)"/>
 
     <path class="edge edge-skip" d="M 165,190 C 230,440 360,440 390,194" marker-end="url(#arr2-skip)"/>
@@ -807,7 +800,7 @@
         <td>verify-accept 通过 且 <code>ceremony.settle_phase=true</code>(rev 5.x:deep only;quick / light / standard 跳过)</td>
         <td><code>loaf settle</code>, <code>lessons add</code></td>
         <td class="k">event:phase_advanced · lesson:recorded</td>
-        <td>lessons.md(deep:MUST);reconcile writer/exit gate 已退役</td>
+        <td>lessons.md（存在 lesson entry 时派生；内核不强制）</td>
         <td><code>deliver</code> / <code>archive</code> / <code>abandon</code></td>
       </tr>
       <tr>
@@ -825,7 +818,7 @@
 <section id="truth-model">
   <h2>⑤ Truth model · 4 层 authority</h2>
   <p class="lead">
-    Gate verdict 由 journal-replayed facts 计算，不从 display projection 推断 proof；spec-lock 的受控 <code>spec.md</code> check 是显式 IO boundary。Reader 读 Derived projection 必须先过 Gate #5 fast check,mismatch 直接 exit 2,绝不静默 fallback。
+    Gate verdict 由 journal-replayed facts 计算，不从 display projection 推断 proof；spec-lock 也只读取 journal-replayed snapshot。Reader 读 Derived projection 必须先过 Gate #5 fast check,mismatch 直接 exit 2,绝不静默 fallback。
   </p>
 
   <svg class="diagram" viewBox="0 0 1180 400" role="img" aria-label="truth model layering">
@@ -905,7 +898,7 @@
       <text class="edge-label"    x="480" y="208" text-anchor="middle">inject actor · Zod parse · refine · dry-run reducer · 分 batch_id</text>
 
       <rect class="node-rect" x="320" y="240" width="320" height="50" rx="6"/>
-      <text class="node-text bold" x="480" y="258">④ prepare sidecar files(if &gt; 8KB or migration)</text>
+      <text class="node-text bold" x="480" y="258">④ prepare sidecar files(if &gt; 8KB)</text>
       <text class="edge-label"    x="480" y="278" text-anchor="middle">tmp+rename+fsync · compute sha256 · embed AttachmentRef</text>
 
       <rect class="node-rect" x="320" y="310" width="320" height="50" rx="6" stroke="var(--gate)" stroke-width="2"/>
@@ -971,8 +964,8 @@
 </section>
 
 <section id="gates">
-  <h2>⑦ 五个 implementation gates</h2>
-  <p class="lead">ADR-0005 Accepted-with-implementation-gates 的硬约束;每个 gate 在某个 stage 落地,配独立 acceptance test。</p>
+  <h2>⑦ 四个 active implementation gates · #3 retired</h2>
+  <p class="lead">ADR-0005 Accepted-with-implementation-gates 的硬约束;#3 已退役，其余 gate 对应当前 runtime owner 与 acceptance test。</p>
 
   <div class="gates">
     <div class="gate-card">
@@ -989,14 +982,13 @@
     </div>
     <div class="gate-card">
       <div class="num">#3</div>
-      <h4>Migration sidecar manifest-only</h4>
-      <p><code>migration:snapshot_imported</code> 的 journal payload <strong>只允许</strong> 含 <code>AttachmentRef</code> manifest;<strong>绝不</strong>含 artifact 正文。<code>.strict()</code> Zod refine 保证 schema 层闭环。</p>
-      <div class="test">📌 Stage 5<br>tests/core/v0.0.x-migration.test.ts</div>
+      <h4>Retired</h4>
+      <p>历史 migration gate 已退役；当前没有 migration kind、writer 或命令。</p>
     </div>
     <div class="gate-card">
       <div class="num">#4</div>
       <h4>Batch-aware tail recovery</h4>
-      <p>doctor 启动期 tail recovery <strong>必须以 batch 为单位</strong>:<br>· 单 entry partial → truncate 单 entry<br>· batch incomplete → truncate <strong>整个 batch</strong> 到 batch 第一个 entry 之前</p>
+      <p><code>src/core/journal-bootstrap.ts</code> 的 tail recovery primitive <strong>以 batch 为单位</strong>；doctor <code>--check-tail</code> 接线：<strong>未实现（目标设计）</strong>。<br>· 单 entry partial → truncate 单 entry<br>· batch incomplete → truncate <strong>整个 batch</strong> 到 batch 第一个 entry 之前</p>
       <div class="test">📌 Stage 3<br>tests/core/tail-corruption.test.ts(7 场景)</div>
     </div>
     <div class="gate-card">
@@ -1009,12 +1001,12 @@
 </section>
 
 <section id="kinds">
-  <h2>⑧ EntryKind namespace(25 kind · 6 分类)</h2>
-  <p class="lead">每个 kind 标注允许 actor。h = human, s = skill, c = ci, cli = cli, m = migration。</p>
+  <h2>⑧ EntryKind namespace(27 kind · 5 分类)</h2>
+  <p class="lead">每个 kind 标注允许 actor。h = human, s = skill, c = ci, cli = cli。</p>
 
   <div class="kind-grid">
     <div class="kind-group">
-      <h4>State machine transitions <span class="count">12</span></h4>
+      <h4>State machine transitions <span class="count">13</span></h4>
       <ul>
         <li>event:phase_advanced <span class="actor">h/s/c/cli</span></li>
         <li>event:ceremony_set <span class="actor">h/s/c/cli</span></li>
@@ -1023,6 +1015,7 @@
         <li>event:task_claimed <span class="actor">h/s/c/cli</span></li>
         <li>event:task_step_started <span class="actor">h/s/c/cli</span></li>
         <li>event:task_step_done <span class="actor">h/s/c/cli</span></li>
+        <li>event:task_step_reset <span class="actor">cli only</span></li>
         <li>event:task_abandoned <span class="actor">h/s/c/cli</span></li>
         <li>event:spec_req_added <span class="actor">h/s/c/cli</span></li>
         <li>event:spec_scenario_added <span class="actor">h/s/c/cli</span></li>
@@ -1031,9 +1024,11 @@
       </ul>
     </div>
     <div class="kind-group">
-      <h4>Domain ledgers <span class="count">5</span></h4>
+      <h4>Domain ledgers <span class="count">7</span></h4>
       <ul>
         <li>evidence:added <span class="actor">h/s/c/cli(waiver+manual → h only)</span></li>
+        <li>lesson:recorded <span class="actor">h only</span></li>
+        <li>scope:recorded <span class="actor">cli only</span></li>
         <li>finding:raised <span class="actor">h/s/c/cli</span></li>
         <li>finding:closed <span class="actor">h/s/c/cli</span></li>
         <li>pending:added <span class="actor">h/s/c/cli</span></li>
@@ -1062,12 +1057,6 @@
         <li>spike:converted <span class="actor">h only</span></li>
       </ul>
     </div>
-    <div class="kind-group">
-      <h4>Migration <span class="count">1</span></h4>
-      <ul>
-        <li>migration:snapshot_imported <span class="actor">m only · seq=0/1</span></li>
-      </ul>
-    </div>
   </div>
 
   <h3>Envelope(全 kind 共用)</h3>
@@ -1078,8 +1067,8 @@
       <tr><td class="k">entry_id</td><td>string <code>JE-NNNNNN</code></td><td>sidecar 目录名</td></tr>
       <tr><td class="k">at</td><td>TimestampISO</td><td>wall-clock;monotonic non-decreasing(clock-skew 夹到 prev,不重写)</td></tr>
       <tr><td class="k">actor</td><td>ActorString</td><td><code>^(human|skill|ci|cli|migration):.+$</code></td></tr>
-      <tr><td class="k">entry_schema_version</td><td>number ≥ 1</td><td>per-entry;rev 5.0 全 kind = 1;升级走 UPCASTER_REGISTRY</td></tr>
-      <tr><td class="k">kind</td><td>EntryKind</td><td>z.enum 25 个</td></tr>
+      <tr><td class="k">entry_schema_version</td><td>number ≥ 1</td><td>per-entry；当前版本由 <code>src/core/kind-registry.ts</code> 定义；无 upcaster 路径</td></tr>
+      <tr><td class="k">kind</td><td>EntryKind</td><td>z.enum 27 个</td></tr>
       <tr><td class="k">payload</td><td>kind-narrowed</td><td>per-kind schema(src/core/reducer 内 narrow)</td></tr>
       <tr><td class="k">batch_id / batch_index / batch_count</td><td>optional(全有或全无)</td><td>multi-entry batch 时出现;index &lt; count</td></tr>
       <tr><td class="k">signature</td><td>optional</td><td>v0.1.0 reserve(无 enforcement)</td></tr>
@@ -1090,7 +1079,7 @@
 
 <section id="ceremony">
   <h2>⑨ Ceremony × phase 矩阵</h2>
-  <p class="lead">6 个 ceremony flag 决定每个 phase 走完整版 / 简版 / 跳过。Skill 通过 PRESETS 把 label(quick/light/standard/deep)映射到 flag 组合;CLI 只认 flag,不认 label。rev 5.x:standard 砍 SETTLE,4 档单调递增。</p>
+  <p class="lead">6 个 ceremony flag 决定每个 phase 走完整版 / 简版 / 跳过。Skill 通过 PRESETS 把 label(quick/light/standard/deep)映射到 flag 组合;CLI 的 <code>--ceremony</code> 接受内置 preset 名；journal 记录 flag 组合。rev 5.x:standard 砍 SETTLE,4 档单调递增。</p>
 
   <table class="matrix">
     <thead>
@@ -1105,11 +1094,11 @@
     </thead>
     <tbody>
       <tr><td class="k">spec_phase</td>        <td class="matrix-na">false</td><td class="matrix-must">true</td><td class="matrix-must">true</td><td class="matrix-must">true</td><td>跳过 SPEC.* 全部 sub_state;TRIAGE.confirm 直接进 EXECUTE.plan</td></tr>
-      <tr><td class="k">verify_phase</td>      <td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td class="matrix-must">true</td><td>跳过 VERIFY.* 全部;<code>loaf deliver</code> 入口跑 verify-min(light 额外打 "REQ not closed" 提示)</td></tr>
+      <tr><td class="k">verify_phase</td>      <td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td class="matrix-must">true</td><td>跳过 VERIFY.* 全部;<code>loaf deliver</code> 入口跑 verify-min（light 额外提示：<strong>未实现（目标设计）</strong>）</td></tr>
       <tr><td class="k">settle_phase</td>      <td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>跳过 SETTLE.*;rev 5.x:deep only</td></tr>
       <tr><td class="k">strict_spec_review</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>spec-lock 额外校验 <code>kind=spec-review</code> evidence 且 <code>actor ≠ implementer</code></td></tr>
-      <tr><td class="k">lessons_required</td> <td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-must">"must"</td><td>SETTLE.lessons must:<code>lessons.md</code> 至少一段(deep only)</td></tr>
-      <tr><td class="k">strict_drift_check</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>兼容保留的 ceremony 字段；当前无 live reconcile gate 或 writer，不得据此宣称已执行 drift check</td></tr>
+      <tr><td class="k">lessons_required</td> <td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-na">"skip"</td><td class="matrix-must">"must"</td><td>skill policy；内核不强制写 lesson，deliver 无 lesson 前置条件</td></tr>
+      <tr><td class="k">strict_drift_check</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-na">false</td><td class="matrix-must">true</td><td>ceremony 记录字段；内核 drift check：<strong>未实现（目标设计）</strong></td></tr>
     </tbody>
   </table>
 </section>
@@ -1166,11 +1155,11 @@
   <table class="matrix">
     <thead><tr><th>Command</th><th>Emits</th><th>Sub-state 允许</th><th>说明</th></tr></thead>
     <tbody>
-      <tr><td class="k">loaf spec add-req</td><td class="k">event:spec_req_added</td><td>SPEC.spec / .plan / .design</td><td>EARS REQ;<code>id_namespace</code> → CLI 分配 full id</td></tr>
-      <tr><td class="k">loaf spec add-scenario</td><td class="k">event:spec_scenario_added</td><td>SPEC.spec / .plan / .design</td><td>Gherkin SCEN</td></tr>
-      <tr><td class="k">loaf spec add-visual</td><td class="k">event:spec_visual_added</td><td>SPEC.spec / .plan / .design</td><td>Visual contract VIS</td></tr>
-      <tr><td class="k">loaf tasks add</td><td class="k">event:tasks_amended<br>(SPEC.design: event:tasks_planned)</td><td>SPEC.design / EXECUTE.plan(via amend-tasks)</td><td>batch atomic id range</td></tr>
-      <tr><td class="k">loaf evidence add</td><td class="k">evidence:added</td><td>EXECUTE.* / VERIFY.*</td><td>Phase 16 SC-4c:<code>--input &lt;src&gt;</code> + batch(single/array)。attachments 当前要求完整 <code>[{path,sha256,mime,bytes?}]</code>;<code>[{path}]</code> + 自动 sha256/mime/bytes 是 ADR-0004 A6 future scope,未在 SC-4c 接入</td></tr>
+      <tr><td class="k">loaf spec add-req</td><td class="k">event:spec_req_added</td><td>SPEC.*（spec_version &gt; 0 且未 lock）</td><td>EARS REQ;<code>id_namespace</code> → CLI 分配 full id</td></tr>
+      <tr><td class="k">loaf spec add-scenario</td><td class="k">event:spec_scenario_added</td><td>SPEC.*（spec_version &gt; 0 且未 lock）</td><td>Gherkin SCEN</td></tr>
+      <tr><td class="k">loaf spec add-visual</td><td class="k">event:spec_visual_added</td><td>SPEC.*（spec_version &gt; 0 且未 lock）</td><td>Visual contract VIS</td></tr>
+      <tr><td class="k">loaf tasks add</td><td class="k">event:tasks_amended<br>(SPEC.design: event:tasks_planned)</td><td>SPEC.design / EXECUTE.work（sponsored <code>--finding</code>）</td><td>batch atomic id range</td></tr>
+      <tr><td class="k">loaf evidence add</td><td class="k">evidence:added</td><td>EXECUTE.* / VERIFY.*</td><td>Phase 16 SC-4c:<code>--input &lt;src&gt;</code> + batch(single/array)。attachments 当前要求完整 <code>[{path,sha256,mime,bytes?}]</code>;<code>[{path}]</code> + 自动 sha256/mime/bytes：<strong>未实现（目标设计）</strong>（ADR-0004 A6）</td></tr>
     </tbody>
   </table>
 
@@ -1178,24 +1167,23 @@
   <table class="matrix">
     <thead><tr><th>Command</th><th>Emits</th><th>说明</th></tr></thead>
     <tbody>
-      <tr><td class="k">loaf advance</td><td class="k">event:phase_advanced</td><td>非 gate transition;diff-guard 兜底</td></tr>
+      <tr><td class="k">loaf advance</td><td class="k">event:phase_advanced</td><td>非 gate transition；diff-guard：<strong>未实现（目标设计）</strong></td></tr>
       <tr><td class="k">loaf profile escalate</td><td class="k">event:ceremony_set</td><td>profile escalation 升档 ceremony;非 TRIAGE 需 profile_escalation head(+ pending:resolved)</td></tr>
       <tr><td class="k">loaf tasks submit</td><td class="k">event:tasks_planned</td><td>整体 task graph 提交(SPEC.design)</td></tr>
       <tr><td class="k">loaf tasks claim</td><td class="k">event:task_claimed</td><td>worker 把 task 从 ready → in_progress</td></tr>
       <tr><td class="k">loaf tasks step start</td><td class="k">event:task_step_started</td><td>开始 step(per-kind 合法集校验)</td></tr>
       <tr><td class="k">loaf tasks step done</td><td class="k">event:task_step_done<br>(可同 batch + evidence:added)</td><td>无 evidence proof → TASK_STATUS_WITHOUT_PROOF</td></tr>
       <tr><td class="k">loaf tasks complete</td><td class="k">— (read-only)</td><td>确认所有 must step 已 terminal-positive;不 emit entry</td></tr>
-      <tr><td class="k">loaf tasks amend</td><td class="k">event:tasks_amended</td><td>spec-lock 后窄修 applicability;不能改 drives/kind</td></tr>
+      <tr><td class="k">loaf tasks amend</td><td class="k">event:tasks_amended</td><td><code>--policy</code>：EXECUTE.plan 窄修 applicability；<code>--input --finding</code>：EXECUTE.work sponsored task replacement</td></tr>
       <tr><td class="k">loaf waive</td><td class="k">evidence:added(payload.kind=waiver)</td><td>actor <code>human:*</code>;reason ≥ 10 字符</td></tr>
-      <tr><td class="k">loaf finding raise</td><td class="k">finding:raised<br>+ event:tasks_amended + event:phase_advanced<br>(if back-edge action)</td><td>action 决定 back-edge 目标</td></tr>
-      <tr><td class="k">loaf finding close</td><td class="k">finding:closed</td><td>resolution 必填</td></tr>
-      <tr><td class="k">loaf gate decide</td><td class="k">gate:decided<br>+ pending:resolved(head)</td><td>同 batch 消 head + 写 gate decision;<code>human:</code> only</td></tr>
+      <tr><td class="k">loaf finding raise</td><td class="k">finding:raised<br>[+ event:task_step_reset] + event:phase_advanced<br>(if back-edge action)</td><td>action 决定 back-edge 目标</td></tr>
+      <tr><td class="k">loaf finding close</td><td class="k">finding:closed</td><td><code>finding close &lt;fnd-id&gt;</code>；无 resolution 参数</td></tr>
+      <tr><td class="k">loaf gate decide</td><td class="k">gate:decided<br>[+ pending:resolved(gate_decision head)]<br>[+ event:phase_advanced(spec-lock approve)]</td><td>有 gate_decision head 时同 batch 消 head；<code>human:</code> only</td></tr>
       <tr><td class="k">loaf pending raise</td><td class="k">pending:added</td><td>append 队尾;CLI 分 PEND-id</td></tr>
       <tr><td class="k">loaf pending resolve</td><td class="k">pending:resolved</td><td>FIFO 严格,永 pop head</td></tr>
-      <tr><td class="k">loaf profile escalate</td><td class="k">event:ceremony_set + pending:resolved</td><td>2-entry batch；ceremony_set 在前(preflight 5c.4 守卫)；resolve profile_escalation head</td></tr>
       <tr><td class="k">loaf lessons add</td><td class="k">lesson:recorded</td><td>独立 LSN-id;project 到 lessons.md,不进入 evidence view</td></tr>
       <tr><td class="k">loaf advance EXECUTE.done</td><td class="k">scope:recorded + event:phase_advanced</td><td>同一 closure batch;scope marker 紧邻 transition,即使 paths 为空也 emit</td></tr>
-      <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.lessons)</td><td>仅 <code>ceremony.settle_phase=true</code>(deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code>。旧 SETTLE.reconcile 仅历史 replay compatibility</td></tr>
+      <tr><td class="k">loaf settle</td><td class="k">event:phase_advanced(→ SETTLE.lessons)</td><td>仅 <code>ceremony.settle_phase=true</code>(deep only)合法;quick/light/standard 调用 → exit 2 <code>SETTLE_PHASE_DISABLED</code></td></tr>
     </tbody>
   </table>
 
@@ -1212,16 +1200,18 @@
     </tbody>
   </table>
 
-  <h3>Read-only commands(走 Gate #5 fast check)</h3>
+  <h3>Read-only commands（选中 session 时走 Gate #5 fast check）</h3>
   <p>
-    <code>loaf status</code> · <code>tasks list</code> · <code>tasks next</code> · <code>verify status</code> · <code>finding list</code> · <code>pending list</code> · <code>pending status</code> · <code>sessions list</code> · <code>&lt;artifact&gt; schema --format=json</code> · <code>check &lt;path&gt;</code> · <code>tui</code> · <code>handoff</code> · <code>doctor --rebuild</code> · <code>hook --list-events</code>
+    <code>loaf status</code> · <code>tasks list</code> · <code>tasks next</code> · <code>verify status</code> · <code>finding list</code> · <code>pending list</code> · <code>pending status</code> · <code>sessions list</code> · <code>&lt;artifact&gt; schema --format=json</code> · <code>check &lt;path&gt;</code> · <code>tui</code> · <code>hook --list-events</code>
   </p>
+  <h3>Projection writers（不 emit journal entry）</h3>
+  <p><code>loaf handoff --reason &lt;text&gt;</code> 写 <code>snapshots/resume-pack.json</code>；<code>loaf doctor --rebuild</code> full replay 后重写 <code>snapshots/*</code> 与 <code>_meta.json</code>。</p>
 </section>
 
 <section id="doctor">
   <h2>⑫ <code>loaf doctor</code> · target checks</h2>
-  <p class="lead">下表是未完整落地的目标诊断设计，不代表启动期自动运行。当前 feature lease 本身在竞争时验证 owner generation：dead owner 可回收，live owner 不偷取，malformed state fail closed。</p>
-  <p class="lead"><strong>实现状态(Phase 14 / <code>1d6e1d1</code>)</strong>:下表与 sub-flags 是 <code>loaf doctor</code> 的目标诊断设计;v0.1.0 当前仅实现 <code>loaf doctor --rebuild --feature &lt;X&gt;</code>(full replay 重建 <code>snapshots/</code>)。bare <code>loaf doctor</code> 与其余 sub-flag 未实现 → exit 2 <code>DOCTOR_MODE_NOT_IMPLEMENTED</code>。</p>
+  <p class="lead"><strong>未实现（目标设计）</strong>：下表描述 doctor 检查与修复设计，不代表启动期自动运行。当前 feature lease 本身在竞争时验证 owner generation：dead owner 可回收，live owner 不偷取，malformed state fail closed。</p>
+  <p class="lead">当前仅实现 <code>loaf doctor --rebuild --feature &lt;X&gt;</code>（full replay 重建 <code>snapshots/</code>）。bare <code>loaf doctor</code> → exit 2 <code>DOCTOR_MODE_NOT_IMPLEMENTED</code>；未注册的 sub-flag → <code>USAGE</code>。</p>
 
   <table class="matrix">
     <thead>
@@ -1233,13 +1223,12 @@
       <tr><td>orphan-attachment</td><td>attachments/&lt;entry_id&gt;/**</td><td>无对应 journal entry,或 entry 无 ref</td><td><span class="sev-warn">删 orphan + 写 audit evidence</span></td></tr>
       <tr><td>tail-corruption</td><td>journal.jsonl 末尾</td><td>partial line / batch incomplete / line_hash mismatch</td><td><span class="sev-warn">Gate #4 batch-aware truncate + rewrite _meta</span></td></tr>
       <tr><td>snapshot-seq-mismatch</td><td>_meta.json</td><td>last_applied_seq &lt; 实际 seq 或 line_hash 错</td><td><span class="sev-blocker">不自动 fix;exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED</span></td></tr>
-      <tr><td>migration-v0.0.x</td><td>.loaf/&lt;feat&gt;/</td><td>v0.0.x N-file 存在且无 journal.jsonl</td><td><span class="sev-blocker">不自动 fix;exit 2 + 提示 <code>--migrate-v2</code></span></td></tr>
       <tr><td>rolling-checksum-mismatch</td><td>journal.jsonl</td><td><code>--verify-checksum</code> 整链重算与 _meta 不匹配</td><td><span class="sev-blocker">不自动 fix;手动 recovery</span></td></tr>
       <tr><td>sidecar-validation-drift</td><td>internal invariant</td><td>step 5d reducer-visible vs step 3c diff</td><td><span class="sev-blocker">实现 bug;dump 进 crash log</span></td></tr>
       <tr><td>registry-orphan</td><td>~/.loaf/registry/&lt;id&gt;.json</td><td>对应 cwd 无 .loaf/&lt;feat&gt;/</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>registry-gc</td><td>~/.loaf/registry/*.json</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>
       <tr><td>crash-log-prune</td><td>~/.loaf/crashes/*.json</td><td>mtime &gt; 30 天</td><td><span class="sev-info">unlink</span></td></tr>
-      <tr><td>schema-drift</td><td>journal + _meta</td><td>entry_schema_version 或 feature_schema_version ≠ 2</td><td><span class="sev-warn">不自动 fix;提示 migration hint</span></td></tr>
+      <tr><td>schema-drift</td><td>journal + _meta</td><td>entry_schema_version 或 feature_schema_version 与当前 owner 定义不匹配</td><td><span class="sev-warn">不自动 fix;报告 schema mismatch</span></td></tr>
       <tr><td>artifact-corruption</td><td>同上</td><td>Zod parse 失败</td><td><span class="sev-warn">不自动 fix;提示手动 / git checkout</span></td></tr>
       <tr><td>stale-claim</td><td>snapshots/tasks.json in_progress</td><td>started_at &gt; 30 min + 无新 evidence</td><td><span class="sev-info">v0.1.0 advisory-only;v0.1.x:emit <code>event:claim_reclaimed</code> 走 §11.2(待 ADR)</span></td></tr>
       <tr><td>url-placeholder</td><td>binary build 元数据</td><td><code>LOAF_DOCS_URL</code> / <code>LOAF_ISSUE_URL</code> 是 placeholder</td><td><span class="sev-warn">不 fix(需 rebuild);release 阻断</span></td></tr>
@@ -1247,14 +1236,13 @@
   </table>
 
   <h3>Sub-flags</h3>
-  <p>v0.1.0(Phase 14)仅实现 <code>--rebuild</code>;其余 flag 为目标设计,未实现。</p>
+  <p>当前仅实现 <code>--rebuild</code>；下表其它 doctor 专属 flag：<strong>未实现（目标设计）</strong>。<code>--format json</code> 是 live 全局 flag。</p>
   <table class="matrix">
     <thead><tr><th>Flag</th><th>用途</th></tr></thead>
     <tbody>
-      <tr><td class="k">--fix</td><td>对可修复 check 尝试 fix(snapshot-seq-mismatch / migration-v0.0.x / rolling-checksum 永不自动 fix)</td></tr>
+      <tr><td class="k">--fix</td><td>对可修复 check 尝试 fix(snapshot-seq-mismatch / rolling-checksum 永不自动 fix)</td></tr>
       <tr><td class="k">--rebuild</td><td>full replay from seq=0;rewrite snapshots/* + _meta.json</td></tr>
       <tr><td class="k">--check-tail</td><td>只跑 Gate #4 batch-aware tail recovery</td></tr>
-      <tr><td class="k">--migrate-v2</td><td>v0.0.x N-file → v0.1.0 sidecar import(7 步)</td></tr>
       <tr><td class="k">--scope cwd</td><td>iterate all .loaf/&lt;feat&gt;/ under cwd;mixed-version-cwd 拒</td></tr>
       <tr><td class="k">--verify-checksum</td><td>full chain rolling_checksum 重算(O(N));报中段 corruption</td></tr>
       <tr><td class="k">--rebuild-registry</td><td>等价 --fix 但只跑 registry-* 三项</td></tr>
@@ -1263,108 +1251,6 @@
   </table>
 </section>
 
-<section id="migration">
-  <h2>⑬ v0.0.x → v0.1.0 migration flow</h2>
-  <p class="lead">目标设计：单次性 lossy snapshot import。当前没有 live 触发命令；未来的 migration writer 必须让 Gate #3 保证 <code>migration:snapshot_imported</code> payload 只携 AttachmentRef manifest,不含 artifact 正文。</p>
-
-  <svg class="diagram" viewBox="0 0 1180 480" role="img" aria-label="v0.0.x → v0.1.0 migration">
-    <defs>
-      <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-        <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
-      </marker>
-    </defs>
-    <text class="phase-label" x="100" y="30" fill="var(--strong)" text-anchor="start">v0.0.x N-file</text>
-    <text class="phase-label" x="475" y="30" fill="var(--strong)" text-anchor="start">migration sidecar(Gate #3)</text>
-    <text class="phase-label" x="855" y="30" fill="var(--strong)" text-anchor="start">v0.1.0 journal + snapshots</text>
-
-    <g>
-      <rect class="node-rect" x="20"  y="60"  width="180" height="28" rx="4"/>
-      <text class="node-text" x="110" y="78">state.json (v0.0.x)</text>
-      <rect class="node-rect" x="20"  y="100" width="180" height="28" rx="4"/>
-      <text class="node-text" x="110" y="118">tasks.json</text>
-      <rect class="node-rect" x="20"  y="140" width="180" height="28" rx="4"/>
-      <text class="node-text" x="110" y="158">spec.md</text>
-      <rect class="node-rect" x="20"  y="180" width="180" height="28" rx="4"/>
-      <text class="node-text" x="110" y="198">evidence.jsonl</text>
-      <rect class="node-rect" x="20"  y="220" width="180" height="28" rx="4"/>
-      <text class="node-text" x="110" y="238">findings.jsonl</text>
-      <rect class="node-rect" x="20"  y="260" width="180" height="28" rx="4"/>
-      <text class="node-text" x="110" y="278">pending.json</text>
-    </g>
-
-    <text class="edge-label" x="220" y="80">① doctor 读</text>
-    <text class="edge-label" x="220" y="155">② tmp+rename → attachments/JE-000000/migration/</text>
-    <text class="edge-label" x="220" y="260">③ sha256 + size</text>
-
-    <path class="edge edge-forward" d="M 200,174 L 380,174" marker-end="url(#arr5)"/>
-
-    <g>
-      <rect class="node-rect" x="380" y="60" width="280" height="260" rx="6" fill="var(--gate-soft)" stroke="var(--gate)"/>
-      <text class="node-text bold" x="520" y="80" fill="var(--gate)">attachments/JE-000000/migration/</text>
-      <text class="node-text" x="520" y="105">state.json</text>
-      <text class="node-text" x="520" y="123">tasks.json</text>
-      <text class="node-text" x="520" y="141">spec.md</text>
-      <text class="node-text" x="520" y="159">evidence.jsonl</text>
-      <text class="node-text" x="520" y="177">findings.jsonl</text>
-      <text class="node-text" x="520" y="195">pending.json</text>
-      <text class="edge-label" x="520" y="220" text-anchor="middle">↑ tmp+rename, fsync file+parent</text>
-      <text class="edge-label" x="520" y="235" text-anchor="middle">每 file 都有 AttachmentRef</text>
-      <text class="edge-label" x="520" y="265" text-anchor="middle" fill="var(--gate)">Gate #3:.strict() Zod</text>
-      <text class="edge-label" x="520" y="280" text-anchor="middle" fill="var(--gate)">payload 只允许 manifest</text>
-      <text class="edge-label" x="520" y="295" text-anchor="middle" fill="var(--gate)">绝不含正文</text>
-    </g>
-
-    <text class="edge-label" x="680" y="100">④ emit migration:snapshot_imported<br/>(journal.jsonl seq=0,§11.2 step 6)</text>
-    <text class="edge-label" x="680" y="170">⑤ reducer apply:读 sidecar → verify sha256<br/>→ 初始化 in-memory state</text>
-    <text class="edge-label" x="680" y="240">⑥ 生成 snapshots/*.json(§11.2 step 8)</text>
-
-    <path class="edge edge-forward" d="M 660,174 L 820,174" marker-end="url(#arr5)"/>
-
-    <g>
-      <rect class="node-rect" x="830" y="80"  width="320" height="28" rx="4" fill="var(--rec-soft)" stroke="var(--rec)"/>
-      <text class="node-text bold" x="990" y="98" fill="var(--rec)">journal.jsonl(JE-000000 only)</text>
-      <rect class="node-rect" x="830" y="120" width="320" height="28" rx="4"/>
-      <text class="node-text" x="990" y="138">snapshots/state.json</text>
-      <rect class="node-rect" x="830" y="160" width="320" height="28" rx="4"/>
-      <text class="node-text" x="990" y="178">snapshots/tasks.json</text>
-      <rect class="node-rect" x="830" y="200" width="320" height="28" rx="4"/>
-      <text class="node-text" x="990" y="218">snapshots/evidence.json + gate view</text>
-      <rect class="node-rect" x="830" y="240" width="320" height="28" rx="4"/>
-      <text class="node-text" x="990" y="258">snapshots/findings.json</text>
-      <rect class="node-rect" x="830" y="280" width="320" height="28" rx="4"/>
-      <text class="node-text" x="990" y="298">snapshots/pending.json</text>
-    </g>
-
-    <g>
-      <rect class="node-rect" x="20" y="370" width="320" height="60" rx="6"/>
-      <text class="node-text bold" x="180" y="390">⑦ v0.0.x → ../&lt;feature&gt;.backup-v1/</text>
-      <text class="edge-label" x="180" y="408" text-anchor="middle">保留备份;不可重复 migrate</text>
-      <text class="edge-label" x="180" y="424" text-anchor="middle">(MIGRATION_REPLAY_ATTEMPT 拒)</text>
-    </g>
-
-    <g>
-      <rect class="node-rect" x="600" y="370" width="550" height="80" rx="6" fill="var(--danger-soft)" stroke="var(--danger)"/>
-      <text class="phase-label" x="640" y="390" fill="var(--danger)" text-anchor="start">CRASH TABLE error codes(exit 2)</text>
-      <text class="edge-label" x="640" y="408">SCHEMA_VERSION_MISMATCH · MIGRATION_INCOMPLETE · MIGRATION_BACKUP_MISSING</text>
-      <text class="edge-label" x="640" y="424">MIGRATION_REPLAY_ATTEMPT · MIGRATION_SIDECAR_MISSING</text>
-      <text class="edge-label" x="640" y="440">crash table 7 行映射在 ADR-0005 §5.2</text>
-    </g>
-  </svg>
-
-  <h3>Legacy enum 迁移映射</h3>
-  <table class="matrix">
-    <thead><tr><th>v0.0.x</th><th>v0.1.0 位置</th></tr></thead>
-    <tbody>
-      <tr><td class="k">evidence.jsonl kind=gate-decision</td><td>仅在 migration sidecar;reducer 派生到 evidence view + derived gate view;<strong>不</strong>伪造新 <code>gate:decided</code> entry</td></tr>
-      <tr><td class="k">evidence.jsonl kind ∈ {test,review,visual,manual,waiver}</td><td>migration sidecar → evidence view</td></tr>
-      <tr><td class="k">findings.jsonl event=raised|closed</td><td>migration sidecar → findings view</td></tr>
-      <tr><td class="k">pending.json kind=*</td><td>migration sidecar → pending view</td></tr>
-      <tr><td class="k">state.json *</td><td>migration sidecar → in-memory state → snapshots/state.json</td></tr>
-      <tr><td class="k">tasks.json.tasks[]</td><td>migration sidecar → snapshots/tasks.json</td></tr>
-      <tr><td class="k">spec.md</td><td>migration sidecar → spec.md projection(post-submit shape)</td></tr>
-    </tbody>
-  </table>
-</section>
 
 <footer style="text-align: center; color: var(--muted); font-size: 12px; margin-top: 36px;">
   loaf-cli v1 protocol visualization · canonical text → <a href="protocol.md">protocol.md</a> · machine contract → <a href="machine-contract.md">machine-contract.md</a> · design → <a href="adr/0005-truth-model-single-typed-journal.md">ADR-0005</a>

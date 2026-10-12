@@ -13,9 +13,13 @@ order: `protocol.md` §18.3. Shipped in v0.2.0.
 - `resolveLocale()` (pure, `src/cli/i18n.ts`) picks the locale; `createI18n()`
   builds `t(keyPath, vars)`. Wiring is in `src/cli.tsx` (after the presentation
   guard, before any command action) and injected into `CommandContext`.
-- Locale order: `--lang` (future) > `$LOAF_LANG` > `~/.loaf/config.json`
-  `locale.default_lang` > project `loaf.config.json` locale > parsed
-  `$LANG`/`$LC_ALL`/`$LC_MESSAGES` > `en`.
+- Current locale order: `$LOAF_LANG` > `~/.loaf/config.json`
+  `locale.default_lang` > ambient `$LC_ALL` / `$LC_MESSAGES` / `$LANG`
+  (first defined) > `en`.
+- **Not implemented (target design)**: CLI `--lang` override and project
+  `loaf.config.json` locale fallback. The pure resolver supports these slots,
+  but live CLI wiring supplies neither; `--lang` is rejected as an unknown
+  option.
 
 ## Hard invariants (do not break)
 

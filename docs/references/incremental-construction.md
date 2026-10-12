@@ -40,8 +40,9 @@ fix unit.
 (ADR-0004 A2; corollary of ADR-0001.)
 
 `loaf-cli` owns all shape validation: id allocation, three-way
-verifiability, the 6 × 6 finding grid, attachment hash + mime, the
-20 sub_state × ContextPackProjection map. `loaf-skill` and 3rd-party
+verifiability, the 6 × 6 finding grid, and attachment payload shape.
+Automatic attachment hashing/copying is target design (§5), not current
+behavior; the context-pack proposal is retired (§9). `loaf-skill` and 3rd-party
 workflow skills own *content*: which REQ to draft next, which task
 to claim, which finding category fits the observation.
 
@@ -100,9 +101,11 @@ violate clig.dev §6 (one flag, one direction).
 
 REQ / SCEN / VIS inputs carry `id_namespace` (stem regex like
 `^REQ-[A-Z][A-Z0-9]*$`), **not** the full id with serial. CLI
-scans the locked spec for the max serial under that namespace and
-allocates the next one inside the per-session lock, then composes
-the full id (`REQ-AUTH-007`) and writes it to spec.md.
+scans the replayed pre-lock spec for the max serial under that namespace
+and allocates the next one inside the per-session lock, then composes
+the full id (`REQ-AUTH-007`) and appends `event:spec_req_added`
+(or the corresponding SCEN/VIS kind) to the journal. `spec.md` is a derived
+projection, not the write authority.
 
 `T-N` (tasks), `EV-N` (evidence), `FND-N` (findings), `PEND-N`
 (pending) carry no namespace at all — CLI auto-allocates monotonic
@@ -128,18 +131,22 @@ trade.
 
 (ADR-0004 A6.)
 
-`loaf evidence add --input` accepts `attachments: [{ path }]`. CLI
-does the rest:
+**Not implemented (target design)**: path-only attachments and automatic
+copy/hash/MIME inference. Current `loaf evidence add --input` requires full
+`attachments: [{ path, sha256, mime, bytes? }]` objects; `path` is relative to
+the feature directory. The caller supplies the hash and MIME type. Evidence
+is appended to `journal.jsonl` and projected to `snapshots/evidence.json`.
+The target pipeline is:
 
 ```
 1. Validate path exists + is a regular file + is readable
-2. Copy to .loaf/<feature>/attachments/<EV-id>/<basename>
+2. Copy to a feature-local attachment path
    (suffix -2 / -3 on basename collision)
 3. Compute sha256 hex
 4. Infer mime from extension + magic bytes
 5. stat() bytes
-6. Append the full { path, sha256, mime, bytes } entry to
-   evidence.jsonl
+6. Append evidence with the full { path, sha256, mime, bytes }
+   attachment payload to journal.jsonl
 ```
 
 Asking an LLM to call `sha256sum` from inside a shell pipeline and
@@ -183,13 +190,13 @@ existing rule from `protocol.md` §5.3:
   toward `loaf finding raise --category spec-gap --action
   amend-spec`
 
-This is exactly the rule that `loaf amend --target spec` already
-followed. The new `spec add-*` surface plugs in to the same gate;
-there is no new state machine edge, only a new entry point onto
-the existing edge.
+The `spec add-*` surface uses the pre-lock gate. A post-lock amendment
+starts with `loaf finding raise --action amend-spec`, which returns to
+SPEC.spec before content can be changed and re-locked.
 
-`tasks add` likewise mirrors the rule on the `tasks` side:
-EXECUTE-phase calls reject and nudge toward `amend-tasks` finding.
+`tasks add` accepts unsponsored additions at SPEC.design. At EXECUTE.work
+it requires a sponsoring `--finding <FND-N>` with action `amend-tasks`;
+other EXECUTE substates do not admit that sponsored path.
 
 ## 8. Principle: self-description via `--schema --format=json`
 
@@ -209,9 +216,8 @@ at this command; CI fixtures use it to verify schema stability;
 loaf-skill prompt templates can embed it for one-shot LLM
 instruction.
 
-`--help` for each `--input` command additionally surfaces 2–3
-worked JSON examples at the top (clig.dev §5), so an LLM seeing
-`--help` output gets an immediately usable shape.
+**Not implemented (target design)**: 2–3 worked JSON examples in each
+`--input` command's help. Current help describes options; use `--schema --format=json` to inspect the accepted input shape.
 
 ## 9. Retired proposal: phase-aware context packing
 
@@ -234,17 +240,19 @@ Observed token saving when LLM skills switched from "send whole
 spec + whole tasks.json + whole evidence.jsonl" to phase-targeted
 packs: 60–80% per phase switch (moni audit measurement).
 
-## 10. Principle: error contract is uniform — four lines, fix in the body
+## 10. Principle: error contract is uniform — code, context, and recovery
 
 (ADR-0004 A9.)
 
-All exit 2 user-recoverable errors emit the same four-line shape:
+Exit 2 user-recoverable text errors use the following structure; context,
+fix, and see lines are optional. With `--format json`, the diagnostic is
+instead one stderr line `{ok:false,code,message,detail}`:
 
 ```
-error: <one-line description>
+error: <CODE> — <one-line description>
        <optional context: what state we were in / what we saw>
-       fix: <concrete command(s)>
-       see: <doc anchor>
+       fix: <optional concrete command(s)>
+       see: <optional doc anchor>
 ```
 
 `ERROR_CATALOG` (`src/core/error-catalog.ts`) is the single source: each

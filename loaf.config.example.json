@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
 
-  "_comment": "Example loaf.config.json for an Android/Kotlin project. Place at .loaf/.config/loaf.config.json. All sections are optional; loaf-cli ships defaults. This file replaces v2's protected-files.json + stable-core-manifest.json + mother's constitution.json.",
+  "_comment": "Example loaf.config.json for an Android/Kotlin project. Place at .loaf/.config/loaf.config.json. schema_version=2 is required; other sections have defaults. The write-guard reads protected_files and step-selected paths.source/tests/docs/ui. stable_core and paths.public_api/schema/security are parsed but have no runtime enforcement; commands.*, constitution.*, and project locale.default_lang are skill-owned or reserved metadata, not runtime-read settings. Project locale fallback is not wired; user ~/.loaf/config.json locale is separate. _comment is ignored.",
 
   "protected_files": [
     "**/credentials/**",
@@ -10,7 +10,7 @@
     "**/*.keystore",
     "**/google-services.json",
     "**/AuthService.private.kt",
-    "src/core/machine.ts"
+    "app/src/main/java/com/example/app/security/SigningConfig.kt"
   ],
 
   "stable_core": [

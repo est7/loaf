@@ -37,11 +37,10 @@ The grid encodes both directions:
 - `incoherent` — block with exit 2 `FINDING_ACTION_INCOHERENT`
   + stderr nudge to `amend-spec` first
 
-`reconcile.json.unusual_findings_count` aggregates per-iteration
-`unusual` raises so SETTLE-time review surfaces them
-automatically. `incoherent` raises **never land** (they fail at
-raise time), so they do not appear in the count or in
-`findings.jsonl`.
+Accepted findings, including their action risk and reason, are recorded in
+`journal.jsonl` and projected to `snapshots/findings.json`. `incoherent`
+raises **never land** (they fail at raise time), so neither artifact
+contains them.
 
 ## 2. Reading the matrix
 
@@ -63,8 +62,8 @@ The 4 incoherent cells are `spec-gap × {fix-impl, fix-test}` and
 ## 3. Per-category rationale
 
 Each subsection walks the row left-to-right. `defer` and `backlog`
-are universally `typical` (they close the finding into a deferred
-drift record or a backlog item; both are valid for any category),
+are universally `typical` (they remain open as declared current-run or
+next-feature deferrals and never block verify-accept; both are valid for any category),
 so they are not re-justified per row.
 
 ### 3.1 `spec-gap` — spec is silent on this aspect
@@ -73,16 +72,16 @@ so they are not re-justified per row.
 |---|---|---|
 | `amend-spec` | typical | The canonical resolution: REQ/SCEN/VIS is missing; add it. `add-*` (rev 4.3) or full `spec submit` plus re-pass spec-lock. |
 | `amend-tasks` | unusual | Sometimes the gap is in plan-time decomposition (task missing, REQ already covers it) rather than the spec itself. Requires reason because the boundary between "spec is silent" and "task is missing" is subtle — reviewer needs the reasoning. |
-| `fix-impl` | **incoherent** | The transition for `fix-impl` is `task.execution.implement.status = running`. But `spec-gap` means the REQ that *would* drive a task does not yet exist. Therefore no task to set running. The LLM should `amend-spec` first; once the new REQ is locked, planning will yield a task, and only then can `fix-impl` target it. |
-| `fix-test` | **incoherent** | Same argument as `fix-impl`: no REQ ⇒ no task ⇒ no `task.execution.red.status` to flip. Reach the REQ first. |
-| `defer` | typical | "We see the gap; we will not fix it this run." Records into `reconcile.drift`. |
+| `fix-impl` | **incoherent** | The transition for `fix-impl` is `task.execution.implement.status = pending` via `event:task_step_reset`. But `spec-gap` means the REQ that *would* drive a task does not yet exist. Therefore no task step to reset. The LLM should `amend-spec` first; once the new REQ is locked, planning will yield a task, and only then can `fix-impl` target it. |
+| `fix-test` | **incoherent** | Same argument as `fix-impl`: no REQ ⇒ no task ⇒ no `task.execution.red.status` to reset to `pending`. Reach the REQ first. |
+| `defer` | typical | "We see the gap; we will not fix it this run." Remains open as a declared current-run deferral in the findings projection. |
 | `backlog` | typical | "We see the gap; carry to a future feature / lessons." |
 
 ### 3.2 `spec-defect` — spec is wrong (not silent)
 
 | action | risk | rationale |
 |---|---|---|
-| `amend-spec` | typical | Canonical resolution: the REQ/SCEN exists but says the wrong thing. Edit it via `spec add-*` (overwrite by raising and editing) or full re-submit. |
+| `amend-spec` | typical | Canonical resolution: the REQ/SCEN exists but says the wrong thing. Raise `amend-spec`, then replace the structured spec via `spec submit`; `spec add-*` appends new entries rather than overwriting existing ones. |
 | `amend-tasks` | unusual | Edge case: spec is wrong, but the existing tasks are still salvageable with a plan-time tweak. Requires reason because amending tasks without first fixing the spec leaves the spec as a misleading anchor for future iterations. |
 | `fix-impl` | unusual | Edge case: spec is wrong but the implementation already does the right thing (the spec was wrong about the desired behavior; the impl matches the intended behavior). Rare but legitimate. Requires reason to call this out so reviewers verify the spec really is the wrong one. |
 | `fix-test` | unusual | Symmetric edge case: spec is wrong, test was written against the wrong spec, fix the test to match the corrected spec. Requires reason to confirm the test is the one drifting, not the impl. |
@@ -95,7 +94,7 @@ so they are not re-justified per row.
 |---|---|---|
 | `amend-spec` | unusual | Usually impl bugs are fixed by changing impl. But sometimes a closer look at the bug reveals the spec was ambiguous and the impl chose a defensible interpretation — fixing the spec to disambiguate is the higher-leverage move. Requires reason so reviewers can confirm the bug was actually a spec ambiguity, not an impl bug being papered over. |
 | `amend-tasks` | typical | Common case: the impl is wrong because the task plan missed a sub-task. Replan tasks. |
-| `fix-impl` | typical | Canonical resolution: change the impl. `task.execution.implement.status` flips to running. |
+| `fix-impl` | typical | Canonical resolution: change the impl. `event:task_step_reset` resets `task.execution.implement.status` to `pending`. |
 | `fix-test` | unusual | Sometimes the impl bug only surfaces when the test is strengthened first. Requires reason to justify why touching the test (rather than the impl) is the right entry point. |
 | `defer` | typical | Known impl defect, accepted risk for this run. |
 | `backlog` | typical | Carry to future feature. |
@@ -121,8 +120,8 @@ needed.
 |---|---|---|
 | `amend-spec` | typical | New scope ⇒ new REQ ⇒ amend spec to introduce it. |
 | `amend-tasks` | typical | Equally canonical: new scope ⇒ new task entry. Both `amend-spec` and `amend-tasks` are direct paths into adding scope; which one comes first depends on whether the new scope already has REQ coverage in mind or needs both REQ and task. |
-| `fix-impl` | **incoherent** | Same target-determinacy argument as `spec-gap × fix-impl`: there is no task yet to flip `execution.implement.status` on. Add the task (`amend-tasks`) and the REQ (`amend-spec`) first. |
-| `fix-test` | **incoherent** | Same: no task ⇒ no `execution.red.status` to flip. |
+| `fix-impl` | **incoherent** | Same target-determinacy argument as `spec-gap × fix-impl`: there is no task yet whose `execution.implement.status` can reset to `pending`. Add the task (`amend-tasks`) and the REQ (`amend-spec`) first. |
+| `fix-test` | **incoherent** | Same: no task ⇒ no `execution.red.status` to reset to `pending`. |
 | `defer` | typical | "We see new scope, not fixing this run." |
 | `backlog` | typical | "Defer to a future feature; record." |
 
@@ -174,8 +173,8 @@ one round-trip per incoherent attempt.
 - Schema vocabulary: `src/core/finding-schema.ts` `FindingActionRisk` enum.
 - Policy binding: `src/core/intervention-policy.ts` `FINDING_ACTION_GRID`
   const + `FINDING_UNUSUAL_REASON_MIN_LENGTH`.
-- Protocol behavior: `protocol.md` §4.5 (raise enforcement) +
-  §4.6 (`reconcile.json.unusual_findings_count`)
+- Protocol behavior: `protocol.md` §4.5 (raise enforcement) and the
+  journal-derived findings projection
 - Companion reference: `references/incremental-construction.md`
   for the broader Tier 1 mutator design principles this matrix
   participates in

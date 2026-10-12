@@ -41,7 +41,7 @@ metadata stamped onto entries, not a path segment.
 $WORK/journal.jsonl
 $WORK/snapshots/state.json
 $WORK/snapshots/_meta.json
-$WORK/snapshots/tasks.json
+$WORK/snapshots/tasks.json   # once a task plan exists
 $WORK/snapshots/evidence.json
 $WORK/snapshots/findings.json
 $WORK/snapshots/pending.json
@@ -53,7 +53,7 @@ When you want multiple features in one parent dir, give each its own
 `--feature-dir`: `--feature-dir $PARENT/foo` and `--feature-dir
 $PARENT/bar`.
 
-## 3. CLI exit codes — 0 / 2 / 3, and `loaf status` exits 2 when no session exists
+## 3. CLI exit codes — 0 / 2 / 1 / 130, and uninitialized reads exit 2
 
 **Symptom**: a script that probed for "is a loaf session initialized
 here?" via `loaf status` exit 0 / `state: null` (the rev-3.x scaffold
@@ -61,16 +61,21 @@ behavior) suddenly sees exit 2.
 
 **Root cause**: Phase 15 SC3 unified the four read commands (`status`
 / `tasks list` / `pending list` / `finding list`) to exit 2 with
-`NO_SESSION` on a pre-`loaf start` directory. `status` previously was
-the odd one out (exit 0 + `state: null`).
+`FEATURE_NOT_FOUND` when selection cannot find a session, including an
+empty or nonexistent feature directory. If selection reaches the projection
+loader but no session journal exists, it returns `NO_SESSION`. `status`
+previously was the odd one out (exit 0 + `state: null`).
 
 **Exit code semantics**:
 
 - `0` — success
 - `2` — system error, invalid input, missing session, snapshot stale,
-  preflight failure, etc. **stderr carries a machine-readable
-  diagnostic** (`DiagnosticCode`, owned by `src/core/error-catalog.ts`).
-- `3` — reserved for catastrophic / journal corruption (rare).
+  preflight failure, etc. With `--format json`, stderr carries one
+  `{ok:false,code,message,detail}` diagnostic line (`DiagnosticCode`, owned
+  by `src/core/error-catalog.ts`). Text mode uses `error: CODE — message`
+  with catalog fix/see information when available.
+- `1` — unexpected crash (crash log).
+- `130` — SIGINT. There is no reserved exit 3.
 
 For "is a loaf session here?" probes, **inspect exit code AND the
 `code` field on stderr JSON** rather than relying on stdout shape.
@@ -118,15 +123,17 @@ esac
 ## 6. Strict input boundaries — caller-supplied envelope fields are rejected
 
 **Symptom**: a skill tries to construct a `JournalEntry` and pass an
-explicit `seq` / `iso_ts` / `entry_id` to the CLI and gets a
-`MutateFailureCode` rejection.
+explicit `seq` / `at` / `entry_id` to the CLI and gets an input-schema
+rejection.
 
-**Root cause**: `mutateBatch` Pass 0 rejects all caller-supplied
-envelope fields. These are stamped by the journal-append layer:
+**Root cause**: CLI input schemas reject envelope fields. Internally,
+`mutateBatch` additionally rejects caller-supplied `seq`, `entry_id`, and
+batch envelope fields; CLI handlers supply `at` and actor provenance.
+The public CLI owns these values:
 
 - `seq` — monotonic, allocated server-side
 - `entry_id` — `JE-NNNNNN`, allocated server-side
-- `iso_ts` — wall-clock timestamp, server-side
+- `at` — wall-clock timestamp, CLI-owned
 
 Same applies to allocator-owned IDs in payloads: `id` on
 `add-req` / `add-scenario` / `add-visual` / `evidence add` /
@@ -157,11 +164,13 @@ Don't trust the CLI to silently coerce.
 
 **Symptom**: a tool that imported `appendEntry` from a deep
 `src/core/` path bypasses preflight, reducer dry-run, and sidecar promote.
-Subsequent CLI reads then fail with `JOURNAL_CORRUPTION` or `SNAPSHOT_STALE_REBUILD_REQUIRED`.
+Subsequent CLI reads then fail with `TAIL_CORRUPTION` or `SNAPSHOT_STALE_REBUILD_REQUIRED`.
 
 **Root cause**: `mutateBatch` is the *only* transactional API.
-`appendEntry` / `appendMany` are private surfaces reserved for
-migration and `loaf doctor` — they skip every safety pass.
+`appendEntry` / `appendMany` are low-level writers; the current runtime
+append caller is `mutateBatch`. Calling them directly skips mutation
+admission and gate evaluation. `loaf doctor --rebuild` replays the journal
+and rewrites projections; it does not append journal entries.
 
 **For loaf-skill**: always go through the public CLI commands
 (`loaf spec add-req`, `loaf tasks step done`, `loaf evidence add`,

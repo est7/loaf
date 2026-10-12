@@ -2,142 +2,7 @@
 
 > 2026-05-15 · prose source of truth。机器契约导航见 [`machine-contract.md`](machine-contract.md),可视化伴侣见 `index.html`(原 `protocol.html`,v0.1.0 GA 起重命名为 `index.html` —— 作为持续维护的项目对外页面)。
 >
-> loaf-cli v1 是 legacy Python 原型(early-draft 内部称 "v2")的 successor,from scratch。把 legacy 当老师,不当父亲。v1 GA 之后 legacy 原型进 archive。
->
-> **rev 5.3 — retire phantom reconcile execution** (2026-07-27):
-> - 新 deep lifecycle 由 `loaf settle` 直接推进 `VERIFY.accept → SETTLE.lessons`，不再进入没有 writer、没有 gate 语义的 `SETTLE.reconcile`。
-> - 旧 `SETTLE.reconcile` enum、machine edge、`ReconcileJson` 与 legacy projection reader 已删除；旧目标在 replay preflight 被拒绝。
-> - `scope:recorded` 继续提供可审计的 actual-scope evidence，但不臆造 canonical `planned_scope`。任何 gate 仍不得读取 reconcile projection。
->
-> **rev 5.2 — `scope:recorded` actual-scope journal contract**(2026-07-20;ticket #11 完整落地 journal contract、machine-local accumulator、hook 与 EXECUTE closure transaction):
-> - 新增 additive `scope:recorded@1` payload `{iteration, paths}`。`paths` 是 strictly UTF-8-byte-sorted、去重的 repo-relative POSIX concrete path array；拒绝 absolute、空/`.`/`..` segment、backslash、NUL 与 `.loaf/**`。大集合以相同 canonical JSON 编码走 `LongTextField` sidecar。
-> - 每批最多一条；存在时必须紧邻同批唯一 `EXECUTE.work → EXECUTE.done` 之前；同 iteration 历史不得重复。actor=`cli:*`，source sub_state=`EXECUTE.work`，reducer 显式 no-op；`deriveActualScope()` 从完整 entry stream 校验 sidecar 后做 set-union 并返回 canonical order。
-> - `SessionRuntimeFile.pending_scope` 保存 hook 累积中的 `{iteration, paths}`；`~/.loaf/runtime/<session_id>.json` 以 0600 原子替换，专用 PID lock `~/.loaf/runtime/<session_id>.lock` 以 0600 有界等待，runtime 目录为 0700。`loaf doctor --rebuild` 永不读写该 machine-local state。
-> - `loaf advance EXECUTE.done` 在 runtime lock 内把 pending scope 与 phase transition 作为同一 batch 提交；journal append 是 commit point，确认后才清 pending。pre-F-027 history 若存在无同批 marker 的 closure，派生报 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`，绝不伪造空 scope。
->
-> **rev 5.1 — `lesson:recorded` 独立协议 kind**(2026-07-16;下次 release 必须同步 bump package version,不能只靠 CHANGELOG 声明):
-> - `loaf lessons add` 从 legacy `evidence:added(payload.kind=manual)` 切到 strict `lesson:recorded@1` payload `{id: LSN-NNN, iteration, reason, summary}`;JSON 输出键仍为 `id`。LSN allocator 只扫 journal 中的新 kind,不复用 REQ/SCEN/VIS 的 `id_namespace` 输入面。
-> - `lessons.md` 由单一入口 `selectLessonEntries()` 只投影 `lesson:recorded`,保持 journal 顺序。旧 evidence-shaped lesson 兼容读取已移除;manual evidence 仅作为 evidence 保留,不再视为 lesson。lesson 不进 evidence projection / coverage / status / board / TUI / resume-pack。
-> - 旧 session 的 `loaf_version_required` 仍只由 `session:started` 写入,不回填。旧 CLI 读到新 kind 时:doctor `--rebuild` → `INVALID_ENTRY` exit 2;普通 replay/mutator → `UNEXPECTED_ERROR` exit 1 + crash log且禁止写;只读 projection 路径(status/TUI/board)继续工作。旧 CLI 的 `doctor --check-tail` 在 version-aware 防截断门落地前不得用于含新 kind 的 journal;该门与 H2 tail-recovery roadmap 合并,不属于本 rev runtime 改动。
->
-> **rev 5.x — 4-profile 单调递增 + standard 砍 SETTLE + TDD 边界声明**(2026-05-15,driven by 4-profile design grilling w/ codex):
-> - **PRESETS 4 档对齐**:`quick`(EXECUTE 直跳 DONE)→ `light`(+SPEC,跳 VERIFY/SETTLE,verify-min @ deliver 兜底)→ `standard`(+VERIFY,跳 SETTLE)→ `deep`(+SETTLE + strict 三件套)。每档加一件事,清晰度优先于 standard 的隐式 audit 仪式。`light` 之前协议已"承诺"过(rev 4.2 PRESETS 注释 + §3 escalation 表),本 rev 显式落到 §3 表格 + 流程图 + verify-min 段。
-> - **standard 砍 SETTLE**:`PRESETS.standard.settle_phase: true → false`。lessons.md 留给 deep。改动:§3 PRESETS 表 + §4.6 Authority + §5.2 transition target + §10.8 `loaf deliver` 行 + 流程图。
-> - **light spec 语义提示**:light(`spec_phase=true && verify_phase=false`)走完 verify-min 后,`loaf deliver` **按 `--format` 分流**:`--format text`(TTY 默认)写 stdout advisory note 段;`--format json` 在 stdout JSON 主体 `warnings[]` 数组追加 `{ code: "REQ_COVERAGE_NOT_CLOSED_LIGHT", message, remediation }`;stderr 不写(避免 `2>/dev/null` 时丢)。明确 light 的 spec 是 intent anchor,不是 contract closed;要正式 close 升 standard。改动:§3 verify-min 段(stream-aware 三栏)。
-> - **TDD CLI 强制边界显式声明**:CLI 只硬 enforce `behavioral + labels=["bug"]` → register-red(已现状);non-bug behavioral 的 RED-first 是 skill policy,不是协议保证。`constitution.tdd_strictness` / `require_red_for_behavioral` 仍是 skill 软配置,**CLI 不读、不 enforce**。Ceremony schema **不加** `tdd_strict` 字段(避免把 policy choice 混进 protocol shape)。理由:TDD 严格度是工程方法偏好,legacy migration / generated code / SDK integration / UI glue 这类 standard ceremony 场景天然不适合 red-first,绑死会卡。改动:§9.3 加边界声明表。
-> - **不破 §15 freeze**:本 rev 改动均落在 schema enum / refine / sub_state contract `next[]` 调整 + 文档同步,**零新 phase / 零新 sub_state / 零新 top-level CLI 子命令 / 零新 hook surface**;`SCHEMA_VERSION` 不动。
->
-> **rev 5.0 — Truth model: single typed journal (γ)** (2026-05-14, driven by [`adr/0005-truth-model-single-typed-journal.md`](adr/0005-truth-model-single-typed-journal.md)):
-> - **Canonical truth shifted**: `.loaf/<feature>/journal.jsonl` + `attachments/` 是协议唯一 SSoT;`state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `pending.json` / `spec.md` / `lessons.md` 全部降为 **派生投影**(`snapshots/*.json` 或 reducer-derived markdown),允许 stale,gate 永远不读。详 §3.1(ADR-0005)+ §13.1(rewritten)+ §4.1-4.12(per-section authority annotations)。
-> - **`SCHEMA_VERSION` 1 → 2**:envelope shape 级常量 bump。per-entry `entry_schema_version`(envelope 字段)由 `src/core/kind-registry.ts` 的当前版本表统一 stamping,用于 newer-writer tail 防截断检查;runtime 不提供自动 per-entry upcast。原升级承诺已撤回,见 ADR-0005 §12。envelope 见 `src/core/journal-entry.ts`;Packet F3 已删除 v0.0.x snapshot import；旧 import kind 不再通过 envelope validation。
-> - **§11.2 重写为 10-step crash contract**:原 8-step transaction 扩为 10 步(含 step 3 preflight、step 5 final validate、step 6 final-entry-only append、batch-aware tail recovery)。Crash window analysis 见 ADR-0005 §3.5 表。
-> - **doctor 4 个目标 sub-flags**:`loaf doctor --rebuild` / `--check-tail` / `--scope cwd` / `--verify-checksum`(§10.15);doctor checklist 加 6 项 check(orphan-attachment / tail-corruption / stale-tmp / snapshot-seq-mismatch / rolling-checksum-mismatch / sidecar-validation-drift)。
-> - **§10.8 加 `kind emitted` 映射**:每个 Tier 1 mutator 显式映射到 ADR-0005 §3.3 kind namespace 中的 entry kind;`--actor` 永久 non-flag(actor 由 CLI 注入,见 ADR-0005 §3.4)。
-> - **§1 新增 Principle 15a**:`Truth model = single typed journal + reducer-derived projection`。Principle 15 ③(per-session lock)语义未变,只是落点从「artifact mutation」改为「journal append」。
-> - **§15 done-when**:schema_version 1→2 transition 完成；旧 v0.0.x import 的 release blocker 已随 Packet F3 撤回。
-> - **§16 非目标退场**:`state.json event sourcing` 从「v1 显式非目标」退场(rev 5.0 落地);`work.json compile step` 保留为非目标。
-> - **§17 legacy 对照**:加 `Truth model` 演化栏(legacy = N-file mutable;v1 rev ≤4.3 = N-file mutable + per-session lock;v1 rev 5.0 = single typed journal + sidecar)。
-> - **Stage / gate milestone** 见 `archive/plan-v0.1.0.md` + ADR-0005 §10;**不破 §15 freeze**(GA 未达,ADR-trail additive 路径,SCHEMA_VERSION bump 在 v1 unfrozen 期间合法,Hyrum's Law=0)。
->
-> **rev 4.2 — clig.dev 三轮 review polish**(2026-05-12,Profile/Ceremony refactor 之上叠加):
-> - `loaf tasks done` → **`loaf tasks complete`** rename(消 `tasks step done` 同名异级歧义,clig.dev §8)。改动:§10.8 命令表 + §10.12 state-change line + protocol.html 命令表
-> - **`--plain` / `--format` 互斥契约**(SC-5b 激活):同值无冲突(`--format=json` 单独 OK),不同值 exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`。§10.7 加归一化段 + §10.5 错误表加行 + `src/cli/flag-exclusions.ts` 新 `FLAG_EXCLUSIONS` 常量
-> - **stderr color TTY gate** 独立 `isatty()`(§10.2):`loaf x 2>err.log` 时 stderr 走文件不染色,stdout TTY 仍染色
-> - Help 文案 footer 加 **`$LOAF_ISSUE_URL`**(§10.1;clig.dev §2 support path);build-time stamping 已在 §10.11
-> - **`-h` / `--help` 任意位置工作**(§10.1;clig.dev §2):parser 必须 short-circuit `-h` 在 subcommand context resolved 后
-> - **`loaf hook <event>` enum 可发现性**(§10.8):enum 限定 4 值(`session-start` / `write-guard` / `scope-track` / `closure-check`),bare 调用 exit 2 列 enum,`--list-events` 显式 dump
->
-> **rev 4.2 — Profile enum 砍,改 Ceremony hybrid B+label**(2026-05-12,driven by `adr/0003-codex-rev4-audit-resolution.md` Addendum 6):
-> - 旧机器契约中的 `Profile` enum(`"quick" | "standard" | "deep"`)整个砍。
-> - 替代:`Ceremony` 6 字段 schema(`spec_phase` / `verify_phase` / `settle_phase` / `strict_spec_review` / `lessons_required` / `strict_drift_check`)+ `ceremony_label` cosmetic 字符串。CLI 全部 enforcement 走 ceremony.* 6 flag,label 仅显示。
-> - `StateJson.profile` → `StateJson.ceremony` + `StateJson.ceremony_label`;`RegistryFile.profile` → `RegistryFile.ceremony_label`。
-> - `PROFILE_POLICIES` 表整个砍,移到 **skill PRESETS 表**(loaf-skill 维护 quick/light/standard/deep 4 个默认 preset;3rd-party skill 可自定义)。
-> - `ESCALATION_RULES` 改 `ESCALATION_DETECTIONS`(CLI 检测 trigger + raise pending;skill 决定升档后的新 ceremony)。
-> - `LoafConfig.constitution.default_profile` → `default_ceremony_label` + optional `default_ceremony`。
-> - `SUB_STATE_CONTRACTS.entry` 条件 `profile != quick` → `ceremony.{spec,verify,settle}_phase=true`。
-> - **Rationale**:§1 原则 14(协议管 shape,skill 管 content)。Profile 是 content(preset 选哪个),不是 shape(state machine 长什么样)。砍下 5 件 content→skill 决策之最后一件(前 4 件 vague-word / `should` / `decomposition_preference` / `verify_cadence`)。CLI 严谨性 0 损失 — 同样用 ceremony.* 6 flag 强制 phase 跑哪些,跟 PROFILE_POLICIES 查表逻辑等价;cosmetic label 保住品牌名 readability。
-> - **Skill 责任**:loaf-skill 维护 PRESETS 表(`references/loaf-skill-helpers.md`),`loaf start` 时算 score → 推 label → 用户接受 → skill 调 CLI 传 `--ceremony-json '...' --ceremony-label '...'`。3rd-party skill 可起任意 preset 名(cursor 起 `prototype/feature/release`,公司起 `fast-fix/regulatory` 都行)。
-> - **不破 §15 freeze**(v1 impl 未动,Hyrum's Law=0;字段类型变化在 v1 unfrozen 期间允许,跟 rev 4.0 砍 current_* 3 字段 / rev 4.1 加 pending array 同等纪律)。
->
-> **rev 4.1 cleanup**(2026-05-12,driven by `adr/0003-codex-rev4-audit-resolution.md`):codex 第二轮深度审计,17 条建议达成共识 11 接受 / 6 拒绝。无 schema_version bump、无新 phase / sub-state / hook / CLI(§15 freeze 未破)。本轮交付:
-> - **3 条真实 correctness 缺口**(fan-out 上线前必修):
->   - §1 + §11.2 + schemas §34 加 **single-writer + per-session lock** invariant — 协议级声明 skill / sub-agent 不得直写 `.loaf/<feature>/`,所有 mutation 经 `loaf <cmd>` 在 `.loaf/<feature>/.lock` 保护下走 atomic transaction
->   - §10.8 + schemas `EvidenceAddInput` — `loaf evidence add` **不接受 `--id` flag**,CLI 单调分配 EV-id 并 stdout 回打;支持 `--external-ref` 留调用方 correlation
->   - §10.8 + §8 + schemas — `loaf tasks step done` 在提供 `--evidence-*` 时可在**单 transaction**内完成 execution.status 改 + evidence 追加;不提供 evidence 时仍可单条 append。缺 task passing evidence 今日由 verify-min / verify-accept 阻断;`TASK_STATUS_WITHOUT_PROOF` 保留给未来 `loaf tasks check`(F-023) 做 execution↔evidence 一致性诊断。
-> - **2 条真协议缺口**:
->   - §8.6 新加 **mutation rights matrix**(SPEC.plan / SPEC.design / EXECUTE.plan / EXECUTE.work 四行):per-sub_state 可写 artifact + 不可写,光靠 sub_state 名字两个"plan"后面 skill prompt 一定混
->   - §4.1 加 **`pending` 反向定义**:single blocking interaction,**不是** unfinished work / queue / derived obligation list,防 contributor 当 todo list 用
-> - **6 条文档纪律 + 防腐**:
->   - §1 加 **Principle #15**:protocol state is promoted only when it changes machine behavior, not merely prompt wording. Derived projections may be stale and are never gate authority. All artifact mutations go through loaf-cli under a per-session lock.
->   - §7.0 新加 **Sub-state promotion rule** + 当前 4 VERIFY lane 反向 audit(每 lane 钩中 promotion rule 哪 2+ 项,未来 security/perf/a11y MUST 先 map 到既有 lane)
->   - §6.2 finding action 表 **重画表头加 `target payload` 列**:`fix-impl` / `fix-test` / `amend-tasks` 的 `(step=X)` 拆出 sub_state 括号,变成 finding resolution payload;rev 4 砍 `current_step` 后这条表达污染必修
->   - §4.12 RegistryFile **声明 best-effort projection**:允许 crash window stale,`loaf doctor --rebuild-registry` 重建,gate 永远不读 registry
->   - `EXECUTE.task` → **`EXECUTE.work`** rename(fan-out 多元命名,worker active set 不再单数)
->   - §13.1 三层 artifact 表升级为 **四层**:Canonical truth / Derived projection / Debug-trace / Advisory
-> - **拒绝(6 条,见 ADR-0003 Rejected 段)**:VERIFY flatten / SPEC flatten / pending 改名 interaction / finding action 合并 redo-work / RegistryFile 加 4 个 version anchor 字段 / `loaf check tasks` canonical-alias 关系
-> - **CLI design audit follow-up**(rev 4.1,clig.dev 二轮 review):
->   - §10.7 加 **`--dry-run` / `-n` global flag**(v1.0;fan-out worker pre-check 必备)+ §10.7 dry-run 契约 + `src/core/concurrency-contract.ts` `dry_run_transaction_order`
->   - §10.11 加 **build-time URL stamping**(`LOAF_DOCS_URL` / `LOAF_ISSUE_URL`);§15 done-when 第 5 条强制 release 前 grep placeholder 阻断
->   - 新 §10.15 **`loaf doctor` 诊断清单**(9 个 check 显式分类:stale-lock / orphan-tmp / registry-stale / registry-orphan / registry-gc / crash-log-prune / schema-drift / artifact-corruption / url-placeholder)
->   - §10.2 + §10.3 respect 通用 env vars **`FORCE_COLOR`**(CI pipe 仍要色) + **`DEBUG`**(等价 `LOAF_DEBUG`)
->   - 命名清理:§10.6 chaos deviation 列表补 `loaf settle`;§10.8 `loaf tasks <op>` 一行展开为 6 行(add / claim / done / register-red / amend / submit 各自语义);§10.0 自夸 microcopy 修剪
-> - **多 pending 队列升级 v1.0**(rev 4.1,原 §16 deferred):
->   - `src/core/journal-entry.ts` 新加 `PendingId` + `PendingPromptKind`,`src/core/projection-schema.ts` 加 queue entry + state/registry pending 投影
->   - 语义:FIFO 队列,`pending[0]` 是 active blocker,resolve 永远 pop head(v1.0 严格 FIFO);其它 entry 在 head resolve 后自动 promote。**worker raise pending 不阻塞其它 worker**(只阻塞 user-facing 命令)
->   - 动机:rev 4.0 EXECUTE.work fan-out 多 worker 各自 raise pending,single-valued 强制 serialize 失败 — 队列是 fan-out 必要语义
->   - §4.1 invariant + §10.7 prompt 行为 + §10.8 命令表(`pending list / status / resolve`)+ §14.3 整段重写为 FIFO + §14.4 TUI 队列徽章 `[×N]` + `src/core/concurrency-contract.ts` atomic mutation list 加 `pending raise/resolve` + PEND-id allocation 规则
->   - ADR-0003 Addendum 2 记录决策;§16 删 "多 pending 队列 v1.1 再考虑" 行;`--id PEND-N` 跳序保留为新 §16 non-goal(v1.x 再加)
-> - **v1.1 措辞统一清理**:协议正文不再用 "v1.1 推迟" 模糊承诺。§10.14 "自动 commit/PR/CI" 改 "永久 non-goal"(rev 3.1 锁定);§12.2 "lessons promote/list" 改 "v1 显式不做"(scope discipline,需要单独 ADR 才考虑);唯一 "v1.1" 残留是 ADR-0003 Open Question 段(历史 reasoning 记录,正确)
-> - **quick 跳过 SETTLE 直跳 DONE**(rev 4.1,ADR-0003 Addendum 3):lessons.md quick skip,SETTLE 对 quick 本来就是纯 pass-through。本 rev 让 quick **完全跳过 SETTLE phase**,`loaf deliver` 从 `EXECUTE.done` 直接转到 `DONE.delivered`;verify-min 边界从 "EXECUTE.done → SETTLE.reconcile" 迁移到 "EXECUTE.done → DONE.delivered"(`loaf deliver` 入口)。`PROFILE_POLICIES.quick.phases_run` 从 `["TRIAGE","EXECUTE","SETTLE","DONE"]` 改成 `["TRIAGE","EXECUTE","DONE"]`;`SUB_STATE_CONTRACTS.EXECUTE.done.next` 加 `"DONE.delivered"`(quick 条件)。**spike 仍走 §8.3 三出口**(用户显式),不在本路径。典型 use case:"button → 16.dp" 类单文件改动,3 个命令完事(`advance` / `loaf deliver` /…)
-> - **Session dispatch + AI client bridge**(rev 4.1,ADR-0003 Addendum 4):支持单 cwd 多 active feature 并行开发(unrelated module 同 repo)。CLI dispatch 走 5 级 fallback:`--session <UUID>` / `--feature <name>` flag > `$LOAF_SESSION` / `$LOAF_FEATURE` env > auto-pick(1 个 non-DONE feature 时)。**无 `.loaf/.active` 文件**(per-process ENV 自然隔离,避免文件 race)。`loaf start` stdout 最后一行 = UUID(预测式,shell scripting `UUID=$(loaf start ... \| tail -1)`);`loaf sessions list --in-cwd` 拾回。AI assistant client(Claude Code / Cursor / Windsurf)的 conversation runtime 跟 shell 不同(Bash one-shot + 可能 compaction 忘 UUID)→ client 自己 bridge 到 `~/.loaf/<vendor>-bridge/<conv-id>.json`(skill-level,不是 loaf-cli artifact);loaf-cli 只承诺 `--session` / `$LOAF_SESSION` 接口。多 Claude Code 同 cwd → 各自 conversation_id → 各自 bridge file → 零冲突。详见 §10.3 + §19.5 + ADR-0003 Addendum 4
->
-> **rev 4.0 fresh-design refactor**(2026-05-12,driven by `adr/0002-fresh-design-rev4-candidates.md`):
-> - **Spine**:Phase 按工作性质分两类。**Worker phase**(EXECUTE)承载实际副作用(写代码 / 跑测试 / 改文件),支持 sub-agent fan-out 并发,active 集合由 `tasks.json.task.status="in_progress"` 表达(SSOT);**Control phase**(TRIAGE / SPEC / VERIFY / SETTLE)承载 planning / checking / settling,主 skill serial 跑,intent 由 `sub_state` 精确表达
-> - **C4**:`StateJson` 砍 3 字段 `current_task / current_step / current_check`(混淆了 worker active-set vs control cursor 两类语义);`RegistryFile` 同砍 3 字段并加 `active_tasks: TaskId[]`(derived projection,TUI 用);DONE.* 终态 invariant 中关于 active-set 的部分改由 `transitions.ts` cross-file 强制(§1 原则 3 让一档,Zod 不再 100% 契约)
-> - **C8**:`SubState` 砍 `"VERIFY.check"`,加 4 个 check-specific sub_states `"VERIFY.run"` / `"VERIFY.review"` / `"VERIFY.acceptance"` / `"VERIFY.visual"`;intent 走 sub_state(17 → 20)
-> - **C9'**:`RegistryFile` 加 `feature: string`(canonical source `SessionStartedPayload.feature`,`z.string().min(1)` — **Phase 16 SC-7** confirmed kebab-case is convention for production users, NOT a schema-enforced regex,见 §14.2)。RegistryFile 在 `~/.loaf/registry/<session_id>.json`,path **不**带 feature 上下文,TUI 启动单文件读需要这字段;StateJson **不** carry 同字段(其 path 已 carry feature dir,reader 可一行 derive — 避免 SSOT 冗余)
-> - **CLI hardening**(§10 整段重写,经 clig.dev **two-pass audit**):
->   - stdout/stderr 分工(stdout = JSON/artifact,stderr = log/progress/error)
->   - help contract(`-h`/`--help`/`loaf help <cmd>`/did-you-mean/TTY-aware)
->   - TTY+color+pager(`NO_COLOR`/`LOAF_NO_COLOR`/`TERM=dumb`/`$PAGER`)
->   - env vars(`LOAF_*` UPPER_SNAKE + respect 通用 env)
->   - **config precedence**(high → low:flag > env > project > user > defaults)
->   - SIGINT cleanup(130 + 3s 硬超时,second-Ctrl-C 非破坏,wrap 命令 Ctrl-C 由内层接管)
->   - **state-change output convention**(每个 mutating 命令 stderr 一行 `<action>: <changed>` + 可选 `next:` hint,`--quiet` 抑制)
->   - **long-op progress**(>1s 命令 stderr spinner / milestone,非 TTY 时 newline-terminated)
->   - error rewriting(expected → exit 2 + diagnostic file;unexpected → exit 1 + crash log + **prefilled bug-report URL**:version / phase / sub_state / last command)
->   - subcommand 命名 noun-verb 默认 + 单 verb chaos deviation(`start`/`status`/`advance`/`deliver`/...)
->   - global flags 补齐(`--no-input` / `-v/--verbose` / `--quiet` / `--plain` alias / `--json` alias)
->   - exit codes 三档明确(0/1/2/130);`--format json` 声明 stable contract
->   - **man pages** per subcommand group(`man loaf-spec` / `man loaf-tasks` / etc)
->   - **no telemetry** + crash log 永不自动上传
->   - 命名修正:`loaf check tasks` → `loaf tasks check`;`loaf tasks status` → `loaf tasks list`(避免跟 session-level `loaf status` 歧义)
-> - **C6**:`resume-pack.json` 加 `tasks_active_summary: Array<{ task_id, status, current_step }>`(snapshot derived from tasks.json),弥补 state_snapshot 不再 carry active detail 的信息缺
-> - **C1 α**:Phase 不合并(6 phase 不变);worker / control 性质不同,合并会破坏边界
-> - **Wang batch parallel** = skill 层 subagent fan-out(EXECUTE phase,见 `references/loaf-skill-helpers.md` §4);**rule-candidate auto-promote** = skill 编排(走 evidence + finding 现有 lifecycle,协议零变更)
-> - **Breaking**:v1 还未 implement,Hyrum's Law 暴露 = 0,unfreeze 成本最低
->
-> **rev 3.2 cleanup**(2026-05-12,driven by `adr/0001-task-graph-is-dag-not-tree.md`):
-> - 砍 `constitution.decomposition_preference` + `constitution.max_tasks_warning_threshold`(rev 3.1 anti-over-decomposition 字段);两者属 workflow content 不属协议 shape(§1 原则 14)。coarse-default 偏好下沉到 loaf-skill 的 SPEC prompt 模板,见 `references/loaf-skill-helpers.md` §3
-> - Wang 类 hierarchical workflow 评审收口:task graph 永远是 DAG 不是 tree;`parent_task_id` / `leaf_id` / 树字段均不进协议;hierarchical → DAG flatten 是 loaf-skill 中间层职责;`labels[]` namespace registry(`group:*` / `integration`)由 loaf-skill 维护
-> - **§17 命名修正**:文档残留把当前协议称"v3"、把历史 Python 实现称"v2",与当时的机器契约 + §15-16 + `SCHEMA_VERSION=1` 直接矛盾。统一为「当前 = loaf-cli v1」+「历史 = legacy Python 原型」,去掉 "v2" 简写,避免未来真出 v2 时撞名
->
-> **rev 3.1 主要变更**(rev 3 grilling 通关后内化):
-> - **架构定位**:loaf-cli = 协议内核(opinionated SDD,schemas 即契约);loaf-skill = 工作流编排;3rd-party skill = schema 适配器
-> - Q5 Applicability 三档 `must / optional / na`;**砍 `should`**;MUST 只能 passed/waived,**砍 `skipped`**
-> - Q6 step enum 按 task_kind 拆分;`bug-fix` 折叠回 behavioral(用 `labels[]`);新增 `chore` kind;`local-check` 变 evidence kind;`record-findings` 变正交动作
-> - Q7 evidence 加稳定 ID `EV-000123`,所有 refs 用 ID,不再用行号
-> - Q8 evidence coverage 兼容性 `canSatisfy(evidence, coveredId)` 模块化
-> - Q9 quick→standard escalation backfill,复用 SPEC.proposal
-> - Q10 合并 `loaf.config.json`(替代 3 个独立 config);新增 `gate-diagnostic.json` + `resume-pack.json`
-> - Q11 finding category 6 类,**新增 `risk-escalation`**
-> - Q12 **砍 vague-word blacklist**;改为每 REQ 必须有 `measurable` / `verified_by_scenarios` / `acceptance_na+reason` 三选一
-> - Q13 `manual` + `waiver` 拆成两个独立 evidence kind
-> - Q14 attachments 改对象形态 `{ path, sha256, mime }`,protocol 强制 hash
-> - Q15 registry 从单 jsonl 改成**每 session 一文件** `~/.loaf/registry/<id>.json`,atomic rename + 0600
-> - 新章节 §18 i18n(8 类 stable IDs + diagnostic 模板,en/zh bundle)
-> - 新章节 §19 三层架构(loaf-cli / loaf-skill / 3rd-party)
-> - 批量:amend-spec 清 spec_locked、diff-guard 改 git status 全口径、pending 单值、DONE 终态 invariant、state 7 字段、tasks.execution.status 是 cache、workspace 显示用、spec.md frontmatter 加 `adr_refs[]`、evidence.actor 自由字符串带前缀
+> 当前契约 rev 5.3：single typed journal 是真理源，snapshots 与 markdown 是派生投影；deep 由 `loaf settle` 直接从 VERIFY.accept 进入 SETTLE.lessons。CLI 为 Node ESM，内置 quick / light / standard / deep 四档。历史决策见 `CHANGELOG.md` 与 `docs/adr/`；本文描述当前实现，未接入的设计显式标记。
 
 ---
 
@@ -172,8 +37,8 @@
 | 12 | N/A ≠ skipped(已 deprecated) | rev 3.1 砍掉 skipped。`waived`(显式带 reason)替代 |
 | 13 | post-lock 必须经 finding | spec_locked=true 后,任何 spec/tasks/scope 变化必须 raise finding |
 | 14 | 协议管 shape,skill 管 content | vague-word 这种语言风格 lint 是 loaf-skill 的事;协议层只校验结构(可验证性、ID 引用、写权限) |
-| 15 | **Protocol state promotion / projection / mutation 三纪律**(rev 4.1)| ① Protocol state 只有在改变机器行为(allowed mutation / write_paths / evidence shape / interaction mode / recovery / TUI semantics / diagnostic class 至少 2 项)时才能 promote 成 first-class sub_state — 仅"prompt 文案更精确"不构成依据;② Derived projection(registry / gate-diagnostic / resume-pack)允许 stale,**永远不是 gate authority**;③ 所有 artifact mutation 必须经 loaf-cli 在 per-session lock 下 atomic 完成,skill / sub-agent / 外部进程不得直写 `.loaf/<feature>/`。三纪律落地:§7.0 / §4.12 / §11.2 |
-| 15a | **Truth model = single typed journal + reducer-derived projection**(rev 5.0)| Canonical truth 是 `.loaf/<feature>/journal.jsonl`(append-only,typed envelope 见 ADR-0005 §3.2) + `attachments/`(per-entry sidecar)。`state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `pending.json` / `spec.md` / `lessons.md` 全是 **派生投影**(reducer 从 journal entries 重建,落 `snapshots/*.json` 与 markdown)。Mutation = `loaf <subcommand>` → preflight validate → sidecar finalize → final validate → journal append → reducer apply → snapshot rebuild,全在 §11.2 10-step transaction 内完成。Principle 15 ③(per-session lock)同时保留;15a 是其 truth model 落点。详 ADR-0005 §3 + §13.1 |
+| 15 | **Protocol state promotion / projection / mutation 三纪律**(rev 4.1)| ① Protocol state 只有在改变机器行为(allowed mutation / write_paths / evidence shape / interaction mode / recovery / TUI semantics / diagnostic class 至少 2 项)时才能 promote 成 first-class sub_state — 仅"prompt 文案更精确"不构成依据;② Derived projection(registry / resume-pack)允许 stale,**永远不是 gate authority**;③ 所有 artifact mutation 必须经 loaf-cli 在 per-session lock 下 atomic 完成,skill / sub-agent / 外部进程不得直写 `.loaf/<feature>/`。三纪律落地:§7.0 / §4.12 / §11.2 |
+| 15a | **Truth model = single typed journal + reducer-derived projection**(rev 5.0)| Canonical truth 是 `.loaf/<feature>/journal.jsonl`(append-only,typed envelope 见 ADR-0005 §3.2) + `attachments/`(per-entry sidecar)。`state.json` / `tasks.json` / `evidence.json` / `findings.json` / `pending.json` / `spec.md` / `lessons.md` 全是 **派生投影**(reducer 从 journal entries 重建,落 `snapshots/*.json` 与 markdown)。Mutation = `loaf <subcommand>` → preflight validate → sidecar finalize → final validate → journal append → reducer apply → snapshot rebuild,全在 §11.2 10-step transaction 内完成。Principle 15 ③(per-session lock)同时保留;15a 是其 truth model 落点。详 ADR-0005 §3 + §13.1 |
 
 ---
 
@@ -209,18 +74,20 @@ TRIAGE → SPEC.* → EXECUTE.work ─→ VERIFY.* ──[verify-accept]──�
    ├─[light bypass,rev 5.x]──────────────[verify-min ok]→ DONE.delivered         │
    │      TRIAGE → SPEC.* → spec-lock → EXECUTE.* ───────────────┘                │
    │      (skip VERIFY + SETTLE;verify-min @ deliver;                            │
-   │       deliver 打 "REQ coverage not closed" 提示)                            │
+   │       REQ coverage advisory 尚未实现)                            │
    │                                                                              │
-   └─[quick bypass,rev 4.1]──────────────[verify-min ok]→ DONE.delivered ────────┘
+   └─[quick ceremony route]──────────────[verify-min ok]→ DONE.delivered ────────┘
       TRIAGE.confirm → EXECUTE.plan → EXECUTE.work → EXECUTE.done
       (skip SPEC + VERIFY + SETTLE;verify-min 在 deliver 边界跑;
        spike 仍走 §8.3 三出口,non-spike 直跳 DONE.delivered)
 ```
 
+当前 quick 路径的限制：无 journal spec 时 spec_version=0，tasks submit 的 based_on.spec 正整数校验拒绝规划；上图表示 ceremony 路由，不保证 quick 无 spec 的任务全生命周期可执行。
+
 **两条**正交于 state machine 主轴**的 v1.0 语义**:
 
 1. **Worker fan-out**(rev 4.0):`EXECUTE.work` sub_state 是 worker phase,允许 sub-agent fan-out 并发。Active set = `tasks.json.tasks.status="in_progress"` filter(多元集合);其它 sub_state(包括 TRIAGE / SPEC / VERIFY / SETTLE)是 control phase,主 skill serial 跑。Fan-out 是 EXECUTE.work 独占特权,**不影响 state machine 主轴**(state 仍单 cursor)。
-2. **Pending FIFO 队列**(rev 4.1):任何 phase 都可能 raise pending(`gate_decision` 在 SPEC.lock / VERIFY.accept;`finding_decision` 在 EXECUTE.work post-lock;`profile_escalation` 在 EXECUTE.* / SPEC.*;`ask_user_question` 任何 phase)。Pending 是 **side-effect queue**;**protocol 层 enforcement 极简**(rev 4.1 Q3):**`loaf advance` 仅在 head kind ∈ {`gate_decision`, `profile_escalation`} 时拒**,其它命令一律放行,更广的工作流调度由 skill 自己看 `loaf pending list` 决定。Worker 不被自己/他人的 pending 阻塞,各自跑到自己撞 pending 为止。详见 §10.7 + §14.3。
+2. **Pending FIFO 队列**(rev 4.1):任何 phase 都可能 raise pending(`gate_decision` 在 SPEC.design / VERIFY.accept;`finding_decision` 在 EXECUTE.work post-lock;`profile_escalation` 在 EXECUTE.* / SPEC.*;`ask_user_question` 任何 phase)。Pending 是 **side-effect queue**;**protocol 层 enforcement 极简**(rev 4.1 Q3):**`loaf advance` 仅在 head kind ∈ {`gate_decision`, `profile_escalation`} 时拒**,其它命令一律放行,更广的工作流调度由 skill 自己看 `loaf pending list` 决定。Worker 不被自己/他人的 pending 阻塞,各自跑到自己撞 pending 为止。详见 §10.7 + §14.3。
 
 Pending 的 head/live/FIFO、advance blocker、gate soft binding、escalation 和 next intent 决策由 `src/core/intervention-policy.ts` 统一拥有。CLI 只组装已有 co-resolution batch；preflight 保留原检查顺序，FIFO id 匹配仍在 reducer application 阶段。rich pending 的 history/字段序列化保留在 projection writer，TUI/Board 各自保留 presentation model。
 Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset target/abandoned 校验同属该 owner；preflight 只保留有序 orchestration，finding close 仍在 reducer application 检查。Back-edge source/target 规则继续由 `reducer/transition.ts` 独占，task body/progress mutation rights 继续由 `task-amend-policy.ts` 拥有。
@@ -229,9 +96,8 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 - 进入 SPEC.proposal 第一次时 iteration = 1
 - 每次 finding 触发回退(amend-spec / amend-tasks / fix-impl / fix-test),iteration += 1
 - `defer` / `backlog` 不增 iteration(没回退)
-- SETTLE scope audit 时 iteration_stats 统计
 
-### 20 sub-state 清单(rev 4.0:VERIFY.check 拆 4)
+### 19 sub-state 清单
 
 <!-- generated:fsm-substates BEGIN -->
 | Sub-state | Entry condition | Exit condition | Logical write paths | Gate |
@@ -256,6 +122,8 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 | <code>DONE.archived</code> | <code>loaf archive --reason '...'</code> | <code>terminal</code> | — | — |
 | <code>DONE.abandoned</code> | <code>loaf abandon --reason '...' (reason required)</code> | <code>terminal</code> | — | — |
 <!-- generated:fsm-substates END -->
+
+上方生成表是 machine.ts 的逻辑声明，其中 Q9 backfill / spec-draft-context / 自动判分 / lessons exit 条件未对应完整 runtime enforcement；实际边界以 §3、§4.2、§8.6 为准。**未实现（目标设计）**：将旧逻辑 write_paths 与当前存储路径全面对齐。生成块仅由 gen:fsm 维护。
 
 ### Transition edges(canonical MACHINE projection)
 
@@ -316,7 +184,7 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 
 **rev 4.0 终态 invariant**:任意 `DONE.*` 子状态下:
 - `state.pending.length === 0`(rev 4.1 起 `pending` 为 FIFO 数组,空形态是 `[]`,**不**是 `null`;StateProjection 内嵌 refine 强制)
-- `tasks.json` 中无 `status="in_progress"` 的 task(active-set 部分,cross-file invariant 由 `transitions.ts` 在 `loaf advance` 时强制(`loaf tasks check` 为 inventory:future,未在 v0.1.0 实装,届时一并强制)—— Zod 单文件 refine 无法表达跨文件约束,这是 rev 4.0 fresh design 对 §1 原则 3「Schema IS the contract」的一档让步)
+- `tasks.json` 中无 `status="in_progress"` 的 task(active-set 部分,cross-file invariant 由 `src/core/reducer/transition.ts` 在 `loaf advance` 时强制(`loaf tasks check` 为 inventory:future,未在 v0.1.0 实装,届时一并强制)—— Zod 单文件 refine 无法表达跨文件约束,这是 rev 4.0 fresh design 对 §1 原则 3「Schema IS the contract」的一档让步)
 - `DONE.abandoned` 必有 reason(写入 `loaf abandon --reason`)
 
 > **rev 3.x 的旧 invariant**(`current_task / current_step / current_check` 必为 null)在 rev 4.0 已无意义 —— 这三个字段被砍,信息源迁移到 tasks.json + sub_state。
@@ -335,8 +203,8 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 | `verify_phase` | bool | `false` | 跑 VERIFY.* sub_states 吗?(false → EXECUTE.done 跳 VERIFY;verify-min 在 `loaf deliver` 入口跑)|
 | `settle_phase` | bool | `false` | 跑 SETTLE.* sub_states 吗?(false → 跳过 lessons)|
 | `strict_spec_review` | bool | `false` | verify-accept gate **check 5** 额外校验 `kind=spec-review` evidence 且 `actor ≠ implementer`?(rev 5.1 修正:Slice 1.C sub-cycle 3 实现锁定。早期 docs 误描述为 spec-lock 范畴;runtime 在 `src/core/gates/verify-accept-check.ts` 里按 §5.2 第 5 条 + §1037 实现)|
-| `lessons_required` | enum | `"skip"` | SETTLE.lessons:`"must"` / `"may"` / `"skip"` |
-| `strict_drift_check` | bool | `false` | SETTLE scope audit 严格 drift?(无 carried_forward)|
+| `lessons_required` | enum | `"skip"` | 记录供 skill 使用；内核不强制写 lesson |
+| `strict_drift_check` | bool | `false` | 记录供 skill 使用；内核不执行 drift check |
 
 **Cross-field invariants**(Zod refine):
 - `settle_phase=true` 要求 `verify_phase=true`
@@ -350,7 +218,7 @@ Finding 的 open/action sponsorship、raise risk/target/spec-lock 与 reset targ
 
 ### Skill 提供 PRESETS 表(协议中立)
 
-CLI 不内置 preset 名。**Skill 维护 PRESETS 表**;loaf-skill v1 默认 4 个:
+CLI 在 `src/cli/commands/lifecycle.tsx` 内置 4 个 preset；skill 选择其中一档:
 
 | label | spec_phase | verify_phase | settle_phase | strict_spec_review | lessons_required | strict_drift_check | 典型 use case |
 |---|---|---|---|---|---|---|---|
@@ -361,11 +229,11 @@ CLI 不内置 preset 名。**Skill 维护 PRESETS 表**;loaf-skill v1 默认 4 �
 
 **rev 5.x 决策**:standard 不再跑 SETTLE(lessons 留给 deep)。actual scope 可从 journal closure markers 审计。4 档单调递增 ceremony 由此对齐:**quick(EXECUTE 直跳 DONE)→ light(+SPEC)→ standard(+VERIFY)→ deep(+SETTLE + strict 三件套)**。每档加一件事,清晰度优先于 standard 的隐式 audit 收口仪式。
 
-skill `loaf start` 流程:算 complexity_score → 推 preset label → user 接受或 override → `loaf start --ceremony-json '<PRESETS[label]>' --ceremony-label '<label>'` → CLI 写 `state.ceremony` + `state.ceremony_label`。
+skill 推荐 preset → user 接受或 override → `loaf start <feature> --ceremony <quick|light|standard|deep> --label "session label"`。`--label` 是显示标签，不替代 preset；未知 preset 返回 `INVALID_PRESET`。
 
-3rd-party skill(cursor-loaf / windsurf-loaf / 自定义)可起任意 preset 名,**协议层中立**。详见 `references/loaf-skill-helpers.md` + ADR-0003 Addendum 6。
+自定义 ceremony object 可通过 `loaf profile escalate --confirm --input <ceremony.json>` 单调升档；`start` 不接受自定义 preset 名。
 
-`findings.jsonl` 在 `ceremony.spec_phase=true` 时允许;`spec_phase=false` 拒。`trace.jsonl` 仅 `--debug`。
+finding 可在 EXECUTE.* / VERIFY.* raise，包括 quick；只有 `amend-spec` 要求 `spec_locked=true`。`trace.jsonl` 仅 `--debug`。
 
 ### verify-min(防偷渡,rev 4.2;**v0.1.1 已实装**)
 
@@ -376,70 +244,25 @@ skill `loaf start` 流程:算 complexity_score → 推 preset label → user 接
 - 若 task 是 visual-ui → 必须有 result ∈ {passed, approved, waived} 的 manual/visual-review evidence 至少一条
 - 若任一 task 是 spike → **deliver hard block**(同 §10.8);stderr 提示用户**显式**走 §8.3 三出口之一:`loaf archive --reason "..."` / `loaf spike convert --to-feature F-N --reason "..."` / `loaf abandon --reason "..."`。**不 auto-archive**(§8.3 三出口全部要求用户显式动作 + 都需 `--reason`,protocol 不替用户编造 reason)
 - **混跑 spike + 非 spike task**(rev 4.1 显式):session 内同时有 spike 和 deliverable task 是边缘 case — spike block 是 **session-level**,任一 spike 触发整 session deliver hard block。**默认推荐**:`loaf advance` 进 `EXECUTE.plan` 时检测到混跑 → stderr warning,建议拆(spike 独立起一个 quick session)。**用户坚持混跑**:只能整 session 走 §8.3 三出口(non-spike 工作由 `loaf spike convert --to-feature F-N --reason "..."` 记录 `to_feature` 后,经后续独立的 `loaf start F-N` 在新 feature 里继承;`spike convert` 本身只 archive 旧 session 到 DONE.archived,不创建新 feature)
-- 若都没有 → 阻塞,要求显式 `loaf evidence add --kind manual --reason "..."`
+- 每个 done task 的 passing evidence 必须 `covers` 该 task id；behavioral / structural 接受 local-check，visual-ui 接受 visual-review / manual，docs 接受 task-summary / manual，chore 接受 local-check / manual / task-summary；waiver 是通用人工豁免。缺失时阻塞，用 `loaf evidence add --input <evidence.json>` 补证据。
 
 **verify-min 通过 → `loaf deliver` 一步转移到 `DONE.delivered`**(stdout 仍打印 advisory commit/PR 建议,见 §10.14);失败 → exit 2 + stderr 列出缺什么 evidence。
 
-**rev 5.x:light profile spec 语义提示**。`ceremony.spec_phase=true && ceremony.verify_phase=false`(light)时,verify-min 通过后 `loaf deliver` **按输出格式分流**该提示(遵守 §10.0 stdout/stderr 分工与 §10.3 `--format` 契约):
-
-| 输出 format | 位置 | 形态 |
-|---|---|---|
-| `--format text`(TTY 默认)| stdout 主输出末尾 | 单段 advisory note,与 deliver suggested-commands 同段(人类可读) |
-| `--format json`(pipe / `-format=json`)| stdout JSON 主体 | `warnings[]` 数组追加一条 `{ code: "REQ_COVERAGE_NOT_CLOSED_LIGHT", message: "...", remediation: "..." }`(机器可消费) |
-| 纯 log channel | stderr | **不**写;stderr 保持「错误 / progress / 引用文件路径」用途,不放 advisory(避免 `loaf deliver --format=json 2>/dev/null` 时丢提示)|
-
-提示原文(text 格式 / json `message` 字段共用):
-
-```
-note: spec_phase=true but verify_phase=false — REQ coverage not closed at deliver
-      (spec.md acts as intent anchor only; canSatisfy() not enforced for REQ/SCEN/VIS).
-      To close REQ coverage formally, escalate ceremony to standard via
-      `loaf profile escalate` + `loaf finding raise --action amend-spec`.
-```
-
-理由:light 写了 spec 但不跑 verify-accept gate #3(canSatisfy()),用户容易误以为"既然写了 spec,REQ 就应该自动 close"。这条提示明确边界:**light 的 spec 是 intent anchor,不是 contract closed**;要正式 close 升 standard。Quick(spec_phase=false)无此提示。**机器可消费版本**(json `warnings[]`)让 CI / wrapper 工具能在 `--format=json` 下检测并 surface 给上游 review tool,不依赖人 parse stdout 文本。
+**未实现（目标设计）**：light deliver 的 `REQ_COVERAGE_NOT_CLOSED_LIGHT` advisory / JSON `warnings[]` 尚未接入。当前 light 只执行 verify-min，不闭合 REQ/SCEN/VIS coverage。
 
 ### Ceremony auto-escalation(rev 4.2,原 Q9 backfill 路径)
 
-EXECUTE 阶段 CLI 自动检测 trigger 条件,**raise `PendingPrompt(kind=profile_escalation)`**(命名沿用 — 跟 PendingPromptKind enum 一致,不破 §15 freeze;语义是 "ceremony 升档建议"):
-
-| trigger | 建议 ceremony 升级 |
-|---|---|
-| `scope_expansion` | `spec_phase=false` → `true`(quick → light)|
-| `public_api_touched` / `schema_change` / `concurrency_touched` / `security_touched` | `spec_phase` / `verify_phase` / `settle_phase` 全 → `true`(quick / light → standard)|
-
-CLI 只负责检测 trigger + raise pending;**skill 决定**新 ceremony object(skill PRESETS 表里映射 trigger → 推荐 preset label),user 确认后 skill 算出新 6-flag Ceremony,调 `loaf profile escalate --confirm --input <ceremony.json>` 应用(emit `event:ceremony_set` + `pending:resolved`,resolve 那条 `profile_escalation` pending)。详见 `src/core/escalation-schema.ts::ESCALATION_DETECTIONS`。
+**未实现（目标设计）**：CLI 自动检测 escalation trigger 并 raise pending 尚未接入。`ESCALATION_DETECTIONS` 只定义建议表；skill 负责检测并调用 `loaf pending raise --kind profile_escalation`，用户确认后调用 `loaf profile escalate --confirm --input <ceremony.json>`。该命令写 ceremony，并在存在匹配 head 时 co-resolve pending。
 
 **不允许自动降级**。
 
 #### Q9 quick → standard backfill 路径
 
-quick 升级到 standard 时,SPEC 必须补齐。**不新增 sub-state**,复用 `SPEC.proposal`:
-
-```
-1. user confirm escalation prompt → loaf 写 state:
-     state.phase = "SPEC"
-     state.sub_state = "SPEC.proposal"
-     state.spec_locked = false
-     state.based_on.spec += 1
-     (iteration 不变)
-
-2. loaf-cli 把 backfill 上下文写到:
-     .loaf/<feature>/spec-draft-context.md
-        ├─ 原 prompt
-        ├─ 当前 git diff 摘要
-        └─ 已有 evidence 列表(EV-id + summary)
-
-3. loaf-skill 读 spec-draft-context.md,驱动 LLM 反向归纳 spec.md
-
-4. 正常 SPEC.spec → SPEC.design → spec-lock → 重入 EXECUTE
-```
-
-EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"这次 SPEC 来自 escalation"。
+**未实现（目标设计）**：Q9 backfill 将 EXECUTE cursor 回到 SPEC.proposal 并写 `spec-draft-context.md` 尚未接入。当前 `event:ceremony_set` 只更新 ceremony，不修改 cursor、iteration 或 spec_version。
 
 ### 自动判分(TRIAGE.score)
 
-6 维度各 0-20:`files_touched / new_module / public_api_change / schema_change / concurrency / security`。用户可 override,写入 state.json 留痕。
+**未实现（目标设计）**：自动判分及写入尚未接入；`complexity_score` 无 journal 来源，当前投影恒为 `null`。skill 可自行评估复杂度。
 
 ---
 
@@ -447,7 +270,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 > **rev 5.0 authority bridge**(ADR-0005 §3.1 落点):
 >
-> 自 rev 5.0,**canonical truth** 是 `.loaf/<feature>/journal.jsonl`(append-only,typed envelope)+ `attachments/<entry_id>/` 目录(per-entry sidecar)。本节描述的所有 8 个 per-feature artifact (`state.json` / `spec.md` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `lessons.md` / `gate-diagnostic.json` / `resume-pack.json`)均为 reducer 从 journal entries 重建的 **派生投影**(落 `snapshots/*.json` 或 markdown)。本节 schema 文档保留用于 reader / TUI / CI 消费;**mutation 永远经 `loaf <subcommand>` → journal entry,从不直写 artifact**(§11.2 + Principle 15a)。每节标题下的 `> **Authority**:` 注释明示该 artifact 的 layer(详 §13.1)。
+> 自 rev 5.0,**canonical truth** 是 `.loaf/<feature>/journal.jsonl`(append-only,typed envelope)+ `attachments/<entry_id>/` 目录(per-entry sidecar)。本节描述的已实现 per-feature artifact (`state.json` / `spec.md` / `tasks.json` / `evidence.json` / `findings.json` / `pending.json` / `lessons.md` / `resume-pack.json`)均为 reducer 从 journal entries 重建的 **派生投影**(落 `snapshots/*.json` 或 markdown)。本节 schema 文档保留用于 reader / TUI / CI 消费;**mutation 永远经 `loaf <subcommand>` → journal entry,从不直写 artifact**(§11.2 + Principle 15a)。每节标题下的 `> **Authority**:` 注释明示该 artifact 的 layer(详 §13.1)。
 
 ```
 .loaf/                              repo-level,git-tracked
@@ -457,16 +280,16 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
   │   ├─ snapshots/          派生投影(reducer-derived,reader-only;§13.1)
   │   │   ├─ state.json                                   phase + sub_state + ceremony + iteration
   │   │   ├─ tasks.json                                   task graph snapshot
-  │   │   ├─ evidence.json                                evidence ledger view + 派生 gate-decision view
+  │   │   ├─ evidence.json                                evidence ledger view（不含 gate:decided）
   │   │   ├─ findings.json                                findings list view
   │   │   ├─ pending.json                                 pending queue + resolved_log slice
-  │   │   ├─ gate-diagnostic.json                         on gate fail(结构化诊断快照)
+  │   │   ├─ gate-diagnostic.json                         未实现（目标设计）：无 writer
   │   │   ├─ resume-pack.json                             on `loaf handoff`
   │   │   └─ _meta.json                                   last_applied_seq + last_entry_offset
   │   │                                                   + last_entry_line_hash + rolling_checksum
   │   ├─ spec.md             派生投影                     reducer 从 event:spec_* entries 重建
-  │   ├─ lessons.md          派生投影 / Advisory          SETTLE 最终态(deep:MUST;quick/light/standard:skip,rev 5.x)
-  │   ├─ spec-draft-context.md  escalation only          Q9 backfill 输入(per-skill,非 journal)
+  │   ├─ lessons.md          派生投影 / Advisory          lesson:recorded 派生；deep lessons policy 由 skill 解释
+  │   ├─ spec-draft-context.md  escalation only          未实现（目标设计）：Q9 backfill 输入
   │   ├─ trace.jsonl         --debug only                 per-cmd verbose log(NOT a journal entry)
   │   └─ .lock                                            per-feature flock(§11.2)
   └─ .config/loaf.config.json   optional                  项目级合并配置(canonical,non-journal)
@@ -477,7 +300,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 ```
 
 **rev 5.0 layout 关键变化**(ADR-0005 §3.1):
-- `state.json` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` / `gate-diagnostic.json` / `resume-pack.json` 全部下移到 `snapshots/`,前缀 `*.json`(jsonl → json),从 "always written by mutator" 变为 "reducer-rebuilt from journal"
+- `state.json` / `tasks.json` / `evidence.json` / `findings.json` / `pending.json` / `resume-pack.json` 位于 `snapshots/`,从 "always written by mutator" 变为 "reducer-rebuilt from journal"
 - `journal.jsonl` 是新 canonical truth
 - `attachments/` 目录键从 `<EV-id>` 改为 `<entry_id>`(JE-NNNNNN),per-entry-sidecar 模型
 - `snapshots/_meta.json` 是 reader fast-check 入口(Gate #5)
@@ -573,7 +396,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 **Invariant**:
 - `sub_state.startsWith(phase + ".")` (StateProjection 内嵌 refine)
-- `phase = "DONE"` 时 `tasks.json` 中无 `status="in_progress"`(**cross-file invariant**,由 `transitions.ts` 强制 — Zod 单文件 refine 无法表达;rev 4.0 fresh design 对 §1 原则 3 的一档让步)
+- `phase = "DONE"` 时 `tasks.json` 中无 `status="in_progress"`(**cross-file invariant**,由 `src/core/reducer/transition.ts` 强制 — Zod 单文件 refine 无法表达;rev 4.0 fresh design 对 §1 原则 3 的一档让步)
 - `pending` 是 **FIFO 队列**(rev 4.1:数组,default `[]`);**head 元素 `pending[0]` 是 active blocker**。Protocol 层阻塞规则极简(rev 4.1 Q3,见 §10.7 / §14.3 L2019):**`loaf advance` 在 head kind ∈ {`gate_decision`, `profile_escalation`} 时 exit 2**。其它 35+ 命令 protocol 不做 pending 阻塞 — fan-out 调度由 skill 通过 `loaf pending list` 决策。resolve 永远 pop head(v1.0 严格 FIFO,无 `--id` 跳序)
 - **`pending` 反向定义**(rev 4.1):每个 entry 是一次 **single blocking interaction**(等用户回答 / human gate 批准 / finding decision / profile escalation 等);**不是** unfinished work 集合,**不是** derived obligation list。所有其它"待处理事项"(未跑完的 check / 未关的 finding / 未做的 task)由 tasks / spec / evidence / findings 派生计算,**不进** state.pending。队列存在的唯一原因:rev 4.0 fan-out(EXECUTE.work)多 worker 各自 raise 不同 pending,FIFO 排队避免互相阻塞。详见 §14.3
 - **DONE.* 终态**:`pending.length === 0`(StateProjection 内嵌 refine 强制 — `pending` 是数组,空形态是 `[]` 不是 `null`);active-set cross-file invariant 见 §2(`tasks.json` 中无 `in_progress`)
@@ -606,7 +429,7 @@ EXECUTE 之前的 evidence 不浪费;`based_on.spec` 跳号让审计能识别"�
 
 ### 4.2 spec.md(EARS 三选一可验证 + Gherkin + Visual Contracts + adr_refs)
 
-> **Authority**: 派生投影(reducer 从 `event:spec_req_added` / `event:spec_scenario_added` / `event:spec_visual_added` / `event:spec_submitted` entries 重建)。`SPEC.*` pre-lock 阶段允许 `loaf spec edit --input` 或 `$EDITOR` 更新工作副本,但提交必须经 CLI → journal entry(§11.2);post-lock 直写由 diff-guard 拦截(§11.1)。
+> **Authority**: 派生投影(reducer 从 `event:spec_req_added` / `event:spec_scenario_added` / `event:spec_visual_added` / `event:spec_submitted` entries 重建)。`SPEC.*` pre-lock 阶段允许 `loaf spec edit --input` 或 `$EDITOR` 更新工作副本,但提交必须经 CLI → journal entry(§11.2);post-lock CLI spec mutation 被锁定检查拒绝；**未实现（目标设计）**：diff-guard 尚未接入(§11.1)。
 
 ```markdown
 ---
@@ -688,15 +511,15 @@ needs_clarification: []
 - 30+ 次 add-\* 是内部 audit 计数,不面向终端用户
 - runtime 错误码:batch 头 spec_version ≠ current+1 → `SPEC_VERSION_NOT_MONOTONIC`(`INVALID_PAYLOAD` 范畴);batch 续条 spec_version ≠ current → `SPEC_VERSION_BATCH_MISMATCH`;同 invocation 内 / 跨 invocation `id` 重复 → `DUPLICATE_REQ_ID` / `DUPLICATE_SCEN_ID` / `DUPLICATE_VIS_ID`
 
-phase gating(镜像 `loaf tasks add` 的 EXECUTE post-lock 规则):
+`spec add-*` 先按 kind registry 限制在 SPEC.*，再检查 journal snapshot：
 
-| 当前 phase / sub_state | `spec add-*` 行为 |
+| 条件 | `spec add-*` 行为 |
 |---|---|
-| `SPEC.spec` / `SPEC.plan` / `SPEC.design`(pre-lock)| 接受,落 spec.md,bump `spec_version` |
-| `EXECUTE.*` / `VERIFY.*` / `SETTLE.*` / `DONE.*`(post-lock)| 拒,`SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,stderr 引导走 `loaf finding raise --category spec-gap --action amend-spec` 回到 SPEC.spec |
-| feature 尚无 spec.md | 拒,`SPEC_NOT_INITIALIZED` exit 2,stderr 引导 `loaf spec init` |
+| `spec_locked=true` | 拒绝，`SPEC_LOCKED_NO_DIRECT_EDIT` |
+| `spec_version=0` | 拒绝，`SPEC_NOT_INITIALIZED`；先 `loaf spec submit` 初始化 journal spec |
+| SPEC.* 且未锁定、`spec_version>0` | 接受（包括 SPEC.proposal），append entry 并 bump spec_version |
 
-post-lock 行为与 pre-lock 直接编辑入口的 post-lock 拒规则一致(§5.3 反向 transition):**唯一**合法回退路径是 finding。
+生成的 mutation-rights 矩阵是逻辑声明，不是 add-* 的准入实现。
 
 #### ID 分配 — `id_namespace` 输入 vs 完整 `id` 输出(rev 4.3,ADR-0004 A5)
 
@@ -711,10 +534,10 @@ CLI 分配流程(每次 add-\* / batch invocation):
 
 ```
 1. Zod 校验 input(`id_namespace` 通过 input regex)
-2. lock 内扫 spec.md,找该 namespace 下 max 序号 → 计算 next
+2. lock 内扫 journal replay snapshot，找该 namespace 下 max 序号 → 计算 next
 3. 拼完整 id(zero-padded ≥ 3 位)
 4. 通过 output regex 兜底校验
-5. 落 spec.md + `spec_version += 1`(整 batch atomic)
+5. append journal entries，派生 spec.md + `spec_version += 1`(整 batch atomic)
 6. stdout 回打分配到的完整 id 范围(state-change line 见 §10.12)
 ```
 
@@ -749,6 +572,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
     {
       "id": "T-099",
       "kind": "structural",
+      "labels": [],
+      "drives": [],
       "no_test_rationale": "rename AuthInterceptor → TokenInterceptor, no behavior change",
       "depends_on": ["T-001"],
       "status": "pending",
@@ -760,6 +585,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
     {
       "id": "T-200",
       "kind": "visual-ui",
+      "labels": [],
+      "drives": [],
       "visual_contract_refs": ["VIS-AUTH-001"],
       "depends_on": [],
       "status": "pending",
@@ -772,6 +599,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
     {
       "id": "T-900",
       "kind": "spike",
+      "labels": [],
+      "drives": [],
       "no_test_rationale": "explore single-flight library options",
       "depends_on": [],
       "status": "pending",
@@ -784,6 +613,8 @@ CLI 分配流程(每次 add-\* / batch invocation):
     {
       "id": "T-950",
       "kind": "chore",
+      "labels": [],
+      "drives": [],
       "no_test_rationale": "version bump in gradle.properties",
       "depends_on": [],
       "status": "pending",
@@ -800,25 +631,39 @@ CLI 分配流程(每次 add-\* / batch invocation):
 - bug-fix 不再是独立 kind,用 `behavioral + labels: ["bug"]`;bug task 出生即未注册,RED 经 `loaf tasks register-red` 注册后 `red_test_registered=true`,implement step 前由 preflight 把关(§9.3)
 - 每个 kind 有**自己的 execution 形状**(只包含本 kind 合法的 step)
 - spike task **永远不允许 `loaf deliver`**——只能 archive / convert / abandon
-- `tasks.execution.<step>.status` 是 **cache**,不是真理源;真理源是 `evidence.jsonl`。一致性校验由 `loaf tasks check` 跑(**inventory:future,未在 v0.1.0 实装**)
+- `tasks.execution.<step>.status` 是 **cache**,不是真理源;真理源是 journal 中的 `event:task_step_done`。一致性校验由 `loaf tasks check` 跑(**inventory:future,未在 v0.1.0 实装**)
 
 **Semantic authoring + ID 分配**(rev 5.2,A08;supersedes ADR-0004 A5 的 task-input 细节):`loaf tasks submit --input` 与 `loaf tasks add --input` 接受 strict semantic task definitions。每条 task 必须提供 invocation-local `local_key`(`^[A-Za-z][A-Za-z0-9_-]*$`,max 64);不得携 `id` / `status` / `execution` / journal envelope。`depends_on` 每项必须显式区分已存在 task (`{"task_id":"T-NNN"}`)与同批 task (`{"local_key":"name"}`);CLI 先为整批分配 ID、再解析 dependency refs,因此 forward local ref 合法。task id(`^T-\d{3,}$`)在 feature write lease 内从 journal 历史最大值后单调分配,whole-replacement 不复用已消失 ID。`execution` 由 CLI 初始化为 `status="pending"`;caller 只可用 per-kind `step_policy` 指定初始 applicability。成功 JSON 回传 `task_ids_by_local_key`。CLI 最终仍写既有 full `event:tasks_planned` / `event:tasks_amended` payload,所以 journal wire 与历史 replay 不变。旧 `{based_on,tasks:[{id,status,execution,...}]}` CLI input 被有意拒绝为 `SCHEMA_VALIDATION_FAILED`(`migration=legacy-full-input-rejected`);这是仅 authoring surface 的 approved breaking change。精确 schema:`loaf tasks submit --schema --format=json` / `loaf tasks add --schema --format=json`;runtime source 见 `src/core/task-schema.ts::TaskAuthoringInput`。
 
-### 4.4 evidence.jsonl(稳定 EV-id + waiver kind + hashed attachments)
+### 4.4 evidence.json(稳定 EV-id + waiver kind + hashed attachments)
 
-> **Authority**: 派生投影(reducer 从 `evidence:added` entries 重建,落 `snapshots/evidence.json`);attachments 内容是 sidecar canonical (`.loaf/<feature>/attachments/<entry_id>/`,**rev 5.0:目录按 journal `entry_id`(JE-NNNNNN)分桶,非 evidence_id**;sha256 在 journal entry payload 内的 `AttachmentRef` anchor;orphan GC 也按 entry_id 比对)。当前 gate decision 由 `gate:decided` journal entry 投影；不支持旧 N-file snapshot import。
+> **Authority**: 派生投影(reducer 从 `evidence:added` entries 重建,落 `snapshots/evidence.json`);attachments 内容是 sidecar canonical (`.loaf/<feature>/attachments/<entry_id>/`,**rev 5.0:目录按 journal `entry_id`(JE-NNNNNN)分桶,非 evidence_id**;sha256 在 journal entry payload 内的 `AttachmentRef` anchor;orphan GC 也按 entry_id 比对)。gate decision 仅记为 `gate:decided` journal entry，不进入 evidence 投影。
 
-```jsonl
-{"schema_version":2,"evidence_id":"EV-000123","at":"2026-05-12T09:00Z","kind":"task-summary","iteration":1,"actor":"skill:loaf-cli/sdd-execute","result":"passed","summary":"4 unit tests passed","task_id":"T-001","covers":["REQ-AUTH-002","T-001"],"cmd":"bun test auth","exit":0}
-{"schema_version":2,"evidence_id":"EV-000124","at":"2026-05-12T09:15Z","kind":"local-check","iteration":1,"actor":"cli:loaf","result":"passed","summary":"lint + typecheck clean","task_id":"T-001","covers":["T-001"]}
-{"schema_version":2,"evidence_id":"EV-000125","at":"2026-05-12T09:30Z","kind":"verify-review","iteration":1,"actor":"skill:loaf-cli/sdd-verify","result":"approved","summary":"spec_fit passes; no anti-pattern","check":"review","covers":["REQ-AUTH-001","REQ-AUTH-002"]}
-{"schema_version":2,"evidence_id":"EV-000126","at":"2026-05-12T09:50Z","kind":"visual-review","iteration":1,"actor":"human:est9","result":"approved","summary":"button shows spinner; disabled state correct","check":"visual","covers":["VIS-AUTH-001"],"attachments":[{"path":".loaf/auth-refresh/attachments/JE-000456/login-primary-button.png","sha256":"a1b2c3d4e5f6...64hex","mime":"image/png","bytes":48213}]}
-{"schema_version":2,"evidence_id":"EV-000127","at":"2026-05-12T09:55Z","kind":"waiver","iteration":1,"actor":"human:est9","result":"waived","reason":"REQ-AUTH-005 acceptance_na=true; intuitive feel validated via separate user-testing protocol","covers":["REQ-AUTH-005"],"waiver_obligation_id":"REQ-AUTH-005"}
-{"schema_version":2,"evidence_id":"EV-000128","at":"2026-05-12T10:00Z","kind":"gate-decision","iteration":1,"actor":"human:est9","decided_by":"human:est9","result":"approved","gate":"verify-accept","reason":"all checks passed; waivers documented","covers":[],"based_on":{"spec":2,"tasks":4}}
+实际 `snapshots/evidence.json` 示例（LOAF_USER=tester 的 scratch session）：
+
+```json
+{
+  "schema_version": 2,
+  "evidence": [
+    {
+      "id": "EV-000001",
+      "kind": "local-check",
+      "iteration": 1,
+      "actor": "ci:docs",
+      "result": "passed",
+      "summary": "Documentation capture checked",
+      "covers": [
+        "T-001"
+      ],
+      "schema_version": 2,
+      "at": "2026-10-12T05:55:18.641Z"
+    }
+  ]
+}
 ```
 
 **核心约束**:
-- 每条 entry 必带 `evidence_id`(单调 `EV-` + ≥6 位数字)、`iteration`、`actor`、`result`、`summary`
+- 每条 evidence 投影必带 `id`(单调 `EV-` + ≥6 位数字)、`iteration`、`actor`、`result`、`summary`
 - `actor` 自由字符串,**推荐前缀**:`human:<id>` / `skill:<plugin>/<skill>` / `cli:loaf` / `ci:<job>`
 - Actor ownership is intentionally split: payload.actor = evidence attester;
   journal envelope actor = writer provenance. They are deliberately allowed to differ
@@ -828,25 +673,12 @@ CLI 分配流程(每次 add-\* / batch invocation):
   - `manual`:人工验证(`result` 通常是 `passed/failed`)
   - `waiver`:人工豁免(`result=waived`,`actor` 必须 `human:*`,`reason` 必填 ≥10 字符)
 - `kind=spec-review` 的 `actor` 必须 ≠ implementer(`ceremony.strict_spec_review=true` 时 verify-accept gate check 5 enforce;rev 4.2;rev 5.1 修正:gate 主体是 verify-accept,不是 spec-lock。实现位置 `src/core/gates/verify-accept-check.ts` deriveImplementers helper:implementer = done-task task-summary/local-check evidence 的 actor 集合,排除 `cli:*` 前缀)
-- visual evidence 的 `attachments[]` 是对象数组,**强制 sha256 + mime**;rev 5.0 路径规范化到 `.loaf/<feature>/attachments/<entry_id>/<file>`(按发出该 evidence 的 journal entry_id JE-NNNNNN 分桶,**非** EV-id);`evidence_id` 仍保留在 payload 中作为 evidence projection 的稳定 ID
-- gate-decision 通过 `loaf gate decide` 写入,不直接编辑
+- visual evidence 的 `attachments[]` 是对象数组,**强制 sha256 + mime**;rev 5.0 路径规范化到 `.loaf/<feature>/attachments/<entry_id>/<file>`(按发出该 evidence 的 journal entry_id JE-NNNNNN 分桶,**非** EV-id);payload 的 `id` 是 evidence projection 的稳定 ID
+- gate decision 通过 `loaf gate decide` 写 `gate:decided`，不进入 evidence projection
 
 #### Attachment 自动处理(rev 4.3,ADR-0004 A6)
 
-`loaf evidence add --input <src>` 的 `attachments[]` 当前**要求完整 Attachment 形态** `[{ path, sha256, mime, bytes? }]`(Phase 16 SC-4c:auto-hash materialization 尚未接入)。下方简化输入形态 `[{ path }]` + transformation 7 步是 **ADR-0004 A6 / 未来 SC 的目标契约**,**当前 SC-4c 不生效**;`src/core/evidence-schema.ts` + `src/cli/input-schemas.ts::INPUT_SCHEMAS["evidence:add"]` 都仍要求 caller 提供完整 metadata(详 §10.7)。
-
-```
-(ADR-0004 A6 future / deferred — NOT active in SC-4c)
-1. 验证 path 存在(否则 ATTACHMENT_NOT_FOUND exit 2)
-2. 验证 path 是 regular file(目录 / socket / FIFO / 符号链接到非文件 → ATTACHMENT_NOT_FILE exit 2)
-3. 拷贝到 `.loaf/<feature>/attachments/<entry_id>/<basename>`(**rev 5.0**:目录按发出该 evidence 的 journal entry_id (JE-NNNNNN) 分桶,非 EV-id;basename 冲突时 suffix `-2` / `-3` ...)
-4. 计算 sha256(hex,64 字符)
-5. 从扩展名 + magic bytes 推断 mime
-6. stat() bytes
-7. 写完整 Attachment 对象(`{ path, sha256, mime, bytes }`)到 evidence.jsonl;落盘后 attachments[].path 是规范化后的相对路径(repo-relative)
-```
-
-理由:LLM 在 shell 调 `sha256sum` 或推断 mime 几乎必错,这是经典 **shape transformation**(path → canonical entry with hash/mime/bytes),归 CLI 完美。这一 transformation 是 ADR-0004 A6 auto-hash transaction 的核心,但 v0.1.0 / Phase 16 SC-4c 仅完成 source modality + batch 接入,**materialization 由后续 SC 落地**;在那之前 callers 仍需自己提供 `sha256`(`shasum -a 256 path | cut -d' ' -f1`)+ `mime`(`file --mime-type -b path`)+ 可选 `bytes`(`stat -f%z path` / `stat -c%s path`)。机器表达见 `src/cli/input-schemas.ts::INPUT_SCHEMAS["evidence:add"]`(SC-4c 已 patched 为 full Attachment[] + `.strict()`)。
+当前 attachments 要求完整 `{path, sha256, mime, bytes?}`；caller 预先计算 metadata。**未实现（目标设计）**：只传 `{path}` 后由 CLI copy/hash/infer MIME 的自动 materialization 尚未接入。
 
 **ID 分配**(rev 4.3,ADR-0004 A5):`evidence add --input <src>` input JSON **不**携 `id` / `evidence_id` / `schema_version` / `at` 字段 — `EV-id`(`^EV-\d{6,}$`)/ envelope timestamp / schema version 由 CLI 单调分配/stamp,batch 输入 N 条原子分配 N 个连续 id(append-only / spec_version 不变,Phase 16 SC-4c 接入 single object **或** non-empty array,见 §10.7)。caller 显式传任一上述字段 → `SCHEMA_VALIDATION_FAILED`(Phase 16 SC-4c / codex r230 PATCH D / r234)。
 
@@ -870,7 +702,7 @@ size and SHA-256 from the same open file handle.
 
 > **Authority**: 派生投影(reducer 从 `finding:raised` / `finding:closed` entries 重建,落 `snapshots/findings.json`)。
 
-**只能在 VERIFY.\*** sub-state raise(标准情况),**或** spec_locked=true 的 EXECUTE.* sub-state raise(post-lock 漂移)。Quick profile 完全不允许。
+finding 可在 EXECUTE.* / VERIFY.* raise，包括 quick；只有 `amend-spec` 要求 `spec_locked=true`。
 
 ```json
 {
@@ -882,9 +714,7 @@ size and SHA-256 from the same open file handle.
 }
 ```
 
-当前 journal 使用 `finding:raised` / `finding:closed`；旧 `FindingsEvent`
-opened/closed jsonl schema 已删除。Projection 只包含当前 FindingState 字段，
-不从旧 event shape 推断状态。
+当前 journal 使用 `finding:raised` / `finding:closed`，派生 `snapshots/findings.json`。
 
 #### 3-tier ActionRisk + `FINDING_ACTION_GRID`(rev 4.3,ADR-0004 A7)
 
@@ -918,7 +748,6 @@ opened/closed jsonl schema 已删除。Projection 只包含当前 FindingState �
 
 > **Authority**: `scope:recorded` 与 `deriveActualScope()` 提供 journal audit
 > evidence；不存在 canonical `planned_scope` owner，禁止臆造 planned scope。
-> 旧 reconcile state、schema 和 projection reader 已删除。
 
 **`scope:recorded@1` authority**:`actual_scope` 只从完整 journal entry stream 中的 `scope:recorded` 重算；每条 payload 为 strict `{iteration: positive-int, paths}`，其中 `paths` 是 canonical concrete path array，或 carrying 同一 array canonical JSON 的 `LongTextField`。多 iteration/closure entry 以集合 union 聚合。该 kind 只允许 `cli:*` 在 `EXECUTE.work` 发出，必须与紧随其后的唯一 `event:phase_advanced {from:"EXECUTE.work",to:"EXECUTE.done"}` 同 batch，且历史中同 iteration 不得重复。任一 `EXECUTE.work → EXECUTE.done` 无同批 marker 时，完整性扫描一次报告所有 transition seq，返回 `ACTUAL_SCOPE_HISTORY_INCOMPLETE` 而不是 `[]`。hook accumulator 与 closure emission 已由 ticket #11 接通。
 
@@ -938,34 +767,7 @@ opened/closed jsonl schema 已删除。Projection 只包含当前 FindingState �
 
 ### 4.8 gate-diagnostic.json(rev 3.1 新)
 
-> **Authority**: 派生投影(诊断快照,允许 stale;gate 失败时 reducer 重新计算落 `snapshots/gate-diagnostic.json`)。
-
-gate / submit / transition / diff-guard 失败时**覆写**到 `.loaf/<feature>/snapshots/gate-diagnostic.json`(rev 5.0:路径迁移到 `snapshots/`;读者必须先过 §10.15 Gate #5 fast check)。loaf-skill 读它喂 LLM 做下一轮 fix。
-
-```jsonc
-{
-  "schema_version": 2,
-  "at": "2026-05-12T08:32Z",
-  "gate": "spec-lock",
-  "failures": [
-    {
-      "code": "MISSING_VERIFIABILITY",
-      "severity": "block",
-      "ref": "REQ-AUTH-006",
-      "vars": { "req_id": "REQ-AUTH-006" },
-      "suggestion": "REQ-AUTH-006 needs measurable, verified_by_scenarios[], or acceptance_na+reason"
-    },
-    {
-      "code": "DRIVES_NOT_BOUND",
-      "severity": "block",
-      "ref": "REQ-AUTH-007",
-      "vars": { "req_id": "REQ-AUTH-007" }
-    }
-  ]
-}
-```
-
-诊断模板在 `i18n/<lang>.json` 的 `diagnostic.<code>`,根据 `LOAF_LANG` 渲染人类可读消息。
+**未实现（目标设计）**：`GateDiagnostic` schema 存在，但当前没有 `snapshots/gate-diagnostic.json` writer。失败通过 stderr catalog diagnostic 输出；skill 应读取该出口。
 
 ### 4.9 resume-pack.json(rev 3.1 新)
 
@@ -1016,7 +818,7 @@ git 默认 `.gitignore` 排除(`**/.loaf/*/trace.jsonl`)。
 
 ### 4.11 loaf.config.json(rev 3.1 合并配置,project-level)
 
-> **Authority**: Config(project-level,非 per-feature journal 一部分;初始化经 `loaf config init`,后续 mutation 经手动编辑或 `loaf config set` ——后者亦走 §11.2 transaction,但不在 `.loaf/<feature>/journal.jsonl` 体系内)。
+> **Authority**: Config(project-level,非 per-feature journal 一部分;初始化经 `loaf config init`（拒绝覆盖已有文件），后续手动编辑；不进入 per-feature journal)。
 
 ```jsonc
 {
@@ -1062,11 +864,11 @@ git 默认 `.gitignore` 排除(`**/.loaf/*/trace.jsonl`)。
 
 **所有字段都 optional**;loaf-cli ships 默认值。该文件解决两个 v1 痛点:
 1. 把 legacy Python 原型的 `protected-files.json` + `stable-core-manifest.json` + mother 的 `constitution.json` 合并成一份
-2. 给 diff-guard / verify-applicability / auto-escalation 提供项目级 paths 知识,避免硬编码 glob
+2. write-guard 读取 protected_files 与 paths.source/tests/docs/ui；stable_core、paths.public_api/schema/security 及 commands/constitution/project locale 是 skill-owned 或预留，内核当前不执行其策略
 
 ### 4.12 registry per-session file(rev 3.1 Q15 翻牌)
 
-> **Authority**: 派生投影(per-session,允许 stale,GC by `loaf doctor --rebuild-registry`;TUI 消费)。位于 `~/.loaf/registry/<id>.json`,**不**进 `.loaf/<feature>/journal.jsonl` 体系。
+> **Authority**: 派生投影(per-session,允许 stale,`loaf doctor --rebuild-registry` 尚未实现;TUI 消费)。位于 `~/.loaf/registry/<id>.json`,**不**进 `.loaf/<feature>/journal.jsonl` 体系。
 
 ```
 ~/.loaf/registry/
@@ -1090,12 +892,12 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 **TUI 启动**:`readdir(~/.loaf/registry/)` + parallel reads。session 数百量级 = 微秒级。
 
-**GC**:`mtime > 30d` → `unlink`(POSIX 原子)。文件权限默认 `0600`,他用户读不到 cwd / session_label。
+**未实现（目标设计）**：registry GC（`mtime > 30d` 后删除）尚未接入。文件权限默认 `0600`,他用户读不到 cwd / session_label。
 
 **Best-effort projection 语义**(rev 4.1):RegistryFile **不是 canonical truth**,只是 TUI 投影。
 - atomic rewrite 只保证单文件不撕,**不保证**跨文件 transaction:存在 crash window(`tasks.json` 写完 → `state.json` 写完 → crash 在 registry rewrite 之前 → registry 落后)
 - TUI 容忍 registry 落后但不推断 liveness:`[r]` 手动重读 registry；打开 detail 时由 projection loader 独立报告 snapshot stale/missing。registry `at` 与 machine-local runtime `heartbeat_at` 不再组成 TUI freshness 算法
-- `loaf doctor --rebuild-registry` 从 canonical artifact 重建全部 session 投影
+- **未实现（目标设计）**：`loaf doctor --rebuild-registry` 尚未接入；当前 `doctor --rebuild` 重建选中 session snapshots
 - **gate / 任何 blocking decision 永远不读 registry**;registry 仅供 TUI 列表展示
 
 详见 §14。
@@ -1104,7 +906,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 ## 5. Gate(2 个 human gate)
 
-> **Gate 的 truth source 纪律**(rev 4.1 + rev 5.0 重锚,Principle #15 / 15a 落地):任何 gate 都从 **canonical truth**(`journal.jsonl` + `attachments/<entry_id>/` + `loaf.config.json`,详 §13.1 + ADR-0005 §3.1)**实时计算** — gate evaluator 直接 fold journal entries 走 reducer,或从 `snapshots/*.json` 读派生投影但必须先过 §10.15 fast check(Gate #5,mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`,**绝不静默 fallback**;ADR-0005 §3.6 reader contract)。Derived 文件(`snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/gate-diagnostic.json` / `snapshots/resume-pack.json` / `spec.md` post-submit projection / `lessons.md` / `~/.loaf/registry/<id>.json`)**永远不是 blocking decision 的真理源** — 它们是诊断 / 投影 / handoff 产物,允许 stale;读时必须走 fast check 或退化到从 journal full-replay 重建(`loaf doctor --rebuild`)。详见 §13.1 四层 artifact authority。
+> **Gate 的 truth source 纪律**(rev 4.1 + rev 5.0 重锚,Principle #15 / 15a 落地):任何 gate 都从 **canonical truth**(`journal.jsonl` + `attachments/<entry_id>/` + `loaf.config.json`,详 §13.1 + ADR-0005 §3.1)**实时计算** — gate evaluator 直接 fold journal entries 走 reducer,或从 `snapshots/*.json` 读派生投影但必须先过 §10.15 fast check(Gate #5,mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`,**绝不静默 fallback**;ADR-0005 §3.6 reader contract)。Derived 文件(`snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/resume-pack.json` / `spec.md` post-submit projection / `lessons.md` / `~/.loaf/registry/<id>.json`)**永远不是 blocking decision 的真理源** — 它们是诊断 / 投影 / handoff 产物,允许 stale;读时必须走 fast check 或退化到从 journal full-replay 重建(`loaf doctor --rebuild`)。详见 §13.1 四层 artifact authority。
 
 ### 5.1 spec-lock(SPEC → EXECUTE)
 
@@ -1125,7 +927,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
    - visual_contract 自带 `visual_na` + reason
 8. 每个 task 通过 kind-specific schema(`structural/docs/spike/chore` 必须 `no_test_rationale`,`visual-ui` 必须 `visual_contract_refs[]`)。**R2**:bug task 的 RED 是执行纪律,不在 spec-lock 校验——bug task 出生即未注册,RED 注册由运行时 preflight(`BUG_TASK_REQUIRES_RED`)与 verify-accept(`BUG_TASK_RED_NOT_REGISTERED`)把关
 
-**Human**:`loaf gate decide spec-lock --approve --reason "..."` → evidence.jsonl `kind=gate-decision`。
+**Human**:`loaf gate decide spec-lock --approve --reason "..."` → journal `kind=gate:decided`。
 
 **通过后**:`state.spec_locked = true`。后续任何 spec/tasks 变化必须经 finding 机制(详见 §6)。
 
@@ -1135,7 +937,7 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 1. 所有 applicable VerifyCheck(`applicability === "must"`)status === `passed` 或 `waived`
    - **rev 3.1**:`skipped` 已 deprecated;只能是 `passed` 或 `waived(actor=human:* + reason)`
-2. `findings.jsonl` 中不存在 `status === open` 且 action **未声明 deferral** 的 finding；`defer` / `backlog` 的 action 本身就是处置决定，保持 open 以保留 carry-forward 语义但不阻塞 gate
+2. journal 派生 findings 中不存在 `status === open` 且 action **未声明 deferral** 的 finding；`defer` / `backlog` 的 action 本身就是处置决定，保持 open 以保留 carry-forward 语义但不阻塞 gate
 3. **每个 REQ/SCEN/VIS(非 `*_na`)有 ≥1 evidence 通过 `canSatisfy()` 检查**(详见 §5.4),且 result ∈ {passed, approved, waived}
 4. 每个 status=done 的 task 有 ≥1 result ∈ {passed, approved, waived} 的 evidence(kind ∈ {task-summary, local-check, manual, waiver})
 5. deep profile:存在 `kind=spec-review` 且 `actor ≠ implementer` 的 evidence(`ceremony.strict_spec_review=true`)
@@ -1143,10 +945,10 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 **Human**:`loaf gate decide verify-accept --approve --reason "..."`。
 
 **Transition target**(rev 5.x + Slice 1.D,跟 ceremony.settle_phase 分支):
-- `settle_phase=true`(deep)→ `SETTLE.lessons` 经 `loaf settle`(event:phase_advanced;lessons MUST)
+- `settle_phase=true`(deep)→ `SETTLE.lessons` 经 `loaf settle`(event:phase_advanced；lessons_required 由 skill 解释，内核不强制)
 - `settle_phase=false`(standard)→ `DONE.delivered` 经 `loaf deliver`(session:delivered 直接 cursor flip;无 verify-min 二次跑,VERIFY 已覆盖)
 
-**Slice 1.D 边界变更**:Slice 1.D sub-cycle 1 把 `event:phase_advanced` 图里所有指向 `DONE.delivered` 的边(VERIFY.accept、EXECUTE.done、SETTLE.lessons → DONE.delivered)从 `LEGAL_TRANSITIONS` 里全砍。`session:delivered` 是 DONE.delivered 的唯一入口(reducer 直接 cursor flip,见 `reducer.ts:706-712`)。所以:
+**Slice 1.D 边界变更**:Slice 1.D sub-cycle 1 把 `event:phase_advanced` 图里所有指向 `DONE.delivered` 的边(VERIFY.accept、EXECUTE.done、SETTLE.lessons → DONE.delivered)从 `LEGAL_TRANSITIONS` 里全砍。`session:delivered` 是 DONE.delivered 的唯一入口(reducer 直接 cursor flip,见 `src/core/reducer.ts`)。所以:
 - `loaf advance DONE.delivered` 从任何 source 都返 `TRANSITION_ILLEGAL`,只有 `loaf deliver` 能进 DONE.delivered。
 - VERIFY.accept → SETTLE.lessons 是 `event:phase_advanced`(`loaf settle` 的路径),validateTransition 在该边检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。
 - `loaf deliver` 的 ceremony / verify_accepted / spike-tasks / verify-min preconditions 由 `preflight.ts` step 5c 拦截(diagnostic codes `DELIVER_NOT_ACCEPTED` / `DELIVER_SETTLE_PHASE_BYPASS` / `DELIVER_VERIFY_MIN_INCOMPLETE`(v0.1.1;旧 `DELIVER_VERIFY_MIN_UNAVAILABLE` stub superseded)/ `DELIVER_SPIKE_TASKS`;见 §10.5)。
@@ -1155,13 +957,10 @@ async function updateRegistry(sessionId: string, snapshot: RegistryFile) {
 
 ### 5.3 反向 transition
 
-- **spec-lock 前**:直接编辑入口(`loaf spec submit` / `loaf tasks submit` / `loaf tasks amend`)即可,无需 finding(原独立 `loaf amend --target spec|tasks` 命令已退役,能力并入这些入口 —— 见 §10.8 历史注)
-- **spec-lock 后**(`spec_locked === true`):**任何 spec/tasks/scope 变化必须经 finding 机制**——`loaf finding raise` 后由 action 触发回退
-- **`amend-spec` action 触发时**:state machine 自动 `spec_locked = false`,must 重过 spec-lock 才能再进 EXECUTE
-
-`amend` 命令在 `spec_locked=true` 时拒绝执行,提示用 finding。
-
-**rev 4.3**(ADR-0004 A4):`spec add-req` / `add-scenario` / `add-visual` 与 `tasks add` 在 post-lock 阶段(EXECUTE/VERIFY/SETTLE/DONE)行为**镜像 `loaf amend`** — 拒绝执行,exit 2 `SPEC_LOCKED_NO_DIRECT_EDIT` / `tasks add` 对应 `amend-tasks` finding 路径(§4.2 / §4.3)。换言之:**任何**直接 mutation spec/tasks 的 surface(`amend` / `spec edit` / `spec add-*` / `tasks add`)post-lock 全部走同一条**唯一合法回退路径** = `loaf finding raise --action amend-spec/amend-tasks`。新 add-\* 命令没有引入新原则,只是把原 `loaf amend` 的回退闸门套用到增量入口。
+- spec-lock 前：`loaf spec submit` / `spec add-*` 修改 spec；`tasks submit` 初始化 task graph。
+- spec-lock 后：spec 变更经 `finding raise --action amend-spec`，回到 SPEC.spec 并解除锁定。
+- `tasks amend <id> --policy` 在 EXECUTE.plan 修 execution policy；`tasks amend --input --finding` / `tasks add --finding` 在 EXECUTE.work 使用 open amend-tasks finding sponsor 修改 graph。
+- 无 sponsor 的 EXECUTE.work graph mutation 拒绝；详见 §8.6。
 
 ### 5.4 Evidence 兼容性检查(Q8 — `canSatisfy()`)
 
@@ -1216,10 +1015,9 @@ predicate（含 manual/waiver actor+reason、VIS visual-review attachment）；�
 
 ### 6.1 适用范围
 
-- VERIFY.* sub-state:**任何时候可 raise**
-- EXECUTE.* sub-state:**仅 spec_locked=true 时可 raise**(post-lock 漂移场景)
-- 其他 sub-state:不允许 raise(pre-lock 直接编辑入口即可,见 §5.3)
-- **`ceremony.spec_phase=false` 完全不允许 findings**(rev 4.2 — 原"quick profile 不允许 finding"的 ceremony 等价表达)
+- EXECUTE.* / VERIFY.* 可 raise，包括 quick；仍需通过 action/risk/target 校验。
+- 只有 `amend-spec` 要求 `spec_locked=true`，否则 `FINDING_AMEND_SPEC_NOT_LOCKED`。
+- 其它 sub_state 不允许 raise。
 
 ### 6.2 Category(6,rev 3.1)× Action(6)
 
@@ -1239,7 +1037,7 @@ predicate（含 manual/waiver actor+reason、VIS visual-review attachment）；�
 | action | state 跳转 | target payload | iteration | spec.ver | tasks.ver | 重过 spec-lock |
 |---|---|---|---|---|---|---|
 | `amend-spec` | → SPEC.spec | — | +1 | +1 | +1 | **是(自动清 spec_locked)** |
-| `amend-tasks` | → EXECUTE.work | `{ task_id?: T-N }` | +1 | 0 | +1 | 否(但自动 re-lock check)|
+| `amend-tasks` | → EXECUTE.work | `{ task_id?: T-N }` | +1 | 0 | +1 | 否（graph amendment 另需 sponsor）|
 | `fix-impl` | → EXECUTE.work | `{ task_id: T-N, step: implement }` | +1 | 0 | 0 | 否 |
 | `fix-test` | → EXECUTE.work | `{ task_id: T-N, step: red }` | +1 | 0 | 0 | 否 |
 | `defer` | 留 VERIFY | — | 0 | 0 | 0 | 否 |
@@ -1262,16 +1060,9 @@ predicate（含 manual/waiver actor+reason、VIS visual-review attachment）；�
 
 ### 6.4 amend-tasks 自动 re-lock check
 
-`amend-tasks` 默认不重过 spec-lock。但 CLI 在 amend 时跑 machine check:
-- 触及 public_api / schema / concurrency / security 路径 → 触发 escalation prompt
-- planned_scope 扩张超出原 allowed glob → 触发 escalation prompt
-- 跨 ceremony 阈值 → 触发 ceremony auto-escalation(详见 §3,rev 4.2)
+`amend-tasks` 不自动重过 spec-lock。当前 graph mutation 需显式 sponsor，详见 §8.6。
 
-任一触发 → `pending: profile_escalation`,等 user `loaf profile escalate --confirm --input <ceremony.json>`。
-
-### 6.5 Fresh context per iteration
-
-输出当前 iteration 的必要上下文时，调用方使用受支持的只读 CLI 查询；跨 session 持久接力使用 `loaf handoff`。协议不定义通用 context-pack wire contract。
+**未实现（目标设计）**：CLI 按路径、scope 或 ceremony 阈值自动触发 re-lock / escalation 尚未接入；skill 可检测并向用户提出升档。不存在 canonical planned_scope。
 
 ---
 
@@ -1289,12 +1080,12 @@ predicate（含 manual/waiver actor+reason、VIS visual-review attachment）；�
 **规则**:一个 verification concern(或任何工作流关注点)当且仅当它改变以下 **至少 2 项** 时,才能 promote 成 first-class sub_state:
 
 1. 允许的 CLI mutation 集合(`loaf evidence add` 接受的 kind / `loaf finding raise` 是否允许等)
-2. write_paths(diff-guard 允许写入的路径集合)
+2. write_paths（逻辑允许路径；diff-guard 尚未实现）
 3. 必需 evidence shape(kind / actor 约束 / attachments 强制等)
 4. human / agent interaction mode(human approval / reviewer ≠ implementer 等)
 5. recovery / back-edge 语义(finding action 落点)
 6. TUI status semantics(`⏸ ask` / `▶ run` / `⏸ gate` 等显示分支)
-7. gate diagnostic class(`gate-diagnostic.json` 的 `code` 分类)
+7. gate diagnostic class（stderr catalog 的 `code` 分类）
 
 仅 **"prompt 文案更精确"** 不构成 promotion 依据(coupling smell:把 prompt UX 当协议骨架理由)。
 
@@ -1330,10 +1121,10 @@ VERIFY.accept       machine + human gate
 
 | Check | 触发 must |
 |---|---|
-| `run` | 任何 task 触代码 / 测试 / build 配置 |
-| `review` | `verify_phase=true` MUST(standard / deep);`verify_phase=false`(quick / light)= NA |
+| `run` | 存在 status=done 的 task |
+| `review` | 存在 done task 或任一非 acceptance_na 的 REQ |
 | `acceptance` | 任意 scenario `tag=e2e` 且未 `acceptance_na` |
-| `visual` | 任意 task `requires_visual=true` 或 spec 有 `visual_contracts[]` 未 `visual_na` |
+| `visual` | 存在未声明 visual_na 的 VIS |
 
 ### 7.3 Applicability 三档(rev 3.1 砍掉 `should`)
 
@@ -1421,6 +1212,7 @@ EXECUTE.done    all tasks reached final status
 | `chore` | `execute` | 单步操作(版本号 bump / 配置 edit) |
 
 **两个伪 step 从协议层移除(Q6)**:
+- `tasks step done --evidence-*` 若未显式给 `--evidence-covers T-NNN`，evidence 的 covers=[]，不满足 task proof；调用方必须声明覆盖 task id。
 - `local-check` → 变成 **evidence kind**(任何 step 中跑测试都产 `kind=local-check` 的 evidence)
 - `record-findings` → 变成**正交动作**,通过 `loaf finding raise` 触发,**不进 step 状态机**
 
@@ -1443,45 +1235,37 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
 
 `loaf deliver` 检测到 tasks 含 kind=spike 直接 exit 2。
 
-### 8.4 删除的旧规则
+### 8.4 当前 task 定义
 
-```
-✗ tasks.type: TEST | IMPL              (字段删除,rev 3)
-✗ 每个 IMPL depends_on 至少一个 TEST    (规则删除,rev 3)
-✗ 默认所有 task 跑 test→impl→refactor   (改成 kind-driven,rev 3)
-✗ bug-fix 作为独立 kind                 (folded into behavioral + labels[], rev 3.1)
-✗ local-check / record-findings 是 step  (改 evidence kind / 正交动作, rev 3.1)
-```
+task kind 决定 step 集合；bug 用 behavioral + labels=["bug"] 表达，local-check 是 evidence kind，finding raise 是独立动作。
 
 ### 8.5 `loaf tasks list` 输出示例
 
 ```json
 {
-  "phase": "EXECUTE",
-  "iteration": 1,
+  "ok": true,
+  "feature": "docs-capture",
+  "count": 1,
   "tasks": [
     {
       "id": "T-001",
-      "kind": "behavioral",
-      "labels": ["bug"],
-      "status": "done",
-      "steps": {
-        "red":       { "applicability": "must", "status": "passed" },
-        "implement": { "applicability": "must", "status": "passed" },
-        "refactor":  { "applicability": "optional", "status": "passed" }
-      }
-    },
-    {
-      "id": "T-099",
-      "kind": "structural",
+      "kind": "chore",
       "status": "pending",
       "steps": {
-        "implement": { "applicability": "must", "status": "pending" },
-        "refactor":  { "applicability": "optional", "status": "pending" }
-      }
+        "execute": {
+          "applicability": "must",
+          "status": "pending"
+        }
+      },
+      "drives": [
+        "REQ-DOC-001"
+      ],
+      "depends_on": [],
+      "labels": [],
+      "no_test_rationale": "documentation capture only",
+      "ready": true
     }
-  ],
-  "blocking": ["T-099.implement"]
+  ]
 }
 ```
 
@@ -1500,10 +1284,9 @@ spike task 完工有 3 个合法出口,**永远不允许 deliver**:
 | <code>EXECUTE.work</code> | <code>tasks.json:tasks[].execution[].status</code><br><code>tasks.json:tasks[].status</code><br><code>evidence.jsonl:*</code><br><code>findings.jsonl:*</code> | <code>tasks.json:tasks[].id</code><br><code>tasks.json:tasks[].kind</code><br><code>tasks.json:tasks[].drives</code><br><code>tasks.json:tasks[].depends_on</code><br><code>tasks.json:tasks[].labels</code><br><code>spec.md:*</code> |
 <!-- generated:fsm-mutation-rights END -->
 
-**强制方式**:
-- 字段维度:`loaf <cmd>` 在 §11.2 step 3 preflight 内做 sub_state × kind × mutation_rights refine(对应 `src/core/machine.ts` 派生的 `SUB_STATE_CONTRACTS.mutation_rights` + ADR-0005 §3.6 per-kind invariants);违反在 preflight 抛错,不进 journal
-- source code 维度:PreToolUse(Write,Edit) hook 用 `STEP_WRITE_PATHS_BY_KIND[kind][step]` glob 校验
-- 违反 → exit 2 + `snapshots/gate-diagnostic.json` 写 code `MUTATION_OUT_OF_RIGHTS`(写入字段 / 路径 / 当前 sub_state)
+**当前强制边界**：
+- task graph/body/progress 字段由 `task-amend-policy.ts` 校验；上方矩阵不被通用 preflight refine 执行。spec add-* 的实际准入见 §4.2。
+- source code 的 Write/Edit hook 由 step write-path policy 校验，失败走 stderr catalog diagnostic；不写 gate-diagnostic.json。
 
 task graph 契约改(加 task / 改 drives / 改 kind / 改 depends_on)只能在 SPEC.design(`event:tasks_planned` 初创)或经 finding action `amend-tasks` 回退路径(emit `event:tasks_amended`),**不能在 EXECUTE.work 直接改 task graph**。
 
@@ -1618,9 +1401,9 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 | Stream | 内容 |
 |---|---|
 | **stdout** | 主输出:JSON / 结构化 text(`--format` 控制)/ artifact 内容 / state snapshot / schema dump |
-| **stderr** | log / progress / human-readable error 摘要 / pending prompt 提示 / diagnostic 引用文件路径 |
+| **stderr** | log / progress / human-readable error 摘要 / pending prompt 提示 / catalog diagnostic |
 
-**任何错误信息不进 stdout**(否则 `loaf x --format json | jq` 在错误时炸)。`gate-diagnostic.json` 是文件 artifact,stderr 只 carry 「写到 ...gate-diagnostic.json — see file for details」简短引用。
+**任何错误信息不进 stdout**(否则 `loaf x --format json | jq` 在错误时炸)。失败经 catalog 出口直接写 stderr；当前不写 `gate-diagnostic.json`。
 
 ### 10.1 Help contract
 
@@ -1628,20 +1411,21 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 - `loaf help <subcommand>` 等价 `loaf <subcommand> --help`(git-style)
 - `-h` 不被 overload(不当 `--host` 用)
 - Help 文案结构(每命令):**1-line 描述** → **1-2 example** → **flag table** → **footer:`docs: $LOAF_DOCS_URL` + `report bug: $LOAF_ISSUE_URL`**(两 URL build-time 注入,见 §10.11;clig.dev §2 support path)
-- bare `loaf`(无子命令)→ print 短 help + 列出常用命令 + exit 2
-- 子命令缺必要参数 → print 该子命令 help + exit 2
+- bare `loaf`(无子命令)→ stderr catalog `USAGE`(`parser_code=commander.help`)，stdout 为空，exit 2
+- 子命令缺必要参数 → stderr catalog `USAGE`，保留 Commander `parser_code` / `reason`，stdout 为空，exit 2
 - unknown subcommand → 按 Levenshtein 距离 suggest "did you mean X?",**不自动执行**
-- stdin 是 TTY 且命令期待 piped input(如 `loaf spec submit --input -`)→ print help + exit 2,**不 hang**
+- stdin 是 TTY 且命令期待 piped input(如 `loaf spec submit --input -`)→ catalog `USAGE` + exit 2，**不 hang**
 - **`-h` / `--help` 在任意位置工作**(clig.dev §2):`loaf tasks step --task T-001 -h` 等价 `loaf tasks step --help`,parser 必须 short-circuit `-h` 在 subcommand context resolved 之后,不被未识别 flag 干扰
 
-### 10.2 TTY / Color / Pager
+### 10.2 TTY / Color
 
 - **TTY detection** 决定默认 format(不靠 `--no-pretty` flag):stdout 是 TTY → human-friendly + color;stdout 是 pipe → `--format text` 默认 line-oriented + 无 color
 - **Color disabled when** 任一成立:**目标 stream(stdout 或 stderr 各自独立 `isatty()` 判断)**不是 TTY / `NO_COLOR` env 非空 / `LOAF_NO_COLOR` 非空 / `TERM=dumb` / `--no-color` flag。clig.dev §4:写到哪个 stream 各自检查 — 例 `loaf x 2>err.log` 时 stdout 仍 TTY 有色,stderr 走文件无色;不能用 stdout 一处判断绑两个 stream
 - **Color force-enabled when**(rev 4.1)`FORCE_COLOR` env 非空 — 覆盖 "stdout 非 TTY → no color" 规则(CI 系统 pipe 仍想要彩色 log);但 `--no-color` flag / `NO_COLOR` env 仍 win(disable wins over force,clig.dev §13 conv)
 - **不在 stdout 非 TTY 时**显示 spinner / 进度条 / 动画(`FORCE_COLOR` **不** override 这条 — 动画在非 TTY 是 garbage)
 - 颜色只用于 error(红)/ warning(黄)/ success(绿) — 不全文本染色
-- 长输出(`loaf <artifact> schema --format=json` / `loaf sessions list` 在 100+ session 时)通过 `$PAGER`(默认 `less -FIRX`,仅 stdout 是 TTY)
+
+**未实现（目标设计）**：长输出自动通过 `$PAGER` 展示；当前直接输出。
 
 ### 10.3 Environment variables + Config precedence
 
@@ -1655,7 +1439,7 @@ skill / hook 把 loaf 输出 pipe 时依赖这条约定:
 5. built-in defaults                (lowest)
 ```
 
-例:`tdd_strictness` 的解析顺序 = `--tdd-strictness=strict` flag > `LOAF_TDD_STRICTNESS=strict` env > project `loaf.config.json.constitution.tdd_strictness` > user config 同字段 > built-in `"preferred"`。
+例：locale 当前解析顺序是 `$LOAF_LANG` > user config `locale.default_lang` > ambient locale > `en`。**未实现（目标设计）**：`--lang` 与 project locale fallback 尚未接入，详 §18.3。
 
 **Env vars**:
 
@@ -1701,10 +1485,10 @@ CLI 每次调用解析「这条命令操作哪个 session」时按下表(high �
 | # | source | 说明 |
 |---|---|---|
 | 1 | `--session <UUID>` flag | 单次最高优先级;校验该 UUID 在 `~/.loaf/registry/` 存在且 `cwd` 字段 = 当前 cwd,否则 `SESSION_CWD_MISMATCH` exit 2 |
-| 2 | `--feature <name>` flag | 单次;查 `cwd/.loaf/<name>/state.json` 拿 UUID |
+| 2 | `--feature <name>` flag | 单次;查 `cwd/.loaf/<name>/snapshots/state.json` 拿 UUID |
 | 3 | `$LOAF_SESSION` env | per-shell-session(每个 terminal process 独立,**无 race**);校验同 #1 |
 | 4 | `$LOAF_FEATURE` env | 同 #3,但用 feature 名查 |
-| 5 | Auto-pick `cwd/.loaf/*/state.json` | 0 个 non-DONE feature → `FEATURE_NOT_FOUND` exit 2;1 个 → use it + stderr「auto-picked 'X'」;2+ 个 → `FEATURE_AMBIGUOUS` exit 2 + 候选 + did-you-mean |
+| 5 | Auto-pick `cwd/.loaf/*/snapshots/state.json` | 0 个 non-DONE feature → `FEATURE_NOT_FOUND` exit 2;1 个 → use it + stderr「auto-picked 'X'」;2+ 个 → `FEATURE_AMBIGUOUS` exit 2 + 候选 + did-you-mean |
 
 **不写** `.loaf/.active` 文件 — per-process ENV 自然隔离,**避免文件 race**(同 cwd 多 terminal / 多 Claude Code 各自 ENV 互不影响)。
 
@@ -1733,12 +1517,7 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 
 ### 10.4 Signal handling
 
-- **SIGINT (Ctrl-C)**:立即 print 「`^C interrupted, cleaning up...`」一行到 stderr → 跑 atomic-rename rollback + state heartbeat skip + temp file unlink → exit 130
-- **Second SIGINT** in cleanup window:立即 exit 130 skip cleanup(可能留 `.tmp-*` temp file,`loaf doctor` 下次启动会清)
-- **Cleanup 硬超时 3 秒**:超过强制 exit
-- **Second Ctrl-C 不会破坏数据**(stale `.tmp-*` 是 atomic rename 半截产物,`loaf doctor` 启动时清;evidence.jsonl append-only 永不丢)— 第一次 prompt 不需要警告 "second Ctrl-C is destructive"(它不是)
-- 启动期(`loaf <any>`)正常处理 stale temp 文件(crash-only invariant);不需要显式 cleanup 命令
-- **Wrapping 命令**(`loaf spec edit` 无 `--input` 时起 `$EDITOR` / `loaf tui` 起 fullscreen TUI)期间 **Ctrl-C 由内层接管**:editor 的 `:q` / `Ctrl-X` / TUI 的 `q` 退出;loaf 本身不 trap signal 在 wrap 期。Editor / TUI 退出后控制权交回 loaf,后续 SIGINT 走 §10.4 规则
+SIGINT handler 同步释放当前 owner token 持有的 feature write lease，stderr 输出 `loaf: interrupted (SIGINT)`，exit 130。没有 second-SIGINT cleanup window、3 秒 cleanup timeout 或启动期 temp 清扫。dead-owner lease 由后续 writer 在 PID 与 generation 证明后回收，malformed lease fail closed（§11.2）。
 
 ### 10.5 Error contract
 
@@ -1746,10 +1525,9 @@ bridge 路径 `~/.loaf/claude-bridge/` 是 **client 协议约定**,不是 loaf-c
 |---|---|
 | **Expected**(schema fail / illegal transition / 缺必要 flag) | exit 2；JSON stderr 单行 `{ok:false,code,message,detail}`，message 为 canonical English，detail 必有；text 使用 catalog message、结构化 context 行及 fix/see 指引。失败出口不写 stdout；已有 advisory 独立于失败出口。 |
 | **Unexpected**(panic / unknown 异常) | stderr 三行(text 模式):`error: UNEXPECTED_ERROR — <msg>` + `  crash log: ~/.loaf/crashes/<ts>.json` + `  report at $LOAF_ISSUE_URL?<prefilled-query>`。JSON 模式(`--format json`)stderr 单行 sentinel `{ok:false, code:"UNEXPECTED_ERROR", message, crash_log, report_url}`,stdout 留空;exit 1。Crash log envelope:`CrashLogEnvelope` Zod schema in `src/core/crash-log.ts`(`{iso, version, argv, cwd, feature, phase, sub_state, exitCode:1, error:{name,message,stack}}`,文件扩展 `.json`,目录 mode 0700,文件 mode 0600;Phase 16 SC-2 立 framework,SC-3 扩 phase/sub_state)。`$LOAF_ISSUE_URL` 由 build 时注入(见 §10.11),query string 预填(Phase 16 SC-3,`src/cli/url-prefill.ts`):`loaf_version` / `schema_version` / `phase` / `sub_state` / `last_command`(sanitized — 命令 + 子命令 + flag 名 + 公共枚举值如 `--ceremony/--format/--feature`;默认 redact 所有 option 值,**强制 redact**:`--input/--reason/--answer/--summary/--label` + inline JSON + path-like 值)/ `crash_log_path`。Crash log 内的 envelope.argv 保留完整原始 argv;只有 URL query 的 last_command 走 sanitize。 |
-| **Diff guard violation**(`loaf advance`) | exit 2 + stderr 列出违反 path + 引用 `STEP_WRITE_PATHS_BY_KIND` rule 来源 |
 | **Session dispatch**(rev 4.1 + Phase 16 SC-8)| **5 个** diagnostic code:`FEATURE_NOT_FOUND`(cwd 0 个 feature OR `--feature <name>` 指定的 feature 无 state projection)/ `FEATURE_AMBIGUOUS`(cwd 2+ active feature 且无 dispatch 上下文)/ `SESSION_CWD_MISMATCH`(`--session <UUID>` 指定的 UUID 注册 cwd ≠ 当前 cwd)/ `SESSION_SHORT_AMBIGUOUS`(短 UUID prefix 在 registry 多匹配)/ `SESSION_NOT_FOUND`(**Phase 16 SC-8 new**:UUID/prefix 在 registry 找不到任何匹配)。全部 exit 2,stderr 列候选 + did-you-mean。详见 §10.3 dispatch precedence 段 |
-| **Pending head invariant**(rev 4.1 Q3 minimal)| 3 个 diagnostic code:`PENDING_BLOCKS_ADVANCE`(`loaf advance` 时 head ∈ {gate_decision, profile_escalation})/ `GATE_NOT_PENDING`(`loaf gate decide <G>` 但 head 不是 `gate_decision(<G>)`)/ `ESCALATION_NOT_PENDING`(`loaf profile escalate --confirm --input <ceremony.json>` 但 head 不是 `profile_escalation`)。全部 exit 2,stderr 列 head 的 `pending_id` + `question`,提示先 resolve 或换合适命令 |
-| **Flag mutual exclusion**(rev 4.2,clig.dev §6)| `MUTUALLY_EXCLUSIVE_FLAGS`:format flag 冲突 prose 见 §10.7(SC-5b 引入 `--plain` 后激活)+ 未来其它互斥对。exit 2,stderr 列冲突 flag 对 + `--format` 归一化提示。详见 §10.7 「Format flag 归一化与互斥」段 |
+| **Pending head invariant**(rev 4.1 Q3 minimal)| 3 个 diagnostic code:`PENDING_BLOCKS_ADVANCE`(`loaf advance` 时 head ∈ {gate_decision, profile_escalation})/ `GATE_NOT_PENDING`(approve 时存在 head 且 kind 不是 `gate_decision`；空队列允许 approve，不校验 gate 名匹配；reject 不 co-resolve)/ `ESCALATION_NOT_PENDING`(`loaf profile escalate --confirm --input <ceremony.json>` 但 head 不是 `profile_escalation`)。全部 exit 2,stderr 列 head 的 `pending_id` + `question`,提示先 resolve 或换合适命令 |
+| **Flag mutual exclusion**(rev 4.2,clig.dev §6)| `MUTUALLY_EXCLUSIVE_FLAGS`:format flag 冲突 prose 见 §10.7(已实现)+ 未来其它互斥对。exit 2,stderr 列冲突 flag 对 + `--format` 归一化提示。详见 §10.7 「Format flag 归一化与互斥」段 |
 
 **信号到噪音**:类似错误**合并展示**(N 个 REQ 缺 measurable → 一条总结 + 详情写文件,不是 N 行 stderr)。最重要的信息**放在 stderr 末尾**(用户视线落点)。
 
@@ -1770,7 +1548,7 @@ error: <CODE> — <localized catalog message>
 
 **Commander 边界**：unknown option/command、缺 argument/option value 和缺 subcommand 都映射 `USAGE`，detail 保留原始 `parser_code` 和 `reason`。关闭自动 stderr error/help 输出，仅经 catalog 出口输出一次；text 额外显示 parser context。显式 `--help` / `help <command>` / `--version` 仍输出 stdout、exit 0。只有 CommanderError 被翻译；未知异常仍走 crash exit 1，SIGINT 仍为 130。早期 format/mutex/selector/locale guard 顺序不变，INVALID_FORMAT 保持 text-only。
 
-**消费者迁移 / Hyrum 边界**：message prose、原始 Commander stderr 与新增 text fix/see 是有意 public delta；脚本应以 code/detail 判定，不解析旧 prose，兼容附加 context 和嵌套 check message。TASK_DEP detail 数组/值、既有 schema variant 的 issues/path/subcode 字段、commit_state/failed_index 与已提交 append proof 保留。journal/runtime/persisted schema 与 snapshot bytes 不变；不更改 rejection policy。外部消费者无法仅凭 checkout 证明不存在；发布前由 driver 执行 breaking-minor version checkpoint，当前实现不自行 bump 0.10.0。
+**消费者迁移 / Hyrum 边界**：message prose、原始 Commander stderr 与新增 text fix/see 是有意 public delta；脚本应以 code/detail 判定，不解析旧 prose，兼容附加 context 和嵌套 check message。TASK_DEP detail 数组/值、既有 schema variant 的 issues/path/subcode 字段、commit_state/failed_index 与已提交 append proof 保留。journal/runtime/persisted schema 与 snapshot bytes 不变；不更改 rejection policy。外部消费者无法仅凭 checkout 证明不存在；发布前由 driver 执行 breaking-minor version checkpoint。
 
 <!-- generated:error-catalog BEGIN -->
 | Code | Exit | English message template | Fix template | Doc anchor |
@@ -1943,7 +1721,7 @@ error: USAGE — invalid CLI usage
 | Flag | Short | Type | Default | Notes |
 |---|---|---|---|---|
 | `--help` | `-h` | bool | — | 每命令都有,top-level + 每 subcommand |
-| `--version` | — | bool | — | `loaf --version` 打印 semver + commit + schema_version |
+| `--version` | — | bool | — | `loaf --version` 只打印 semver |
 | `--format <fmt>` | — | `json\|text` | TTY 时 `text`,pipe 时 `text`(line-oriented) | 见 §10.2 |
 | `--plain` | — | bool | false | 等价 `--format text`(明确 line-oriented),clig.dev 习惯 alias |
 | `--no-color` | — | bool | TTY/env 派生 | 见 §10.2 |
@@ -1962,10 +1740,10 @@ error: USAGE — invalid CLI usage
 
 
 **Format flag 归一化与互斥**(rev 4.2,clig.dev §6):
-- 内部归一到 single `format`:`--plain` ⇒ `format=text`(future SC-5b),`--format=<fmt>` 显式赋值
+- 内部归一到 single `format`:`--plain` ⇒ `format=text`,`--format=<fmt>` 显式赋值
 - precedence(high → low):显式 flag > `$LOAF_FORMAT` env(v1.0,见 §10.3)> TTY-derived default(stdout TTY → text;pipe → text line-oriented)
-- **同值无冲突**(future,SC-5b 引入 `--plain` 后激活):`--plain --format=text` OK
-- **冲突值**(future,SC-5b 引入 `--plain` 后激活)→ exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`,stderr 列冲突 flag 对:`--plain --format=json`
+- **同值无冲突**(已实现):`--plain --format=text` OK
+- **冲突值**(已实现)→ exit 2 `MUTUALLY_EXCLUSIVE_FLAGS`,stderr 列冲突 flag 对:`--plain --format=json`
 - 同一 conflict code 复用于未来其它 flag 互斥(如 `--quiet -v` 同 invocation),错误体载 `{conflicting: ["--plain", "--format=json"]}` 给 scripting
 
 **Prompt 行为**(扩展 `--no-input` 那一行):
@@ -1980,7 +1758,7 @@ CLI **唯一** enforce 的 pending 阻塞规则(state-machine integrity):
 > `state.pending[0].kind ∈ {gate_decision, profile_escalation}` 时,**`loaf advance` 必须 exit 2 `PENDING_BLOCKS_ADVANCE`**
 
 衍生约束(同一 invariant 的 corollary,见 §10.5 + §10.8):
-- `loaf gate decide <G>`:head 必须是 `gate_decision(<G>)`,否则 `GATE_NOT_PENDING` exit 2(它本身就是该 head 的合法 resolution)
+- `loaf gate decide <G>`:approve 与 pending head 软绑定：空队列允许批准；有 head 且 kind 不是 `gate_decision` 时 `GATE_NOT_PENDING` exit 2；eligible gate head 同批 resolve，尚无 gate 名 discriminator。reject 不 co-resolve
 - `loaf profile escalate --confirm --input <ceremony.json>`:head 必须是 `profile_escalation`,否则 `ESCALATION_NOT_PENDING` exit 2(同理)
 
 **其它命令 protocol 层不做 pending 阻塞**。理由:
@@ -2031,7 +1809,7 @@ TTY no-hang 守卫见 §10.1(stdin TTY + `--input -` → USAGE exit 2,不 hang)�
 
 | 命令类别 | `--dry-run` 行为 |
 |---|---|
-| **Mutating 命令**(`advance` / `spec submit` / `tasks submit` / `tasks step start/done` / `tasks amend` / `evidence add` / `finding raise/close` / `gate decide` / `waive` / `settle` / `archive` / `abandon` / `spike convert` / `pending resolve` / `profile escalate` / `lessons add` / `start` / **`resume`** _(rev 5.0 / Phase 16 SC-13b — emit `session:resumed` no-op marker)_) | **rev 5.0**:走 §11.2 10-step transaction 步 1-5(acquire .lock → read tail + `_meta` fast-check → preflight validate → prepare sidecar files into short-lived `.tmp-*`(不 rename)→ final validate against embedded refs),然后 **跳过 step 6 journal append + step 7 post-apply assert + step 8 snapshot rebuild + step 9 registry refresh**,改为:**unlink sidecar `.tmp-*` + release .lock**(即 step 10 cleanup-only 分支)。stdout 打"would do"摘要(JSON / text 按 `--format`)。**不分配 EV/LSN/PEND/T/REQ/SCEN/VIS id**(避免单调计数器空跳);若校验过则 stdout 列将分配的 next-id 范围。**不写 journal entry、不 rebuild snapshots、不 refresh registry**。exit 0 = 校验通过,exit 2 = 会失败(schema / transition / actor authority / lock 抢占等)。机器表达见 `src/core/concurrency-contract.ts::dry_run_transaction_order` |
+| **Mutating 命令**(`advance` / `spec submit` / `tasks submit` / `tasks step start/done` / `tasks amend` / `evidence add` / `finding raise/close` / `gate decide` / `waive` / `settle` / `archive` / `abandon` / `spike convert` / `pending resolve` / `profile escalate` / `lessons add` / `start` / **`resume`** _(rev 5.0 / Phase 16 SC-13b — emit `session:resumed` no-op marker)_) | 走 §11.2 10-step transaction 的 pre-write dry-run 路径：获取与 live mutation 相同的 feature lease、revalidate journal meta，再执行 preflight、reducer dry-run、gate 与上下文完整性校验；不 materialize sidecar、不 append journal、不 rebuild projection、不 refresh registry。JSON 输出 `{"ok":true,"dry_run":true,"would":{"kind":"event:phase_advanced"}}`（kind 为该次 mutation 首 entry kind），text 输出 `dry-run: would <kind>`；不列 ID 范围。lease 在退出时释放。exit 0 = 校验通过，exit 2 = 拒绝。 |
 | **Read-only 命令**(`status` / `spec status` / `journal list`(`log` alias) / `tasks list` / `tasks next` / `tasks complete` / `evidence list` / `finding list` / `pending list` / `pending status` / `verify status` / `check <path>` / `<artifact> schema --format=json` / `evidence schema` / `sessions list` / `tui` / `doctor`(含 `--rebuild`,v0.1.0 reject;in-memory replay precheck future)/ `--version` / `--help`;`tasks check` 为 inventory:future,未实装)| **reject** `--dry-run`:exit 2 `DRY_RUN_NOT_APPLICABLE`(typed diagnostic;text 模式 stderr 渲染 `error: DRY_RUN_NOT_APPLICABLE — --dry-run not applicable to read-only command \`<command>\``;json 模式 ok:false 结构,`detail.command` + `detail.command_type` 携带 `"read-only"`)|
 | **Projection-writer 命令**(`handoff` — Phase 16 SC-13a)| **reject** `--dry-run`:exit 2 `DRY_RUN_NOT_APPLICABLE`(写 derived snapshot 文件但不动 journal — neither read-only nor mutating;`detail.command_type` 携带 `"projection-writer"`,SC-13a 引入)|
 | **Scaffold-writer 命令**(`config init` / `spec init`)| **reject** `--dry-run`:exit 2 `DRY_RUN_NOT_APPLICABLE`(写 config / spec scaffold 但不动 per-feature journal;dry-run 在 feature dispatch / scaffold 写入前拒绝,不创建或修改文件;preview surface 延后;`detail.command_type` 携带 `"scaffold-writer"`)|
@@ -2043,14 +1821,14 @@ TTY no-hang 守卫见 §10.1(stdin TTY + `--input -` → USAGE exit 2,不 hang)�
 ```bash
 # Skill fan-out 前 pre-check:每个 worker 想 claim 一个 task
 loaf --dry-run tasks step start --task T-001 --step implement
-# exit 0 → safe to proceed; exit 2 → 看 stderr / snapshots/gate-diagnostic.json
+# exit 0: preflight passed; exit 2: read the catalog diagnostic on stderr
 
 # CI pre-merge:检查 spec 改动会不会过 spec-lock
-loaf --dry-run spec submit ./spec.md
+loaf --dry-run spec submit --input ./spec.json
 loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 ```
 
-**rev 4.1 invariant**:dry-run 命令**不持久任何状态**(不写 `.loaf/<feature>/*`、不改 `~/.loaf/registry/`、不递增 EV-id 计数器)。机器表达见 `src/core/concurrency-contract.ts::CONCURRENCY_INVARIANTS.dry_run_transaction_order`。
+**rev 4.1 invariant**:dry-run 命令**不持久任何状态**(不写 journal、sidecar、projection 或 registry，不持久消耗 ID；仍会获取并释放 feature lease)。机器表达见 `src/core/concurrency-contract.ts::CONCURRENCY_INVARIANTS.dry_run_transaction_order`。
 
 ### 10.8 Command table
 
@@ -2061,17 +1839,17 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 - 其余命令名不变
 
 **rev 5.0 actor / kind 契约**(ADR-0005 §3.3 / §3.4):
-- **`--actor` 永久 non-flag**:actor 由 CLI 在 §11.2 step 3 自动注入(`human:` ← isatty + `$USER`;`skill:` ← SessionStart hook payload;`ci:` ← CI env;`cli:` ← fallback)。任何命令 surface `--actor` 必被 ADR-trail 拒。
-- **每个 mutator 命令显式 emit 一个 journal entry kind**(ADR-0005 §3.3 namespace);完整 command → kind 映射见本节末尾「Journal entry kind emitted」表。Reducer 在 §11.2 step 3 + step 5 对 (kind, payload, actor, sub_state) 做闭环 refine。
+- **`--actor` 永久 non-flag**:actor 由 CLI 在 §11.2 step 3 自动注入（human actor 取 `$LOAF_USER`，仅 interactive 时可 fallback 到 git `user.email`；non-human 默认 `cli:loaf@$USER`，各 kind 的 actor 权限由 registry/preflight 校验）。任何命令 surface `--actor` 必被 ADR-trail 拒。
+- **每个 mutator 命令显式 emit 一个或一批 journal entries**(ADR-0005 §3.3 namespace);完整 command → kind 映射见本节末尾「Journal entry kind emitted」表。Reducer 在 §11.2 entry admission + final admission 对 (kind, payload, actor, sub_state) 做闭环 refine。
 
-> **rev 4.1 did-you-mean 兜底(SC-17 更新)**:用户敲 `loaf check tasks`(把 "tasks" 当 enum keyword 误用)时,`loaf check <path>` 在 path 解析阶段发现 "tasks" 不是有效文件路径,走 §10.1 did-you-mean 规则,stderr 提示改用 v0.1.0 可用的 path-based 校验 `loaf check <path>/tasks.json --kind tasks` 并 exit 2。**`loaf tasks check`(inventory:future,未实装)与 `loaf check <path>` 不是 canonical/alias 关系**:前者(未来命令)跑 `tasks.execution.status ↔ evidence.jsonl` 一致性专项校验,后者是单文件 schema 校验入口(CI 用),做的不是同一件事。**SC-17 起**,did-you-mean **不再指向未实装的 `loaf tasks check`**,改指 path-based 形式(避免把用户引向 exit-2 unknown-command 的死胡同)。
+> **rev 4.1 did-you-mean 兜底(SC-17 更新)**:用户敲 `loaf check tasks`(把 "tasks" 当 enum keyword 误用)时,`loaf check <path>` 在 path 解析阶段发现 "tasks" 不是有效文件路径,走 §10.1 did-you-mean 规则,stderr 提示改用 v0.1.0 可用的 path-based 校验 `loaf check <path>/tasks.json --kind tasks` 并 exit 2。**`loaf tasks check`(inventory:future,未实装)与 `loaf check <path>` 不是 canonical/alias 关系**:前者(未来命令)跑 `tasks.execution.status ↔ snapshots/evidence.json` 一致性专项校验,后者是单文件 schema 校验入口(CI 用),做的不是同一件事。**SC-17 起**,did-you-mean **不再指向未实装的 `loaf tasks check`**,改指 path-based 形式(避免把用户引向 exit-2 unknown-command 的死胡同)。
 
 **Tier 1 mutator 通用契约**(rev 4.3,ADR-0004 A2 / A3 / A5 / A10):
 
 - `spec submit` + `tasks submit` + 5 个 batch-capable structured mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)走统一 `--input <-|json|path>` modality(§10.7);positional id / per-field flag 已砍。`spec submit` 与 `tasks submit` 仅接各自的 strict single object(whole-replacement);其余 5 个支持 single 或 array(batch)。
 - **`spec submit` 仅接 single object**(whole-replacement);其余 5 个结构化 mutator(`spec add-req` / `spec add-scenario` / `spec add-visual` / `tasks add` / `evidence add`)的 input schema 接受单条对象**或**非空数组(batch);batch 三纪律(all-or-nothing / `spec_version += 1` per invocation / atomic id allocation)由 §11.2 transaction 落实(只适用于支持 batch 的 5 个)。
 - `id` 由 CLI 在 per-session lock 内单调分配:REQ / SCEN / VIS 输入只携 `id_namespace`(stem),CLI 扫该 namespace 下 max serial → 拼完整 id 落 spec.md(input regex vs output regex 见 §4.2 ID 分配段 + `src/core/spec-schema.ts`)。T / EV / FND / PEND 完全 CLI 自动分配,input **不**传 namespace 字段。
-- `--schema` 全局 modifier 跟 `--format=json` 联用(`loaf <cmd> --schema --format=json`)dump 该 input 的 JSON Schema(派生自 `src/cli/input-schemas.ts::INPUT_SCHEMAS`)。
+- `--schema` per-command modifier 跟 `--format=json` 联用(`loaf <cmd> --schema --format=json`)dump 该 input 的 JSON Schema(派生自 `src/cli/input-schemas.ts::INPUT_SCHEMAS`)。
 - shape enforcement 全在 CLI:三选一可验证 / 6×6 finding grid / attachment hash+mime / id 唯一性 — workflow content 留给 loaf-skill,见 §19。
 - 下表 command signature 列出各命令的**本地** positional/options；§10.7 global flags 对所有命令继续适用，不在每行重复。
 
@@ -2081,18 +1859,18 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 |---|---|---|
 | `loaf prune restore <session-id> [--at <value>]` | 从 recoverable trash 恢复指定 session；`--at` 用于同一 id 多个 trash bucket 时消歧 | 0 / 2 |
 | `loaf start <feature> [--ceremony <value>] [--label <value>] [--workspace <value>] [--feature-dir <value>]` | 进入 TRIAGE,在 `.loaf/<feature>/` 起新 session。**rev 4.1**:stdout **最后一行**打印新 session 的 UUID(可预测,shell 脚本可 `UUID=$(loaf start ... \| tail -1)` 抓取);stderr 一行 state-change(§10.12)。**Phase 15 SC1**(F-019):`--label` / `--workspace` 连同 `--ceremony` preset 名一并写入 `session:started` payload 的 bucket-C identity 字段(`session_label` / `workspace` / `ceremony_label` / `loaf_version_required`),使 `state.json` 投影全 journal 派生 | 0 / 2 |
-| `loaf status [--feature <value>] [--feature-dir <value>]` | 读 state + artifact 健康度。**Phase 15 SC3**:read-path 切到 `projection-loader`(snapshots/_meta.json fast-check 后读 `snapshots/*.json`,9-reason stale 见 §10.15)。pre-`loaf start` dir 现 exit 2 `NO_SESSION`(对齐 `tasks list` / `pending list` / `finding list`;改自 rev 4.x exit 0 + `state:null` 软探针;codex r175a)| 0 / 2 |
+| `loaf status [--feature <value>] [--feature-dir <value>]` | 读 state + artifact 健康度。**Phase 15 SC3**:read-path 切到 `projection-loader`(snapshots/_meta.json fast-check 后读 `snapshots/*.json`,9-reason stale 见 §10.15)。pre-`loaf start` dir 经 feature dispatch 返回 exit 2 `FEATURE_NOT_FOUND`（含显式 `--feature-dir`）| 0 / 2 |
 | `loaf journal list [--after-seq <value>] [--limit <value>] [--kind <value>] [--actor <value>] [--feature <value>] [--feature-dir <value>]` | **ticket #12 observability v1**:read-only canonical journal timeline;`loaf log` 是 Commander alias。按 journal 顺序输出 envelope-only rows；JSON envelope exact keys=`{ok,feature,count,entries}`，row exact keys=`{seq,entry_id,at,actor,kind}`，存在 atomic batch marker 时追加且只追加 `{batch_id,batch_index,batch_count}`。永不输出或解释 per-kind `payload`。`--after-seq` 接非负整数且为 exclusive lower bound；`--limit` 接正整数；`--kind` 对 `KIND_REGISTRY` closed set 校验；`--actor` 做 prefix-or-full `startsWith` 匹配。text 每 entry 一行；空集 exit 0。`--dry-run` reject | 0 / 2 |
 | `loaf next [--feature <value>] [--feature-dir <value>]` | **read-only**:从 cursor + ceremony + pending head + VERIFY applicability 计算确定的下一条 owner command(`advance` / `deliver` / `settle` / `gate decide` / `tasks next` / `pending resolve` / `profile escalate`)。`buildScopedNextOutput` 为 `loaf next` 与 mutation success advisory 共用同一 core routing 结果和 selector renderer；全局 `--session` dispatch 保留 canonical UUID，显式 feature-dir 同时携带 feature 名称和路径，使返回命令不依赖 `$LOAF_FEATURE`；其余保留 feature selector。VERIFY applicability 使用 journal snapshot 的 canonical spec；先保留 state/tasks/pending projection freshness 检查，stale 时仍拒绝，不以 replay 静默 fallback。仅 gate / pending / human-input stop 输出 `blocked=true`;terminal state 省略 `next_action` | 0 / 2 |
-| `loaf advance <to> [--feature <value>] [--feature-dir <value>]` | 跑下一 transition + diff guard | 0 / 1 / 2 |
+| `loaf advance <to> [--feature <value>] [--feature-dir <value>]` | 校验并执行下一 transition；当前不做 diff guard | 0 / 1 / 2 |
 | `loaf spec status [--feature <value>] [--feature-dir <value>]` | **ticket #12 observability v1**:read-only spec-lock diagnostic，语义输入完全由 journal replay 后的 `Snapshot` 通过共享纯构造器重建，不读取派生 `spec.md`。**#6 supersession**：gate approval 与本查询共用 snapshot evaluator；spec-lock admission 使用 pre-batch snapshot，不读取派生 `spec.md`。缺失/畸形 canonical spec 仍在 check 1 fail closed，detail 改为 snapshot source，不再含文件 path 或 YAML subcode；checks 2–8 与排序不变。JSON envelope exact keys=`{ok,all_pass,failures,suppressed_checks}`；failure row exact keys=`{check,code,message,detail}`(`detail:null` when absent)；suppressed row exact keys=`{check,blocked_by}`。check 3 失败时显式列 `{check:4|6|7,blocked_by:3}`，checks 2/5/8 仍照常运行；完整 pass/NA 对称 taxonomy 延后。text 仅输出 failure/suppressed rows，clean 时输出 localized pass line。exit 0 表示诊断完成，`all_pass` 承载 gate 是否全过；`--dry-run` reject | 0 / 2 |
-| `loaf resume [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-13b**:mutator,从 `<feature-dir>/snapshots/resume-pack.json` 接力恢复 session。读取并 `RuntimeResumePack.safeParse` 校验 pack(失败 → `SCHEMA_VALIDATION_FAILED` + subcode `invalid-json` / `zod`;pack 不存在 → `INPUT_FILE_NOT_FOUND` 引导跑 `loaf handoff`);emit 单条 `session:resumed` journal entry,payload `{resumed_from_pack: {at, reason, session_id}}` 为 typed `SessionResumedPayload`(替换 rev 4 的 loose RecordPayload)。**reducer no-op**:cursor 和所有 projection 保持不变(transparent marker);`session:resumed` 走 `REDUCER_IMPLEMENTED_KINDS`(SC-13b 后所有 EntryKind 都实装,invariant 锁在 `tests/core/reducer.test.ts` 的 "REDUCER_IMPLEMENTED_KINDS covers every EntryKind")。`--dry-run` 走标准 mutate dry-run path(pack 校验通过 + journal 不写)。actor 默认 `cli:loaf@$USER`(PER_KIND_ACTOR 允许 human/skill/ci/cli,不强制 human)。`--fresh` 与未落地的通用 context-pack contract 均已退役；跨 feature 接力使用 `loaf handoff` / `loaf resume`，临时查询使用受支持的只读命令。| 0 / 2 |
+| `loaf resume [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-13b**:mutator,从 `<feature-dir>/snapshots/resume-pack.json` 接力恢复 session。读取并 `RuntimeResumePack.safeParse` 校验 pack(失败 → `SCHEMA_VALIDATION_FAILED` + subcode `invalid-json` / `zod`;pack 不存在 → `INPUT_FILE_NOT_FOUND` 引导跑 `loaf handoff`);emit 单条 `session:resumed` journal entry,payload `{resumed_from_pack: {at, reason, session_id}}` 为 typed `SessionResumedPayload`(替换 rev 4 的 loose RecordPayload)。**reducer no-op**:cursor 和所有 projection 保持不变(transparent marker);`--dry-run` 走标准 mutate dry-run path(pack 校验通过 + journal 不写)。actor 默认 `cli:loaf@$USER`(PER_KIND_ACTOR 允许 human/skill/ci/cli,不强制 human)。跨 feature 接力使用 `loaf handoff` / `loaf resume`，临时查询使用受支持的只读命令。| 0 / 2 |
 | `loaf handoff --reason <value> [--notes <value>] [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-13a**:read-side projection writer。`buildResumePack` 从当前 snapshot + journal entries 派生 `ResumePack`,经 `composeStateProjection` 拼出完整 `state_snapshot`,active 任务集 + 当前 running step + 最近 N=`RESUME_PACK_RECENT_CAP=10` 个 evidence/finding ID + FIFO head pending 一并打包。**不** emit 新 journal entry;原子 tmp+rename 写到 `<feature-dir>/snapshots/resume-pack.json`。`--reason` REQUIRED ≥5 字符,`--notes` 可选自由文本。`actor` 必须 `human:*`(决策门,非 pack 内部录入 —— ResumePack 无 actor 字段)。**NEW dry-run 类别 `projection-writer`**:`--dry-run` reject `DRY_RUN_NOT_APPLICABLE` + `detail.command_type="projection-writer"`(read-only / wrapping / projection-writer / mutating 四类,§10.7) | 0 / 2 |
 | `loaf config init [--global]` | **config-init**:scaffold config without journal entry。默认写 cwd-root `.loaf/.config/loaf.config.json`,内容为完整 §21 `LoafConfig` defaults(6 sections,每 key 显式)并带 top-level `_comment` 作为 output-only affordance;`--global` 写 `~/.loaf/config.json`,仅 UserConfig shape `{schema_version, locale.default_lang}`。拒绝覆盖已有文件:`CONFIG_ALREADY_INITIALIZED` + `detail.config_path`;final write 用 exclusive create(`wx`)兜 race。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE` + `detail.command_type="scaffold-writer"`。repoRoot 为 cwd-root,非 git-root discovery | 0 / 2 |
 | `loaf spec submit --input <value> [--feature <value>] [--feature-dir <value>]` | 提交 spec.md,严格 schema 校验。**Slice 1.B sub-cycle 1**:emit atomic batch `[spec_submitted(reset), spec_req_added × N, spec_scenario_added × M, spec_visual_added × K]`(共享 batch_id + spec_version,reducer 在头 entry 重置 projection 三数组并 bump `state.spec_version`,companion entries 同 batch 内重填)。**Phase 16 SC-4a**:`--input <src>` 接统一 modality(`-` stdin / inline JSON / file path,§10.7);whole-replacement,**仅接 single object**(不接 array)。TTY no-hang guard 见 §10.1。 | 0 / 2 |
-| `loaf spec init [--feature <value>] [--feature-dir <value>] [--feature-id <value>] [--feature-name <value>] [--intent <value>]` | 生成 spec.md 模板,适合 `$EDITOR` 跟进 | 0 |
+| `loaf spec init [--feature <value>] [--feature-dir <value>] [--feature-id <value>] [--feature-name <value>] [--intent <value>]` | 生成 spec.md scaffold，不写 journal，适合 `$EDITOR` 跟进；已有文件报 `SPEC_ALREADY_INITIALIZED`，`--dry-run` 报 `DRY_RUN_NOT_APPLICABLE` | 0 / 2 |
 | `loaf spec edit [--input <value>] [--feature <value>] [--feature-dir <value>]` | **Phase 16 SC-12a + issue #18A**:`--input` 接统一 source resolver 与 strict JSON `{body:string}`，保留当前 frontmatter、只替换 Markdown body，完全跳过 `$EDITOR`；file / stdin `-` / inline JSON 三 lane 等价。无 `--input` 时保留 wrapping mutator：仅当 stdin **和** stdout 均为 TTY 才起显式 `$EDITOR`（无显式值 fallback `vi`）on `<feature-dir>/spec.md`，save 后 reload + validate；任一 stream 非 TTY 均 `SPEC_EDIT_INPUT_REQUIRED`，不受 `$EDITOR` 是否配置影响且不 spawn。两 lane 都 emit `event:spec_submitted` batch（复用 `buildSpecSubmitBatch`），内容无变化 → `no_op:true` 不写 journal。`--input --dry-run` 走标准 mutator dry-run且不改 work copy；editor lane `--dry-run` 仍 reject `DRY_RUN_NOT_APPLICABLE(command_type=wrapping)`。失败 work copy 语义、frontmatter subcode、CLI-owned spec_version、signal/editor exit/tokenize 与 post-lock gate 均保持既有 SC-12a 契约。| 0 / 2 |
-| `loaf spec add-req [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加单条或 batch EARS REQ。Input 含 `id_namespace`(`^REQ-[A-Z][A-Z0-9]*$`)+ EARS 字段;CLI 在 lock 内拼完整 `id`(`REQ-<NS>-<NNN>`)落 `spec.md`,`spec_version += 1`(per invocation,A10)。pre-lock(SPEC.spec/plan/design)合法;post-lock 拒 → `SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,走 `amend-spec` finding。`--schema --format=json` dump input JSON Schema | 0 / 2 |
+| `loaf spec add-req [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加单条或 batch EARS REQ。Input 含 `id_namespace`(`^REQ-[A-Z][A-Z0-9]*$`)+ EARS 字段;CLI 在 lock 内拼完整 `id`(`REQ-<NS>-<NNN>`)落 `spec.md`,`spec_version += 1`(per invocation,A10)。准入覆盖 ALL_SPEC（SPEC.proposal/spec/plan/design）；add-* 要求 spec_version>0，否则 SPEC_NOT_INITIALIZED；spec_locked=true 拒 → `SPEC_LOCKED_NO_DIRECT_EDIT` exit 2,走 `amend-spec` finding。`--schema --format=json` dump input JSON Schema | 0 / 2 |
 | `loaf spec add-scenario [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加 Gherkin scenario,id_namespace 模式 `^SCEN-[A-Z][A-Z0-9-]*$`。其余规约同 `spec add-req` | 0 / 2 |
 | `loaf spec add-visual [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | **rev 4.3**(ADR-0004 A1 / A4 / A5):增量加 visual contract,id_namespace 模式 `^VIS-[A-Z][A-Z0-9-]*$`。其余规约同 `spec add-req` | 0 / 2 |
 | `loaf tasks submit [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | 提交完整 task graph(SPEC.design / EXECUTE.plan)。**A08 strict semantic authoring**:`--input` 是 single `{"tasks":[...]}`;每条 task 带 unique `local_key`,dependency refs 显式用 `{local_key}` / `{task_id}`,不得带 `id/status/execution/based_on`。CLI 在 feature lease 内 two-pass 分配历史不复用的 T-id、解析 forward refs、从 current snapshot 注入 `based_on.spec`,emit wire-compatible full `event:tasks_planned`;JSON 成功结果含 `task_ids_by_local_key`。旧 full task plan input 明确 breaking reject,但历史 journal replay 不变。`--schema --format=json` dump exact input schema。source modality 为 stdin / inline JSON / path(§10.7)。 | 0 / 2 |
@@ -2106,7 +1884,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf tasks next [--feature <value>] [--feature-dir <value>]` | CLI 算下一个 ready task | 0 |
 | `loaf tasks check` <!-- inventory:future reason="SC-9a projection-read commands" --> | `snapshots/tasks.json` 的 `execution.<step>.status` 与 `snapshots/evidence.json` 一致性校验(rev 5.0:两个 derived projection 是 reducer 同一次重建产物,理论无 drift;mismatch → 触发 §10.15 snapshot-seq-mismatch / 提示 `loaf doctor --rebuild`);rename from `loaf check tasks` (rev 4.0) | 0 / 2 |
 | `loaf tasks step start --task <value> --step <value> [--feature <value>] [--feature-dir <value>]` | 开始一个 step(运行时校验 step ∈ kind 合法集) | 0 / 2 |
-| `loaf tasks step done --task <value> --step <value> [--result <value>] [--evidence-kind <value>] [--evidence-result <value>] [--evidence-summary <value>] [--evidence-covers <value>] [--evidence-check <value>] [--evidence-reason <value>] [--evidence-actor <value>] [--feature <value>] [--feature-dir <value>]` | 完成一个 step。`--result` 是 step outcome,独立于 `--evidence-result` 的 evidence outcome(RED reproduction 完成可 step=`passed` + evidence=`failed`)。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 10-step journal transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`。无 `--evidence-*` 时仍可单条 append;缺 task passing evidence 不在 step-done preflight 拦截,后续由 quick/light `loaf deliver` 的 verify-min 或 standard/deep `verify-accept` 拦截;未来 `loaf tasks check`(F-023) 才使用 `TASK_STATUS_WITHOUT_PROOF` 做 execution↔evidence 一致性诊断 | 0 / 2 |
+| `loaf tasks step done --task <value> --step <value> [--result <value>] [--evidence-kind <value>] [--evidence-result <value>] [--evidence-summary <value>] [--evidence-covers <value>] [--evidence-check <value>] [--evidence-reason <value>] [--evidence-actor <value>] [--feature <value>] [--feature-dir <value>]` | 完成一个 step。`--result` 是 step outcome,独立于 `--evidence-result` 的 evidence outcome(RED reproduction 完成可 step=`passed` + evidence=`failed`)。**rev 5.0** 行为(等价于原 rev 4.1 contract):走 §11.2 journal mutation transaction,**同一 batch 内 emit** `event:task_step_done` + 可选 `evidence:added`(若 `--evidence-*` flag);step 5 final-validate 通过后整批 append,reducer 派生到 `snapshots/tasks.json`(`execution.<step>.status`)与 `snapshots/evidence.json`。无 `--evidence-*` 时仍可单条 append;缺 task passing evidence 不在 step-done preflight 拦截,后续由 quick/light `loaf deliver` 的 verify-min 或 standard/deep `verify-accept` 拦截;未来 `loaf tasks check`(F-023) 才使用 `TASK_STATUS_WITHOUT_PROOF` 做 execution↔evidence 一致性诊断 | 0 / 2 |
 | `loaf evidence add [--input <value>] [--schema] [--feature <value>] [--feature-dir <value>]` | **rev 5.0**:走 §11.2 transaction,**emit `evidence:added`**(单条或 batch,batch markers N≥2);reducer 派生到 `snapshots/evidence.json`(含 covers[] / check / actor / result)。**issue #20**:成功写入后对每个 `covers[]` pair 复用 §5.4 `canSatisfy` 检查；不兼容则 stderr warning 列 obligation id、supplied kind、allowed kinds，但不 reject、不改 JSON stdout exact keys。**rev 4.1**:不接受 `--id` flag,EV-id 由 CLI 单调分配在 payload 内并 stdout 回打;支持 `external_ref` 字段留调用方 correlation。**rev 4.3**(ADR-0004 A3 / A10):走统一 `--input <src>` modality(`-` stdin / inline JSON / file path,§10.7),**Phase 16 SC-4c** 接入 + 启用 batch(single object 或 non-empty array)。**ADR-0004 A6 deferred(NOT in SC-4c)**:`attachments` 简化形态 `[{path}]` + CLI 自动 sha256/mime/bytes materialization 留给后续 SC;**当前** runtime + `INPUT_SCHEMAS["evidence:add"]` machine schema 都要求 caller 提供完整 `Attachment` 形态 `[{path, sha256, mime, bytes?}]`(见 §4.4 命令行 sha256/mime 计算示例)。caller 显式传 envelope 字段(`id`/`evidence_id`/`schema_version`/`at`)→ `SCHEMA_VALIDATION_FAILED`(codex r230 PATCH D / r234)。当 A6 落地时,简化形态会在 schema 切换前先做 materialization → `ATTACHMENT_NOT_FOUND` / `ATTACHMENT_NOT_FILE` 路径才会重新激活 | 0 / 2 |
 | `loaf evidence list [--covers <value>] [--task <value>] [--kind <value>] [--feature <value>] [--feature-dir <value>]` | **ticket #12 observability v1**:read-only coverage query over freshness-checked `snapshots/evidence.json`。JSON envelope exact keys=`{ok,feature,count,evidence}`；row exact keys=`{id,kind,covers,task_id,at,actor}`，无 task linkage 时 `task_id:null`，不透传 whole evidence payload / summary / result。`--covers` 经 `CoversRefPayload` closed union 校验并匹配 `covers[]`；`--task` 经 `TaskIdPayload` 校验并匹配 `task_id`；`--kind` 经 `EvidenceKind` closed enum 校验。filters AND-compose，保持 projection/journal 顺序；text 每 evidence 一行；空集 exit 0。`--dry-run` reject | 0 / 2 |
 | `loaf evidence schema` | **Phase 16 SC-10**:dump evidence projection JSON Schema(派生自 `EvidenceJson`,zod v4 内置 `z.toJSONSchema()`,JSON Schema draft-2020-12)。属于 5 个 `loaf <kind> schema` artifact 子命令家族之一(spec / tasks / evidence / finding / state — pending 不在范围,§1947 closed enum)。read-only,`--dry-run` reject。feature-agnostic:`--feature` / `--feature-dir` / `--session` / `$LOAF_*` 全 pre-parse 拒绝 | 0 / 2 |
@@ -2115,7 +1893,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding list [--feature <value>] [--status <value>] [--feature-dir <value>]` | 列 findings | 0 |
 | `loaf finding close <fnd-id> [--feature <value>] [--feature-dir <value>]` | **rev 5.0**:emit `finding:closed`;reducer 派生到 `snapshots/findings.json` | 0 / 2 |
 | `loaf verify status [--feature <value>] [--feature-dir <value>]` | **rev 5.0 / Phase 16 SC-9a-1 + issues #20/#21**:read-only verify-accept 诊断,返回顶层固定 4 行 `lanes:[{lane,applicability,reason}]`(run/review/acceptance/visual；每个 na 有稳定 reason code，非 na 为 null)以及 5 行 `PerCheckResult` 汇总(`lane_status` / `open_findings` / `coverage` / `task_evidence` / `spec_review`),每行 `status: pass\|fail\|na` + `failures: FailedCheck[]`(单 check 多 failure 支持,如多 lane 缺 / 多 REQ 未覆盖)。当前 policy 无 optional trigger，故 lane 实例只产 must/na。NA 规则:`lane_status` ∅ derive、`coverage` 0 obligation、`task_evidence` 有 plan + 0 done、`spec_review` strict=false 各自走 na;`open_findings` 始终 applicable，但仅 actionable open finding 阻塞。顶层 `deferred_findings:[{id,action}]` 与 text `deferred_findings info` 行显式列出仍 open 的 `defer` / `backlog`，两者不阻塞但保持可区分。SPEC_FRONTMATTER_INVALID 在 IO boundary exit 2(不注入合成 check-1 row,与 `evaluateVerifyAccept` 故意分叉)。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`。10 个 per-check code 完整复用 `verifyAcceptCheck` 既有 surface,无新 code 引入 **#6 supersession**：spec 输入由 canonical journal snapshot 构造，不读取派生 `spec.md`；缺失/畸形 snapshot spec 返回 exit 2 的 `SPEC_FRONTMATTER_INVALID`(snapshot-sourced detail)，不合成 check row；成功仍返回五项 checks 与四个 lanes。 | 0 / 2 |
-| `loaf gate decide <gate-name> [--approve] [--reject] --reason <value> [--feature <value>] [--feature-dir <value>]` | gate 决策 → **rev 5.0**:走 §11.2 transaction,**同一 batch 内 emit** `gate:decided` + `pending:resolved`(消 head pending kind=gate_decision)+ `event:phase_advanced`(target 由 §3.5 复用的 LEGAL_TRANSITIONS 给出)。reducer 派生 evidence projection 中 `kind=gate-decision` 视图。head 不匹配 → step 3 preflight 报 `GATE_NOT_PENDING` exit 2 | 0 / 2 |
+| `loaf gate decide <gate-name> [--approve] [--reject] --reason <value> [--feature <value>] [--feature-dir <value>]` | gate 决策 → **rev 5.0**:走 §11.2 transaction,emit `gate:decided`；approve 且存在 gate_decision head 时同批追加 `pending:resolved`，spec-lock approve 还同批追加 `event:phase_advanced` 到 EXECUTE.plan。verify-accept approve 不移 cursor；reject 只写决策。不投影到 evidence；pending 软绑定见 §10.7 | 0 / 2 |
 | `loaf settle [--feature <value>] [--feature-dir <value>]` | **rev 5.3**:走 §11.2 transaction 直接进入 `SETTLE.lessons`,emit `event:phase_advanced`(`cli:` actor — settle 是机器 cursor 推进,不需要 human:* 决定);transition validator 检查 `ceremony.settle_phase=true`(否则 `SETTLE_PHASE_DISABLED`)+ `verify_accepted=true`(否则 `SETTLE_NOT_ACCEPTED`)。命令只推 cursor；下一真实动作是 `loaf lessons add`。| 0 / 2 |
 | `loaf check <path> [--kind <value>]` | **rev 5.0 / Phase 16 SC-9c**:任意 artifact 文件 schema 校验入口(CI 用)。6 个 kind:`spec` / `tasks` / `evidence` / `finding`(单数 CLI noun → 复数 `findings.json` basename)/ `pending` / `state`。`--kind` 显式给定 > basename 自动推断,两者都不匹配 → `USAGE` 提示 `specify --kind`。失败统一走 `SCHEMA_VALIDATION_FAILED`(detail.subcode ∈ `invalid-json` / `invalid-yaml` / `missing-frontmatter` / `zod`);Zod issue 数 cap 在 `MAX_CHECK_ERRORS=20`,`detail.error_count` 暴露总数,`detail.truncated=true` 时 text 模式 stderr 末尾 `... (N errors total; first 20 shown)`。读命令,`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`。**§1899 did-you-mean 兜底**:用户敲字面 `loaf check tasks` 且 path 无文件 → 提示改用 path-based 校验 `loaf check <path>/tasks.json --kind tasks`(SC-17:不再指向 inventory:future 的 `loaf tasks check`,避免引向 unknown-command 死胡同);`./tasks` / 真有名为 `tasks` 的文件 / 其它 noun(`evidence` / `spec` / 等)都不出 suggestion。feature-agnostic:`--feature` / `--feature-dir` / `--session` / `$LOAF_*` 全部 pre-parse 拒绝 | 0 / 2 |
 | `loaf spec schema` | **Phase 16 SC-10**:dump `SpecFrontmatter` JSON Schema(draft-2020-12,Zod v4 `z.toJSONSchema()`)。`spec` 子命令族成员;read-only;`--dry-run` reject;feature-agnostic | 0 / 2 |
@@ -2125,20 +1903,20 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf <kind> schema --format=json` <!-- inventory:placeholder reason="generic umbrella row; concrete leaves enumerated above (spec / tasks / evidence / finding / state)" --> | **Phase 16 SC-10 总览**:5 个 artifact 子命令家族,literal `<kind> schema` 形态(非 catch-all,非 `loaf schema <kind>`)。**`pending` 不在范围**(§1947 closed enum;pending 是内部 projection,无外部 schema consumer 用例)。无 `$id`(URI namespace 留作单独决策)| 0 / 2 |
 | `loaf profile escalate --confirm --input <value> [--feature <value>] [--feature-dir <value>]` | 接受 auto-escalation prompt。`--input` 是 skill 算好的 6-flag Ceremony。emit 2-entry batch `[event:ceremony_set, pending:resolved]`(answers the `profile_escalation` head)。**rev 4.1 Q3**:本身就是答 `pending(kind=profile_escalation)` head 的方式,head 缺失 / 不匹配 → `ESCALATION_NOT_PENDING` exit 2 | 0 / 2 |
 | `loaf spike convert [--feature <value>] --to-feature <value> --reason <value> [--feature-dir <value>]` | emit `spike:converted`(payload `{to_feature, reason}`)+ archive 当前 session 到 `DONE.archived`;**不** scaffold F-N(由后续独立 `loaf start F-N` 另开) | 0 / 2 |
-| `loaf deliver [--feature <value>] [--feature-dir <value>] [--reason <value>]` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**v0.1.1:verify-min 已实装** —— 跑 §3.2 per-task evidence gate:code 任务需 `local-check` / visual-ui 需 `visual-review`|`manual` / docs 需 `task-summary`|`manual` / chore 需 `local-check`|`manual`|`task-summary`,`waiver` 永远满足,bug-RED 防御镜像 verify-accept;缺证据 → `DELIVER_VERIFY_MIN_INCOMPLETE` exit 2,通过 → `DONE.delivered`。注:`verify_phase=true`(standard/deep)从 `EXECUTE.done` 误 deliver → `DELIVER_NOT_ACCEPTED`(须先过 VERIFY)。light "REQ coverage not closed" 提示仍延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(`lesson:recorded` 已记并由 `lessons.md` projection writer 投影;preflight 同样校验 `verify_accepted=true`)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
+| `loaf deliver [--feature <value>] [--feature-dir <value>] [--reason <value>]` | **rev 3.1:advisory only,不碰 git/gh**;emit `session:delivered`(`human:` actor;reducer 直接 cursor flip 到 DONE.delivered,**不**经 `event:phase_advanced`)+ 打印 advisory `next:` 提示;spike hard block。**rev 4.1 + 5.x + Slice 1.D sub-cycle 2**:有效 source sub-state 取决于 ceremony —— `verify_phase=false`(`quick` / `light`)从 `EXECUTE.done` 调用(**v0.1.1:verify-min 已实装** —— 跑 §3.2 per-task evidence gate:code 任务需 `local-check` / visual-ui 需 `visual-review`|`manual` / docs 需 `task-summary`|`manual` / chore 需 `local-check`|`manual`|`task-summary`,`waiver` 永远满足,bug-RED 防御镜像 verify-accept;缺证据 → `DELIVER_VERIFY_MIN_INCOMPLETE` exit 2,通过 → `DONE.delivered`。注:`verify_phase=true`(standard/deep)从 `EXECUTE.done` 误 deliver → `DELIVER_NOT_ACCEPTED`(须先过 VERIFY)。light "REQ coverage not closed" 提示仍延后);`verify_phase=true && settle_phase=false`(`standard`)从 `VERIFY.accept` 调用(VERIFY 已走完,无 verify-min 二次跑;preflight step 5c 校验 `verify_accepted=true` 否则 `DELIVER_NOT_ACCEPTED`、`settle_phase=false` 否则 `DELIVER_SETTLE_PHASE_BYPASS`);`settle_phase=true`(`deep`)从 `SETTLE.lessons` 调用(preflight 校验 `verify_accepted=true`；lesson 非前置条件)。任何 source 都校验 snapshot.tasks 无非-abandoned spike 任务(`DELIVER_SPIKE_TASKS`,§703 + §1298) | 0 / 2 |
 | `loaf archive [--feature <value>] --reason <value> [--feature-dir <value>]` | 不交付关闭 | 0 / 2 |
 | `loaf abandon [--feature <value>] --reason <value> [--feature-dir <value>]` | 中途放弃(reason required) | 0 / 2 |
 | `loaf lessons add [--text <value>] [--file <value>] --reason <value> [--feature <value>] [--feature-dir <value>]` | **rev 5.1**:emit strict `lesson:recorded@1` payload `{id, iteration, reason, summary}`。形态:`loaf lessons add (--text "..." \| --file <path>) --reason "..."`;`--text` / `--file` exactly-one,`--reason` ≥10。actor 只在 envelope 且必须 `human:*`。CLI 严格扫描已加载 `session.entries` 的 `lesson:recorded` ids,分配独立 `LSN-NNN`;mutator 的 context-integrity gate 防止并发 stale allocation 落盘。JSON 输出稳定保留键 `id`。Lesson body >8KB 时 `summary` 走 LongTextField sidecar。`lessons.md` 只读取 `lesson:recorded`;lesson 不进 evidence-derived surface | 0 / 2 |
-| `loaf tui` | **Phase 16 SC-14 + F-026 disposition**:read-only Ink TUI(基于 `~/.loaf/registry/*.json`)。master list 按 project → feature → session 分组;默认 active-only,`[a]` 切 active/all,`[s]` 切 time/status sort,`[space]` 折叠,`[Enter]` 打开 lazy detail,`[Esc]` 返回,`[r]` **手动** reload,`[q]/Ctrl-C` 退出。STATUS 的共享优先级为 `done > blocked > running > idle`;pending head 的现有 kind 只作显示分类:gate/profile escalation 显示为人工 decision,ask/spec/finding 显示为 question,`[×N]` 仍只表示 queue depth。TTY guard:stdin **和** stdout 都需 TTY 否则 USAGE。`--session` / `--feature` / `--feature-dir` / `$LOAF_*` pre-parse reject;`--format` 任何值都 reject(用 `loaf sessions list --format json` 跑脚本)。`--dry-run` reject(read-only)。**明确退役的旧 F-026 promise**:`[d]` alias、`[p]` pending popup、archive hotkey、auto-refresh polling、registry-vs-runtime heartbeat stale scanner;mutation 继续只走显式 `loaf <cmd>`,detail freshness 继续由 projection loader 报告 | 0 / 2 |
+| `loaf tui` | **Phase 16 SC-14 + F-026 disposition**:read-only Ink TUI(基于 `~/.loaf/registry/*.json`)。master list 按 project → feature → session 分组;默认 active-only,`[a]` 切 active/all,`[s]` 切 time/status sort,`[space]` 折叠,`[Enter]` 打开 lazy detail,`[Esc]` 返回,`[r]` **手动** reload,`[q]/Ctrl-C` 退出。STATUS 的共享优先级为 `done > blocked > running > idle`;pending head 的现有 kind 只作显示分类:gate/profile escalation 显示为人工 decision,ask/spec/finding 显示为 question,`[×N]` 仍只表示 queue depth。TTY guard:stdin **和** stdout 都需 TTY 否则 USAGE。`--session` / `--feature` / `--feature-dir` / `$LOAF_*` pre-parse reject;`--format` 任何值都 reject(用 `loaf sessions list --format json` 跑脚本)。`--dry-run` reject(read-only)。mutation 只走显式 `loaf <cmd>`，detail freshness 由 projection loader 报告 | 0 / 2 |
 | `loaf board [--port <value>] [--in-cwd] [--once] [--open]` | read-only local browser board(基于 `~/.loaf/registry/*.json` + `.loaf/<feature>/snapshots/*.json`)。默认只绑定 `127.0.0.1:41738`;`--port 0` 用 ephemeral port;`--in-cwd` 过滤当前 cwd;`--once` 不启 server,输出一次 snapshot(支持 `--format json`);普通 server 模式 stdout 打 URL,`--open` 可打开默认浏览器。浏览器 API 只读:`GET /api/health`,`GET /api/sessions?scope=all\|cwd`,`GET /api/sessions/<session_id>`;workflow mutation 仍必须走既有 `loaf <cmd>` mutator。`--dry-run` reject(read-only)。 | 0 / 2 |
 | `loaf prune [--in-cwd] [--project <value>] [--all] [--orphans] [--force] [--purge] [--yes] [--history] [--trash] [--older-than <value>]` | session 垃圾回收(`~/.loaf/registry/*.json` + `<cwd>/.loaf/<feature>/`)。**purge≠journal 操作**(删 journal,绕过 mutator,与 retire `archive`/`abandon`/`deliver` 区分)。scope 恰好一个(否则 USAGE);默认 **preview**(无副作用),`--yes` 才执行,全局 `--dry-run` 强制 preview。安全:默认只删终态(`DONE.delivered`/`archived`/`abandoned`),`--force` 含 active(但**永不越过持锁** `.lock`);默认移到可恢复 trash `~/.loaf/trash/<ts>/<session_id>/`(含 manifest),`--purge` 才硬删。execute 全有/全无:registry move 失败回滚 feature,双重故障保留 trash 桶并指向手动恢复。部分失败(部分 target 出错)→ `PRUNE_PARTIAL_FAILURE` exit 2,body + audit log 均记 `failed[]`。`--orphans` 只清悬空 registry 条目。`--session <prefix>` 歧义 → `SESSION_SHORT_AMBIGUOUS`。**已实装子命令/模式**:`loaf prune restore <id> [--at <ts>]`(trash 的逆操作;源/目标 preflight + 全有/全无;全局 `--dry-run` 为只校验不落盘的 preview;失败码 `PRUNE_RESTORE_NOT_FOUND` / `PRUNE_RESTORE_AMBIGUOUS` / `PRUNE_RESTORE_INCOMPLETE` / `PRUNE_PATH_OCCUPIED` 均 exit 2)、`loaf prune --history`(读 `~/.loaf/prune-log.jsonl` append-only 审计)、`loaf prune --trash --older-than <N>d [--yes]`(trash 保留清理;preview/`--yes`;不可解析的桶名保留)。**post-v0.5.0 tracked**:`--history` 对 EACCES / corrupt 行的告警暴露(当前静默跳过)。 | 0 / 2 |
 | `loaf sessions list [--in-cwd]` | 列 session(non-TUI)。**rev 4.1**:`--in-cwd` 过滤当前 cwd;每行 `<UUID-short8> <feature> <sub_state> <at-relative-or-iso>` — terminal 重启后拾回 UUID 用。`--format json` 给 scripting。**v0.1.0(Phase 16 SC-9b)**:dispatch selectors(`--session` / `--feature` / `--feature-dir` / `$LOAF_SESSION` / `$LOAF_FEATURE`)pre-parse reject(它列跨 session,不接受单 session 选择器);corrupt registry entries 跳过但通过 stderr advisory 或 JSON `warnings` 暴露;orphan-cwd 行(registry cwd 字段指向已删 dir)同样 surface warning。`--dry-run` reject `DRY_RUN_NOT_APPLICABLE`(read-only)| 0 |
-| `loaf hook <event> [--list-events] [--feature <value>] [--feature-dir <value>] [--session <value>] [--path <value>]` | Claude Code hook 入口。`<event>` enum 限定 4 值(`session-start` / `write-guard` / `scope-track` / `closure-check`,详见 §11);`bare loaf hook` → exit 2 USAGE 列出 enum(`detail.events`);未知 event → exit 2 USAGE + did-you-mean;`--list-events` 显式 dump(text mode 每行 `<event>\t<ClaudeCodeName>`,JSON 模式 `{ok:true, count, events:[{event, claude_code}]}`)。**SC-15b 已实装 read-side**:`session-start` 经 §10.3 dispatch precedence 解析 feature,读 state/findings/pending 投影,stdout 输出 Claude Code SessionStart hook 形 `{hookSpecificOutput:{hookEventName, additionalContext}}`(注入 sub_state 的 `prompt_inject` + open findings + iteration + head pending),无 active session(非 loaf 工程 / 空 .loaf / stale)静默 exit 0;`closure-check` 读 state/tasks/evidence/findings 跑 read-only 一致性检查(projection freshness via loader fast-check + orphan evidence covers[] task target + open findings 摘要)：actionable open finding 作为 warning；`defer` / `backlog` 另列 `deferred findings carried` 信息并保留 action；stderr 输出但**永远 exit 0**(不阻塞 Stop)。**SC-15c 已实装 write-side**:`write-guard`(PreToolUse)经 strict 路径解析(`--path` 优先,否则 non-TTY 解析 Claude Code hook stdin JSON `tool_input.file_path`,TTY 无 `--path` → USAGE),对 (sub_state.write_paths ∪ active task/step `STEP_WRITE_PATHS_BY_KIND` ∪ `VERIFY_CHECK_WRITE_PATHS`) 经 `loaf.config.json paths.*` **按语义类别定向放大**(`src/core/step-write-paths.ts::STEP_WRITE_CATEGORIES_BY_KIND` 决定哪些 `paths.*` key 可放大当前 step,绝非 flat union)后用 picomatch(`dot:true`)匹配;`protected_files` 硬 deny。allow → exit 0;outside → exit 2 `WRITE_PATH_VIOLATION`;protected → exit 2 `PROTECTED_FILE_WRITE`(纯 exit-code 信号,非 JSON envelope)。安全极性:无 loaf session(非 loaf 工程 / `FEATURE_NOT_FOUND`)→ allow exit 0,但选中 session stale/corrupt 或 config 非法 → **fail closed** exit 2(与 read-side 相反)。**ticket #11 SC3**:`scope-track`(PostToolUse)复用 strict path/stdin 入口；filesystem-aware canonicalization 解析 repo/target realpath，missing leaf 从 nearest existing ancestor 重建，symlink-outside/lexical-outside fail closed。每次 selected-session invocation 通过专用 runtime lock 刷新 heartbeat；仅 `EXECUTE.work` 按 iteration union `pending_scope`，`.loaf/**` 与其它 cursor heartbeat-only。无 session 静默 0；selected stale/corrupt、containment 或 runtime failure exit 2；stdout 恒空；journal emission 延后到 closure command。`HOOK_EVENT_NOT_IMPLEMENTED` 在 runtime 不再触发,catalog 留 reserved-for-future-events(参 `TASK_STATUS_WITHOUT_PROOF` 模式)| 0 / 2 |
+| `loaf hook <event> [--list-events] [--feature <value>] [--feature-dir <value>] [--session <value>] [--path <value>]` | Claude Code hook 入口。`<event>` enum 限定 4 值(`session-start` / `write-guard` / `scope-track` / `closure-check`,详见 §11);`bare loaf hook` → exit 2 USAGE 列出 enum(`detail.events`);未知 event → exit 2 USAGE + did-you-mean;`--list-events` 显式 dump(text mode 每行 `<event>\t<ClaudeCodeName>`,JSON 模式 `{ok:true, count, events:[{event, claude_code}]}`)。**SC-15b 已实装 read-side**:`session-start` 经 §10.3 dispatch precedence 解析 feature,读 state/findings/pending 投影,stdout 输出 Claude Code SessionStart hook 形 `{hookSpecificOutput:{hookEventName, additionalContext}}`(注入 sub_state 的 `prompt_inject` + open findings + iteration + head pending),无 active session(非 loaf 工程 / 空 .loaf / stale)静默 exit 0;`closure-check` 读 state/tasks/evidence/findings 跑 read-only 一致性检查(projection freshness via loader fast-check + orphan evidence covers[] task target + open findings 摘要)：actionable open finding 作为 warning；`defer` / `backlog` 另列 `deferred findings carried` 信息并保留 action；stderr 输出但**永远 exit 0**(不阻塞 Stop)。**SC-15c 已实装 write-side**:`write-guard`(PreToolUse)经 strict 路径解析(`--path` 优先,否则 non-TTY 解析 Claude Code hook stdin JSON `tool_input.file_path`,TTY 无 `--path` → USAGE),对 (sub_state.write_paths ∪ active task/step `STEP_WRITE_PATHS_BY_KIND` ∪ `VERIFY_CHECK_WRITE_PATHS`) 经 `loaf.config.json paths.*` **按语义类别定向放大**(`src/core/step-write-paths.ts::STEP_WRITE_CATEGORIES_BY_KIND` 决定哪些 `paths.*` key 可放大当前 step,绝非 flat union)后用 picomatch(`dot:true`)匹配;`protected_files` 硬 deny。allow → exit 0;outside → exit 2 `WRITE_PATH_VIOLATION`;protected → exit 2 `PROTECTED_FILE_WRITE`（经 catalog 失败出口输出 stderr diagnostic，JSON 模式为失败 envelope）。安全极性:无 loaf session(非 loaf 工程 / `FEATURE_NOT_FOUND`)→ allow exit 0,但选中 session stale/corrupt 或 config 非法 → **fail closed** exit 2(与 read-side 相反)。**ticket #11 SC3**:`scope-track`(PostToolUse)复用 strict path/stdin 入口；filesystem-aware canonicalization 解析 repo/target realpath，missing leaf 从 nearest existing ancestor 重建，symlink-outside/lexical-outside fail closed。每次 selected-session invocation 通过专用 runtime lock 刷新 heartbeat；仅 `EXECUTE.work` 按 iteration union `pending_scope`，`.loaf/**` 与其它 cursor heartbeat-only。无 session 静默 0；selected stale/corrupt、containment 或 runtime failure exit 2；stdout 恒空；journal emission 延后到 closure command。`HOOK_EVENT_NOT_IMPLEMENTED` 在 runtime 不再触发,catalog 留 reserved-for-future-events(参 `TASK_STATUS_WITHOUT_PROOF` 模式)| 0 / 2 |
 | `loaf pending raise --kind <value> --question <value> [--options <value>] [--task-id <value>] [--feature <value>] [--feature-dir <value>]` | **rev 4.1**:append 新 pending 到队列尾(skill / hook / sub-agent 内部调用,user 通常不直接敲);CLI 分配 PEND-id 并 stdout 回打;5 种 kind 任选(`ask_user_question` / `gate_decision` / `spec_clarification` / `finding_decision` / `profile_escalation`)。**不接受 `--id` flag**(同 `evidence add` 纪律,见 §11.2 + `src/core/concurrency-contract.ts`) | 0 / 2 |
-| `loaf pending list [--feature <value>] [--feature-dir <value>]` | 列 state.pending FIFO 队列全部 entry(**rev 4.1**:含 head + 排队的;head 标 `*`)| 0 |
+| `loaf pending list [--feature <value>] [--feature-dir <value>]` | 列 pending projection 全部 entry（包含已 resolve 历史，`resolved:true`）；JSON `{ok,feature,count,pending:[{id,kind,resolved,head}]}`，text head 标 `head`| 0 |
 | `loaf pending status [--feature <value>] [--id <value>] [--feature-dir <value>]` | 查 single entry 详情(**rev 4.1**:default 看 head;`--id` 看队列其它位置 — 只读不动队列)| 0 / 2 |
 | `loaf pending resolve --answer <value> [--feature <value>] [--feature-dir <value>]` | 回答 pending head(**rev 4.1**:FIFO 严格 — 永远 pop `pending[0]`,**不接受 `--id`**;v1.0 不支持跳序)。**v0.1.0**:`--answer` 是 Commander `requiredOption`,任何 stdin/TTY 状态缺 flag → USAGE exit 2;未来 prompt 入口落地后,`--no-input` 强制 fail-closed,TTY + 无 `--no-input` 展示 head 的 `question` + `options` 走 prompt(见 §10.7)。resolve 成功后队列若仍非空,新 head 自动 promote 为 blocker | 0 / 2 |
-| `loaf doctor [--rebuild] [--feature <value>] [--feature-dir <value>]` | 版本 / 装机 / 仓库结构自检 + 修复建议。当前 binary 仅 ship `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`(full replay 重建 snapshots/)。bare `loaf doctor` → exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`；`--check-tail`、`--scope cwd`、`--verify-checksum` 是尚未实现的目标设计。旧 `--migrate-v2` 与 v0.0.x snapshot import 已撤回，旧 import entry 在 replay envelope validation 返回 `INVALID_ENTRY`。详 §10.15 | 0 / 1 / 2 |
+| `loaf doctor [--rebuild] [--feature <value>] [--feature-dir <value>]` | 版本 / 装机 / 仓库结构自检 + 修复建议。当前 binary 仅 ship `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`(full replay 重建 snapshots/)。bare `loaf doctor` → exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`；**未实现（目标设计）**：`--check-tail`、`--scope cwd`、`--verify-checksum`。不支持旧 N-file snapshot import；含不受支持 import entry 的 rebuild 失败为 `DOCTOR_REBUILD_FAILED`，`detail.replay_code=INVALID_ENTRY`。详 §10.15 | 0 / 1 / 2 |
 
 <!-- inventory:current-end -->
 
@@ -2166,7 +1944,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf finding close` | `finding:closed` |
 | `loaf pending raise` | `pending:added` |
 | `loaf pending resolve` | `pending:resolved` |
-| `loaf gate decide` | `gate:decided` + atomic `pending:resolved` 消 head；spec-lock approval 还同批 emit `event:phase_advanced`(actor `human:` only) |
+| `loaf gate decide` | `gate:decided`；approve 有 gate_decision head 时同批 `pending:resolved`；spec-lock approval 还同批 emit `event:phase_advanced`。reject 不 co-resolve（gate 决策 actor `human:`） |
 | `loaf start` | `session:started`(journal seq=0) |
 | `loaf resume` | `session:resumed` |
 | `loaf deliver` | `session:delivered`(actor `human:`) |
@@ -2178,7 +1956,7 @@ loaf --dry-run gate decide spec-lock --approve --reason "ci precheck"
 | `loaf profile escalate --confirm --input <ceremony.json>` | atomic 2-entry batch:`event:ceremony_set`(新 ceremony) + `pending:resolved`(answers `profile_escalation` head) — 顺序固定:`event:ceremony_set` 在前,preflight 5c.4 守卫才看得到未 resolved 的 `profile_escalation` head |
 | `loaf lessons add` | `lesson:recorded`(actor `human:*`;payload `LessonRecordedPayload@1`;CLI 分配独立 `LSN-NNN`;`lessons.md` 仅投影此 kind) |
 
-Read-only 命令(`loaf status` / `loaf spec status` / `loaf tasks list` / `loaf tasks next` / `loaf verify status` / `loaf finding list` / `loaf pending list` / `loaf pending status` / `loaf sessions list` / `loaf <artifact> schema` / `loaf check <path>` / `loaf tui` / `loaf handoff` / `loaf hook *` 中的 non-mutating event)**不**写 journal(`tasks check` 为 inventory:future,未在 v0.1.0 实装)。**实现状态(Phase 15 SC3)**:Gate #5 fast-check 是这些命令的**目标契约**,但当前 binary 只把 5 个命令(`loaf status` / `tasks list` / `pending list` / `finding list` / `evidence list`)切到 `projection-loader`(读 `snapshots/*.json` + M0-anchored 双 fast-check,见 §10.15);其它读命令(含 pure-replay `loaf spec status`)仍走 `loadSession` 全 journal replay,后续 slice 逐个迁移。
+Read-only 命令(`loaf status` / `loaf spec status` / `loaf tasks list` / `loaf tasks next` / `loaf verify status` / `loaf finding list` / `loaf pending list` / `loaf pending status` / `loaf sessions list` / `loaf <artifact> schema` / `loaf check <path>` / `loaf tui` / `loaf handoff` / `loaf hook *` 中的 non-mutating event)**不**写 journal(`tasks check` 为 inventory:future,未在 v0.1.0 实装)。**当前 reader 路径**：`status` / `next` / `tasks list` / `pending list` / `finding list` / `evidence list` 六个命令直接通过 `projection-loader` 读投影并做 M0-anchored 双 fast-check。feature selector 或 auto-pick 的 dispatch 也先加载 state projection；因此 `spec status` / `journal list` / `verify status` 即使随后 full replay，仍可在 dispatch 因 stale 返回 `SNAPSHOT_STALE_REBUILD_REQUIRED`。UUID selector 先查 registry；不据此承诺所有 selector 都在 dispatch 做 fast-check。
 
 ### 10.9 Exit codes
 
@@ -2199,24 +1977,21 @@ Read-only 命令(`loaf status` / `loaf spec status` / `loaf tasks list` / `loaf 
 - **不引入 catch-all**(§10.6)+ **不引入 prefix abbreviation alias**(§10.6)
 - §15 done-when freeze:**不允许新增 top-level CLI 子命令**(rev 4.0 后)— 跟 schema freeze 并行
 
-### 10.11 Distribution(implementation 阶段)
+### 10.11 Distribution
 
-- 单 binary(`bun build --compile`)— macOS / Linux x86_64 / arm64
-- 分发:Homebrew formula(`brew install loaf-cli`)+ `bun install -g @loaf/cli` 双轨
-- **Man pages**:生成 `man loaf`(top-level)+ 每个 subcommand group 一份(`man loaf-spec` / `man loaf-tasks` / `man loaf-evidence` / `man loaf-finding` / `man loaf-gate` / `man loaf-sessions` 等);`loaf help <topic>` 等价 `man loaf-<topic>`(若 topic 不是 group 则 fallback 到 `loaf <topic> --help`)
-- `uninstall` 指引放安装文档**末尾**(clig.dev §15 约定):brew → `brew uninstall loaf-cli`;bun → `bun pm uninstall -g @loaf/cli`;man page 由包管理器自动清
-- **No telemetry**(协议层面声明,§16 显式非目标也含此条);crash log(`~/.loaf/crashes/`)**永不自动 upload**,用户手动贴 issue 时 review 并删 PII 后才上传
+- Runtime 是 Node ESM（Node >=22），`bun run build` 通过 tsdown 生成 `dist/cli.mjs`。Bun 用于开发与构建，不是发布 binary 的运行时。
+- 分发来自 GitHub `est7/loaf` 的已提交 `dist/cli.mjs`：`pnpm add -g github:est7/loaf`；固定版本用 `pnpm add -g github:est7/loaf#vX.Y.Z`。同一命令重新安装以更新，再运行 `loaf --version` 验证。没有 npm `@loaf/cli`、Homebrew 或 man-page 分发路径。
+- 卸载：`pnpm remove -g loaf-cli`。
+- Crash log 留在本机，不自动上传；用户分享前自行检查内容。
 
-**Build-time URL stamping**(rev 4.1):两个 URL 必须在 `bun build --compile` 时通过环境变量注入,**不允许**在 source 写死或留 `<placeholder>`:
+**Build-time URL stamping**：tsdown 从 build env 注入 help/footer 与 crash-report URL。
 
-| Build env var | 用途 | 默认 | v1.0.0 tag 强制 |
-|---|---|---|---|
-| `LOAF_DOCS_URL` | 注入到 `--help` 文案末尾的"完整 protocol"链接 | (placeholder)`https://docs.loaf-cli.invalid/v1` | ✅ 必须非 `*.invalid` |
-| `LOAF_ISSUE_URL` | 注入到 unexpected error 的 bug-report URL(§10.5)| (placeholder)`https://github.com/loaf-cli/loaf/issues/new` | ✅ 必须非 placeholder |
+| Build env var | 用途 | 默认 |
+|---|---|---|
+| `LOAF_DOCS_URL` | `--help` footer | `https://docs.loaf.invalid` |
+| `LOAF_ISSUE_URL` | unexpected-error report URL | `https://issues.loaf.invalid` |
 
-- `loaf --version` 在 placeholder URL 下运行时 stderr 多打一行 `warning: docs URL placeholder; build with LOAF_DOCS_URL=...`;exit 仍 0
-- CI release pipeline 在 tag v1.0.0 之前 grep `*.invalid` / `loaf-cli/loaf` 默认值,命中 → 阻断 release
-- 见 §15 done-when freeze 第 5 条
+`--version` 只输出 semver，不因 placeholder URL 输出警告。GA release gate 要求非 placeholder URL（§15）。
 
 ### 10.12 State-change output convention(clig.dev §4 强 require)
 
@@ -2250,7 +2025,7 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 | `loaf gate decide verify-accept` (approve) | `gate decide: verify-accept approved by <actor>` | 来自 post-gate `VERIFY.accept` snapshot 的 settle/deliver canonical branch |
 | `loaf gate decide <G>` (reject) | `gate decide: <gate> rejected by <actor>` | — |
 | `loaf settle` | `settle: <from> → SETTLE.lessons` | 与随后 `loaf next` 相同的 scoped canonical command |
-| `loaf deliver` | `deliver: DONE.delivered (advisory only)` + 见 §10.12 advisory 段 | — |
+| `loaf deliver` | `deliver: <feature> — <from> → DONE.delivered by <actor>` | — |
 | `loaf archive` / `loaf abandon` | `archive: <feature> — <from> → DONE.archived by <actor>` / `abandon: <feature> — <from> → DONE.abandoned by <actor> (reason='...')` | — |
 | `loaf tasks amend` | `amend: <task_id>` | — |
 | `loaf pending resolve` | `pending resolve: <PEND-id> cleared` | — |
@@ -2274,72 +2049,40 @@ next: <suggested next command>            # 可选,仅在有强自然下一步�
 - `--quiet` 抑制 progress(保留错误)
 - progress 永远走 stderr,不污染 stdout(否则 `--format json | jq` 炸)
 
-### 10.14 `loaf deliver` 输出示例(Q4 advisory-only 落地)
+### 10.14 `loaf deliver` 输出示例
+
+quick、无任务会话从 EXECUTE.done 交付时的 JSON：
 
 ```json
 {
-  "status": "delivered",
-  "session_id": "...",
-  "feature": "auth-refresh",
-  "advisory": [
-    "git status",
-    "git add .loaf/auth-refresh/",
-    "git commit -m \"feat(auth): refresh token recovery (F-001)\"",
-    "gh pr create --title \"...\""
-  ]
+  "ok": true,
+  "feature": "sample",
+  "from": "EXECUTE.done",
+  "to": "DONE.delivered",
+  "actor": "human:tester",
+  "sub_state": "DONE.delivered",
+  "advisory": ["session complete — `loaf start <feature>` to begin another"]
 }
 ```
 
-git / gh side effect 是 loaf-skill 或用户自己负责,**不进 loaf-cli**。
+git / gh side effect 由 loaf-skill 或用户负责，不进 loaf-cli（§16）。
 
-**永久 non-goal**:自动 commit / PR / CI 由 loaf-skill 或用户手工调(rev 3.1 锁定,见 §16)。lessons promote / list --hits 见 §12.2(v1 显式不做,scope discipline)。
+### 10.15 `loaf doctor` 诊断与 rebuild
 
-### 10.15 `loaf doctor` 诊断清单(rev 4.1)
+当前只实现 `loaf doctor --rebuild --feature <X> [--feature-dir <path>]`：在 feature lease 内 full replay 并重建 snapshots。bare doctor 返回 exit 2 `DOCTOR_MODE_NOT_IMPLEMENTED`；rebuild 缺 feature 返回 `DOCTOR_FEATURE_REQUIRED`。
 
-`loaf doctor` 是 loaf-cli 的**唯一自检入口**,被 §4.12 / §10.4 / §10.5 / §11.2 多处引用。本节定义它跑的全部 check 与可选 `--fix` 行为。所有 check **read-only by default**,加 `--fix` 才尝试修复。
+**未实现（目标设计）**：doctor 的综合检查、`--fix`、`--rebuild-registry`、`--check-tail`、`--scope cwd`、`--verify-checksum`，包括 registry GC、orphan temp/attachment 清理、stale-claim 与 checksum repair。当前启动期不自动运行这些清理。
 
-> **实现状态(Phase 14 / `1d6e1d1`)**:下表与下方「调用契约」是 `loaf doctor` 的**目标诊断设计**。v0.1.0 当前 binary 仅实现 `loaf doctor --rebuild`(full replay 重建 `snapshots/`);bare `loaf doctor`、`--fix`、`--rebuild-registry` 及其余 sub-flag 均**未实现** —— bare `loaf doctor` 退出 2 `DOCTOR_MODE_NOT_IMPLEMENTED`,`--rebuild` 缺 `--feature` 退出 2 `DOCTOR_FEATURE_REQUIRED`。下表的 check 套件是后续 slice 的 backlog。
+Reader fast-check 已实现：`status` / `next` / `tasks list` / `pending list` / `finding list` / `evidence list` 六个命令在读投影前及读后做 M0-anchored fast-check。stale 返回 `SNAPSHOT_STALE_REBUILD_REQUIRED`，不静默 replay fallback；`detail.reason` 为 `journal_missing` / `journal_empty` / `tail_offset_mismatch` / `tail_hash_mismatch` / `trailing_partial_line` / `meta_missing` / `meta_invalid` / `projection_missing` / `projection_invalid`。`meta_invalid` 和 `projection_invalid` 的 cause 为 `json_parse` 或 `schema`。`tasks.json` 缺失且 `state.based_on.tasks===0` 是 valid-empty。feature/auto-pick dispatch 也读 state projection；尚未启动的目录返回 `FEATURE_NOT_FOUND`。UUID dispatch 先查 registry，随后 reader 路径由命令决定（§10.8）。
 
-| Check | 范围 | 检测条件 | `--fix` 行为 |
-|---|---|---|---|
-| **stale-lock** | `.loaf/<feature>/.lock`(所有 feature)| 文件存在 + 内含 PID 不在进程表 | `unlink` 锁文件(POSIX rename atomic 写过,所以安全)|
-| **orphan-tmp** | `.loaf/<feature>/*.tmp-*` | mtime > 60 秒 + 无对应 active lock | `unlink` |
-| **registry-orphan** | `~/.loaf/registry/<id>.json` | 对应 cwd 已无 `.loaf/<feature>/state.json`(repo 被删 / session id 不匹配)| `unlink` registry 文件 |
-| **registry-gc** | `~/.loaf/registry/*.json` | mtime > 30 天 | `unlink`(§4.12 GC 策略)|
-| **crash-log-prune** | `~/.loaf/crashes/*.json` | mtime > 30 天 | `unlink`(避免堆积);文件扩展 Phase 16 SC-2 改为 `.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)|
-| **schema-drift** | `.loaf/<feature>/{journal.jsonl,snapshots/_meta.json}` | `snapshots/_meta.json.feature_schema_version` 与当前 feature schema 不一致，或 journal kind / entry version 不受当前 binary 支持 | 不自动 fix；报告 schema/version mismatch，检查 binary 版本并从有效 journal 恢复。旧 N-file artifact 不再有 import 路径 |
-| **artifact-corruption** | 上同 | Zod parse 失败 / 非法 JSON | 不自动 fix;打印 path + Zod 错误,提示手动恢复或从 git 历史 checkout |
-| **url-placeholder**(只在 startup 内嵌跑)| binary build 元数据 | `LOAF_DOCS_URL` 或 `LOAF_ISSUE_URL` 是默认 placeholder(见 §10.11)| 不 fix(rebuild 才能修);警告即可 |
-| **stale-claim**(rev 4.1 + rev 5.0 reframed)| `snapshots/tasks.json` 中 `status="in_progress"` 的 task | `task.execution.<step>.started_at` > 30 分钟 + 自 started_at 后该 task_id 在 `snapshots/evidence.json`(`evidence:added` view)无新 entry | **v0.1.0 状态:non-trivial**——单写者纪律下,doctor 修复也得 emit journal entry 才能改 reducer-visible state。两种实现方案(待 ADR-0006-doctor-repair 决定):(a)emit 新 kind `event:claim_reclaimed`(actor `cli:doctor`,reducer 派生回 status=ready + 写 audit evidence:added),走 §11.2 transaction 落地;(b)纯诊断 — 只 stderr 警告 + 标 finding,不动 state,人工介入。**v0.1.0 默认 (b) advisory-only,不带 `--fix`**;`--fix` route 暂留为 v0.1.x 工程项(走 (a))。`loaf doctor` 现 stage 只识别 + 报,不改 state |
-| **orphan-attachment**(rev 5.0,ADR-0005 §3.5 step 4d/5 crash window)| `.loaf/<feature>/attachments/<entry_id>/**` | 文件存在但 journal.jsonl 中无 matching `entry_id` 的 entry,或 entry 中无指向该 file 的 `AttachmentRef` | `--fix`:删 orphan 目录 + 写 `evidence:added kind=local-check actor=cli:doctor result=passed summary="purged orphan attachment <entry_id>/<path>"`(audit trail)|
-| **tail-corruption**(rev 5.0,ADR-0005 §4.13 + Gate #4)| `.loaf/<feature>/journal.jsonl` 末尾 | 末行 partial JSON / 末 batch `batch_index < batch_count - 1` 或 batch 末 entry partial / sha256(last entry) ≠ `_meta.last_entry_line_hash` | `--fix`:所有 truncate 只使用扫描时记录的原始行 pre-offset；单 entry partial → truncate 末行；batch incomplete → truncate 整批至 batch 第一 entry 之前；rewrite `snapshots/_meta.json`；若 truncate 跨过 `last_applied_seq` → 同时跑 `--rebuild`。若 tail 是 valid envelope 但 kind 未知或 `entry_schema_version` 高于本 binary 对该 kind 的支持版本，禁止 truncate 并报 `JOURNAL_TAIL_REQUIRES_NEWER_LOAF`，要求先升级。|
-| **stale-tmp**(rev 5.0)| `.loaf/<feature>/{journal.jsonl,snapshots/*,attachments/**}.tmp-*` | 任意 `.tmp-*` 残留 + mtime > 60s + 无 active lock | `--fix`:`unlink` 全部 |
-| **snapshot-seq-mismatch**(rev 5.0,Gate #5)| `.loaf/<feature>/snapshots/_meta.json` | `last_applied_seq` < 实际 journal 末 entry seq,或 `last_entry_line_hash` mismatch | 不自动 fix;打印 `SNAPSHOT_STALE_REBUILD_REQUIRED` 提示跑 `loaf doctor --rebuild`(reader contract 永不静默 fallback,ADR-0005 §3.6)。**Phase 15 SC3 + ticket #12**:`projection-loader`(`status` / `tasks list` / `pending list` / `finding list` / `evidence list` 五个只读命令)在消费 `snapshots/<kind>.json` 前必跑 Gate #5 fast-check + 第二次 cached-M0 post-read fast-check(M0-anchored linearization guard);任一 fail → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`,9-reason taxonomy(`detail.reason`)包括 reader 原 5 reason(`journal_missing` / `journal_empty` / `tail_offset_mismatch` / `tail_hash_mismatch` / `trailing_partial_line`)+ loader 加 4 reason(`meta_missing` / `meta_invalid {cause: json_parse \| schema}` / `projection_missing {projection_kind}` / `projection_invalid {projection_kind, cause}`)。`tasks.json` 缺失若 `state.based_on.tasks === 0` 走 valid-empty(writer skip,§14)而非 `projection_missing`;pre-`loaf start` dir(journal + meta 均缺,或 `isEmptyMeta` sentinel + journal 空)分类成 `NO_SESSION` 而非 stale。其他需要 canonical entries 的只读命令(如 `journal list`)仍走 `loadSession` full replay |
-| **rolling-checksum-mismatch**(rev 5.0,ADR-0005 §3.1 full verify path)| `.loaf/<feature>/journal.jsonl` | `loaf doctor --verify-checksum` 重算整链(O(N))与 `_meta.rolling_checksum` 不匹配 | 不自动 fix;打印 journal 中段 corruption 位置;手动 recovery(git 历史 / backup) |
-| **sidecar-validation-drift**(rev 5.0,ADR-0005 §3.5 step 5d)| internal invariant | step 5d final-validate reducer-visible diff vs step 3c preflight 结果(应当永远相同) | 不自动 fix;指示实现 bug;dump entry payload + reducer trace 进 `~/.loaf/crashes/<ts>.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)报 |
-
-**调用契约**:
-
-```bash
-# v0.1.0(Phase 14)实现:
-loaf doctor --rebuild --feature <X> [--feature-dir <path>]   # full replay 重建 snapshots/
-
-# 目标设计 — 当前未实现(bare loaf doctor → exit 2 DOCTOR_MODE_NOT_IMPLEMENTED):
-loaf doctor              # 跑全部 check,read-only,exit 0 = 全过,exit 1 = 任一失败
-loaf doctor --fix        # 跑全部 check,可 fix 的尝试 fix,exit 0 = 全清,exit 1 = 仍有未修
-loaf doctor --rebuild-registry   # 等价 --fix 但只跑 registry-* 三 check
-loaf doctor --format json       # 结构化输出,CI / TUI 消费
-```
-
-`tailRecovery` 的 version-aware 判定只信任 envelope 的 `seq`、`entry_id`、`at`、`actor`、`entry_schema_version`、`kind`、`payload` 存在性以及可选 batch 三元组结构；不解释未知 kind 的 payload，也容忍额外 envelope 字段。满足该稳定 envelope 后，未知 kind 或高于 `ENTRY_SCHEMA_VERSIONS[kind]` 的版本即视为 newer writer 证据，且在打开文件进行 truncate 之前 fail closed。`doctor --check-tail` 仍未接线。
-
-**启动期内嵌**:`loaf <any-cmd>` 启动时静默跑 `stale-lock` + `orphan-tmp` 两个 check 的 fix 路径(crash-only invariant 落地);其它 check 仅在显式 `loaf doctor` 时跑(避免每次 CLI 调用都扫全 registry)。
+`tailRecovery` 是 core 的 batch-aware recovery primitive，尚未接到 `doctor --check-tail`。它先检查稳定 envelope 结构；未知 kind 或更高 entry schema version 是 newer-writer 证据，truncate 前 fail closed 为 `JOURNAL_TAIL_REQUIRES_NEWER_LOAF`。dead-owner feature lease 的回收由后续 writer 以 PID + generation 证明执行，不由启动期 doctor 清理。
 
 ---
 
+
 ## 11. Hook Surface(Claude Code 集成)
 
-> **Canonical event-name registry**:本节 hook event 名(`session-start` / `write-guard` / `scope-track` / `closure-check`)、§4.5 finding event 名(`opened` / `closed`)、§10.12 state-change verb、§4.4 evidence kind、`Drift.resolution` 等 event-style 名称的 owner 索引位于 [`machine-contract.md`](machine-contract.md)。外部文档(plan.md / design.html / 未来 impl tooling)消费 event 名时必须从对应 runtime owner 查;`scripts/check-event-drift.sh` 是配套 lint,CI 或 pre-commit 跑一遍兜底。
+> **Canonical event-name registry**:本节 hook event 名(`session-start` / `write-guard` / `scope-track` / `closure-check`)、§4.5 journal kind(`finding:raised` / `finding:closed`)、§10.12 state-change verb、§4.4 evidence kind、`Drift.resolution` 等 event-style 名称的 owner 索引位于 [`machine-contract.md`](machine-contract.md)。外部文档(plan.md / design.html / 未来 impl tooling)消费 event 名时必须从对应 runtime owner 查;`scripts/check-event-drift.sh` 是配套 lint,CI 或 pre-commit 跑一遍兜底。
 
 | Event | Hook | 作用 | 失败行为 |
 |---|---|---|---|
@@ -2350,102 +2093,32 @@ loaf doctor --format json       # 结构化输出,CI / TUI 消费
 
 > **v0.1.0 实装状态(Phase 16 SC-15b/c + ticket #11)**:`session-start` + `closure-check`(SC-15b)、`write-guard`(SC-15c)、`scope-track` runtime accumulator 与 EXECUTE closure flush(ticket #11)已实装。`write-guard` 的 `loaf.config.json paths.*` 是**按语义类别定向放大**(`src/core/step-write-paths.ts::STEP_WRITE_CATEGORIES_BY_KIND` 决定哪些 `paths.*` key 可放大当前 step 的内建 glob),**不是**本表"AND-merge paths.*"字面所示的全局并/交;`protected_files` 始终硬 deny(`PROTECTED_FILE_WRITE`),outside allow-set 报 `WRITE_PATH_VIOLATION`。`closure-check` 的"外部直写 mtime 检测"(§11.2 末)仍留待后续 SC。
 
-### 11.1 diff-based guard(rev 3.1 全口径 git status)
+### 11.1 diff-based guard
 
-**不**加 PreToolUse(Bash) hook(避免每个 Bash 命令过 hook 的 latency)。改为:`loaf advance` 时跑**完整 git status 组合**收集变更:
+**未实现（目标设计）**：在 `loaf advance` 收集 staged / unstaged / untracked 变更并与 write-path policy 比对。当前 advance 不运行 git diff/status，也不写 gate-diagnostic 文件；Bash 绕过 Write/Edit hook 的改动没有此兜底。已实现的路径准入是 `loaf hook write-guard`（§10.8）。
 
-```bash
-# rev 3.1 covers untracked / staged / deleted / renamed / submodule
-git diff --name-only --diff-filter=ACMRTUXB
-git diff --cached --name-only --diff-filter=ACMRTUXB
-git ls-files --others --exclude-standard
-```
-
-归一化到 repo root,与**允许集合**(sub_state.write_paths ∪ STEP_WRITE_PATHS_BY_KIND[kind][step] ∪ loaf.config.json paths.*) AND-merge 比对。任何路径 outside = hard block + 写 gate-diagnostic.json。
-
-Bash 绕开 Write hook 的修改在 advance 时一定会被发现。
-
-### 11.2 Single-writer + per-session lock + 10-step journal transaction(rev 5.0)
+### 11.2 Single-writer + per-session lock + journal mutation transaction(rev 5.0)
 
 **协议级 invariant**(Principle #15 ③ + 15a 落地):**所有** `.loaf/<feature>/` 下的 artifact mutation **必须经 `loaf <subcommand>` 落成 journal entry**。skill / sub-agent / 编辑器 / 外部脚本 **不得直接** 写 `journal.jsonl` / `attachments/**` / `snapshots/*.json` / `spec.md` / `lessons.md` / `~/.loaf/registry/<id>.json`。
 
-唯一例外:`spec.md` 工作副本在 `SPEC.*` pre-lock sub_state 由 `$EDITOR` 或人工编辑 — 但提交必须经 `loaf spec submit` → `event:spec_submitted` journal entry → reducer 重写 `spec.md` 派生投影,**不能在 EXECUTE / VERIFY 阶段被外部直写**(diff-guard 兜底)。
+唯一例外:`spec.md` 工作副本在 `SPEC.*` pre-lock sub_state 由 `$EDITOR` 或人工编辑 — 但提交必须经 `loaf spec submit` → `event:spec_submitted` journal entry → reducer 重写 `spec.md` 派生投影,**不能在 EXECUTE / VERIFY 阶段被外部直写**；这是协议约束，diff-guard 尚未实现。
 
 **为什么是协议层**:rev 4 引入 sub-agent fan-out(EXECUTE.work),多 worker 并发不加锁会撞 seq 冲突 / JSONL 半行 append / batch 半提交 / sidecar 半 rename / snapshot 与 journal 失同步。fan-out 上线第一天就会翻车。Rev 5.0 truth model = single typed journal(ADR-0005)进一步把"mutation 落地"从「多 artifact rename ladder」收口为「journal append + reducer rebuild snapshot」单一通道,所有 atomicity 集中在 §11.2 transaction。
 
-**实现 contract**(loaf-cli 内部,impl 阶段固化;mirror ADR-0005 §3.5):
+**当前 mutation 顺序**（owner：`src/core/journal-mutate.ts`）：
 
-```
-锁文件:    .loaf/<feature>/.lock(flock + PID + acquired_at)
-锁粒度:    per-feature(不是 per-artifact;一 feature 一时刻一写者)
-N14 限制:  fan-out 下多 worker 并行只是执行并发,不是 mutation 并发。
-           所有 mutator 通过 per-feature lock 串行化;throughput 受 lock 窗口 +
-           reducer + snapshot rebuild + sidecar I/O 总成本约束。
+1. 获取 `.loaf/<feature>/.lock` owner-fenced feature lease（0600、bounded wait，默认 30 秒）。lease 内 revalidate caller-loaded meta 与 journal tail；live owner 不被抢占。
+2. 对每条 candidate 执行 entry admission（NO_SESSION → preflight → reducer dry-run），按 batch 顺序积累 snapshot。schema、actor、kind/sub_state、跨 entry invariant 与 task-amend policy 在此验证；mutation-rights 矩阵不是通用字段 refine。
+3. gate evaluation 使用 canonical pre-batch snapshot，然后校验 context 的 entries/tail/meta 一致性。任何拒绝都发生在 sidecar I/O 前。
+4. dry-run 在此短路返回 not-committed；live 路径才 promote LongTextField sidecar。
+5. 对 promoted entries 再做 admission/reducer dry-run，比较 reducer-visible 结果，检测 sidecar-validation drift；append 前校验 final envelope/payload/byte caps。
+6. 整批由单次 fsync'd journal append 落地。append syscall 开始后无 in-process rollback；不得把可能已提交的失败当成可安全重试。
+7. 已验证的 snapshot 用于重建 spec 与 affected projections，再 refresh registry。post-append projection 失败保留 committed proof 和原诊断；journal 不回滚。
+8. finally 释放当前 owner token 持有的 lease。SIGINT 同样只释放自己持有的 feature lease（§10.4）。
 
-10-step journal mutation transaction:
-  1. acquire .lock(blocking,≤30s;超时 LOCK_TIMEOUT exit 2)
+所有 mutator 在 feature lease 下串行化；worker 的执行并发不等于 journal mutation 并发。Direct append primitive 绕过此 orchestration，只供明确拥有的 recovery/migration 路径使用。
 
-  2. read journal.jsonl tail + snapshots/_meta.json
-     2a. 校验 _meta.last_applied_seq + last_entry_offset + last_entry_line_hash
-         vs journal tail(O(1) fast check,Gate #5 reader contract 同一套)
-     2b. mismatch → 释放 lock,prompt loaf doctor --rebuild,
-         exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED
-
-  3. preflight validate(candidate entries WITHOUT 最终 sidecar refs):
-     3a. CLI 注入 actor(human:/skill:/ci:/cli: — 见 ADR-0005 §3.4)
-     3b. Zod parse candidate entries(占位 AttachmentRef.sha256/path/size)
-     3c. cross-kind / sub_state / mutation_rights / actor refine
-         (per-kind 表见 ADR-0005 §3.6;`gate:decided` 与 `event:phase_advanced`
-         **复用同一套** validateTransition helper — Gate #1)
-     3d. dry-run reducer apply on in-memory state 副本
-     3e. 若任一 candidate fail → abort,不做 step 4 起任何 I/O,
-         CLI exit 2 + 具体 error code
-     3f. 若 batch:assign batch_id = uuid(),batch_index / batch_count
-
-  4. prepare sidecar files(if LongTextField > 8KB):
-     4a. write attachments/<entry_id>/<field>.<ext>.tmp-<random>
-     4b. fsync attachment file + parent dir
-     4c. atomic rename → final path
-     4d. compute sha256,write entry payload AttachmentRef.{path,sha256,size}
-
-  5. final validate(Gate #2,append 前最后校验):
-     5a. re-Zod-parse entries with **embedded final** AttachmentRef
-     5b. byte-size check(每条 entry serialized ≤ 64KB;batch 总 ≤ 64KB)
-     5c. final dry-run reducer apply with final entries
-     5d. 应与 step 3d 结果一致(sidecar embed 是 deterministic);**比较范围**
-         限定为 reducer-visible state transition result + emitted projections,
-         不做 byte-for-byte payload 比对(sidecar ref 填充会让 payload 必然 diff);
-         若 reducer-visible 结果 diff → abort + log SIDECAR_VALIDATION_DRIFT
-         (`loaf doctor` 标记;实现 bug 指示)
-     5e. 若 batch 中任一 entry 校验 fail → abort 整批,sidecar tmp 清扫,
-         journal 未变
-
-  6. append journal entry(Gate #2:**只允许 append step 5 验证过的 final-form
-                          entry**;禁止重新序列化 / 重新计算 AttachmentRef /
-                          修改任何已 final-validated 字段):
-     6a. single write():all-entries 拼接(\n 分隔),总 size ≤ 64KB
-     6b. fsync journal.jsonl
-
-  7. post-apply assert(纯 corruption assert,不再 abort):
-     7a. reducer apply final entries to in-memory state
-     7b. 若 apply 抛错 → 这是 bug(step 5 应已抓到);log + doctor 标记
-         corruption,但**不**回滚 journal(journal 已是事实)
-
-  8. rebuild affected snapshots(tmp+atomic rename per file):
-     8a. write snapshots/<file>.json.tmp-<random>
-     8b. fsync + atomic rename
-     8c. update snapshots/_meta.json(last_applied_seq, last_entry_offset,
-         last_entry_line_hash, rolling_checksum chain extend)
-
-  9. refresh registry projection(~/.loaf/registry/<id>.json,tmp+rename)
-
-  10. release .lock(unlink + close)
-
-SIGINT 期间: cleanup hook 释放 .lock(§10.4);second-Ctrl-C 留 .lock,
-             `loaf doctor` 启动时 stale 检测(PID 不存在 → unlink)
-```
-
-**Crash window 恢复**(ADR-0005 §3.5):每步 crash 由 `loaf doctor` 启动期 + 显式 sub-flag 处理 —— stale-lock / orphan-attachment / tail-corruption (batch-aware,Gate #4) / sidecar-validation-drift / snapshot-seq-mismatch / rolling-checksum-mismatch 七类 check 详 §10.15。
+**Crash recovery**：已实现 owner-fenced lease 回收、reader stale 拒绝和 `doctor --rebuild`。综合 doctor cleanup 尚未实现，core tailRecovery 尚未接 CLI；详 §10.15。
 
 **EXECUTE closure scope transaction(ticket #11)**:此专用路径先持有 machine-local runtime lock，再由 `mutateBatch` 获取 feature lock，固定顺序无反向边。batch 为 `[scope:recorded(current iteration), event:phase_advanced(EXECUTE.work→EXECUTE.done)]`；append 是 commit point，只有 journal 证明 commit 后才清 pending。晚到的旧 iteration PostToolUse 路径按 feature-level monotone union carry 到下一 iteration；已被旧 marker 覆盖的路径不重复 carry。actual-scope full replay 会先检查每个 closure 是否有同批 marker，缺失即 `ACTUAL_SCOPE_HISTORY_INCOMPLETE`。
 
@@ -2469,20 +2142,12 @@ Tier 1 mutator 命令(`spec add-req` / `add-scenario` / `add-visual` / `tasks ad
 | **1b `spec_version` += 1 per invocation** | batch = **一次 atomic invocation = 一个 spec_version bump**,不是 +N | `tasks.based_on.spec` 不因 batch 内部条数跳号失序;LLM 一次 add 15 条仍是「一次 spec 变更」 |
 | **1c Atomic ID allocation** | lock 内**一次性**从 allocator 拿 N 个连续 id;全过才 commit allocator state | fan-out 多 worker 并发 batch 时,allocator state 不被半提交污染;失败回退时 id 不漏号 |
 
-**Transaction 顺序**(rev 5.0:**不再独立**,直接走主 10-step transaction)
+**Batch transaction** 与单条 mutation 共用上述顺序。N≥2 时 envelope 带 `batch_id` / `batch_index` / `batch_count`；preflight 与 final validation 覆盖整批，验证拒绝时 journal 不变。spec add-* 每 invocation 只 bump 一次 spec_version；ID 分配在 feature lease 内，持久历史以 committed journal 为准。append 前失败为 not-committed；append 后 projection 失败为 committed，不能重发同一 mutation。
 
-Batch path 与单条 path **共用同一套** §11.2 上方 10-step transaction;batch = N ≥ 2 时 envelope 出现 `batch_id` / `batch_index` / `batch_count` 三元组(ADR-0005 §3.2)。三纪律 1a/1b/1c 在 10-step 主流程内的落点:
-
-- **1a all-or-nothing**:**step 3 preflight** (entire batch Zod-validate without final sidecar refs) AND **step 5 final validate** (with embedded final AttachmentRef) 双道闸;任一道 fail → 整批 abort,0 journal append,sidecar tmp 清扫
-- **1b one append = one bump**:step 6 一次 `write()` 把 N 个 entry 拼接 newline-separated append,total size ≤ `entry_byte_limit_kb`;`spec_version`(for spec_*_added)只 +1
-- **1c atomic id range allocation**:**step 3f** 在 preflight 已确认 N 条全合法之后,一次性从 allocator 拿 N 个连续 serial(REQ/SCEN/VIS/T/EV/PEND),allocator state 只在 step 6 journal append 成功后 commit;step 6 失败时 allocator rollback
-
-任一步失败 → 不写盘 + 不动 allocator state + release lock + stderr 给精确路径(`/<index>/<field>` Zod path)。LLM 收到 stderr 后改正即可重发整批。
-
-机器表达:`src/cli/input-schemas.ts::INPUT_SCHEMAS` 5 个 schema 全部为 `z.union([T, z.array(T).nonempty()])` 形态。
+机器表达：`src/cli/input-schemas.ts::INPUT_SCHEMAS` 有 6 项；`tasks:submit` 是 strict single object，其余 5 项接单条或非空数组。
 
 **违反方式与诊断**:
-- 外部进程直写检测(**v0.1.0 未实装,延后后续 SC**):设计意图为 `loaf hook closure-check`(`Stop` 事件)对比 artifact mtime 与 last `loaf <cmd>` exit time,异常 mtime 告警(不阻塞,记 trace.jsonl)。**当前实装** `closure-check` 仅跑 projection-freshness + orphan-evidence covers[] + open-findings 摘要三项 read-only 检查(见 §11 表下 v0.1.0 note),不做 mtime 比对
+- **未实现（目标设计）**：外部直写 mtime 检测。当前 `closure-check` 只查 projection freshness、orphan-evidence covers[] 与 open findings，不比较 mtime。
 - Lock 抢占:并发两个 `loaf <cmd>` → 后者 bounded wait / 超时 → 报 `LOCK_TIMEOUT`;holder 元数据保留在结构化 detail。
 - Stale lock:后续 writer 仅在 PID 可证已退出、且二次读取确认 owner token 与文件 generation 未变化时回收。malformed/incomplete lease 报 `LOCK_INVALID` 并 fail closed；当前没有自动清理命令。
 
@@ -2500,7 +2165,7 @@ Batch path 与单条 path **共用同一套** §11.2 上方 10-step transaction;
 - ...
 ```
 
-格式不强校验,只校验「按 feature 分段存在」。**rev 4.2**:`ceremony.lessons_required` 控制:`"must"` 强制 append(原 deep)/ `"may"` 可选(原 standard)/ `"skip"` 跳过(原 quick)。
+Lesson 输入按 `LessonRecordedPayload` 校验，Markdown 分段由 projection writer 生成。`ceremony.lessons_required` 是 ceremony 记录供 skill 使用；内核只校验 ceremony 跨字段约束，不强制 append lesson，deliver 也不以 lesson 存在为前置条件。
 
 **rev 5.1:quick / light / standard + lessons 说明**:quick / light / standard 三档均跳过 SETTLE.lessons sub_state,但 `loaf lessons add` 本身在任意非 DONE sub_state 可调(append-only,不动 state machine)。命令 emit `lesson:recorded`,由 projection writer 重建顶层 `.loaf/<feature>/lessons.md`。`selectLessonEntries()` 只选择 `lesson:recorded` 并保持 journal 顺序。manual evidence 仅保留在 evidence projection/status/board/TUI/resume-pack 中,不再通过形态推断为 lesson;lesson 不进入这些 evidence-derived surface,也不满足 coverage。loaf-skill 可以 stderr **soft suggestion** "已记 lesson;考虑下个相似 feature 用 deep profile 进 SETTLE.lessons 强化复利",但**不**强制 protocol 升 profile。
 
@@ -2520,19 +2185,19 @@ v1 的核心目标是 protocol 可靠,不是知识复利自动化。跨 feature 
 
 ### 13.1 Artifact authority levels(rev 5.0 四层,canonical 收口至 journal)
 
-按 **gate / blocking decision 是否可读** 分四层。gate 只从 Canonical truth 实时计算(§5 引言);其它三层任何时候都允许 stale。Rev 5.0 重要变化:**Canonical truth 收口至 `journal.jsonl` + `attachments/`**;原 rev 4.1 列在 Canonical 的 `state.json` / `spec.md` / `tasks.json` / `evidence.jsonl` / `findings.jsonl` 全部降为 Derived projection(reducer 从 journal entries 重建,落 `snapshots/*.json` 或 markdown,§4 + Principle 15a)。
+按 **gate / blocking decision 是否可读** 分四层。gate 只从 Canonical truth 实时计算(§5 引言);其它三层任何时候都允许 stale。Rev 5.0 重要变化:**Canonical truth 收口至 `journal.jsonl` + `attachments/`**;原 rev 4.1 列在 Canonical 的 `state.json` / `spec.md` / `tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` 全部降为 Derived projection(reducer 从 journal entries 重建,落 `snapshots/*.json` 或 markdown,§4 + Principle 15a)。
 
 | 层 | artifact | 性质 | gate 可读? |
 |---|---|---|---|
-| **Canonical truth** | `.loaf/<feature>/journal.jsonl` + `.loaf/<feature>/attachments/<entry_id>/**` + `loaf.config.json`(project-level config,非 journal 一部分但同属真理源) | 协议真理源。`journal.jsonl` **append-only**,typed envelope per ADR-0005 §3.2,batch markers + per-entry `entry_schema_version`;`attachments/` per-entry sidecar(sha256 在 entry payload 内 anchor)。由 loaf-cli 单写者纪律 + §11.2 10-step transaction 保护 | ✅ |
-| **Derived projection** | `snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/pending.json` / `snapshots/gate-diagnostic.json` / `snapshots/resume-pack.json` / `snapshots/_meta.json` / `spec.md`(post-submit) / `lessons.md` / `~/.loaf/registry/<id>.json` / `spec-draft-context.md` | 派生投影,reducer 从 journal entries 重建;**允许 ≤1 mutator 周期 stale**(写者在 lock 内增量更新)。TUI / handoff / diagnostic / read-side CLI 命令消费。Reader 必须走 §10.15 fast check;mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`(Gate #5,**不静默 fallback**) | ❌ |
+| **Canonical truth** | `.loaf/<feature>/journal.jsonl` + `.loaf/<feature>/attachments/<entry_id>/**` + `loaf.config.json`(project-level config,非 journal 一部分但同属真理源) | 协议真理源。`journal.jsonl` **append-only**,typed envelope per ADR-0005 §3.2,batch markers + per-entry `entry_schema_version`;`attachments/` per-entry sidecar(sha256 在 entry payload 内 anchor)。由 loaf-cli 单写者纪律 + §11.2 journal mutation transaction 保护 | ✅ |
+| **Derived projection** | `snapshots/state.json` / `snapshots/tasks.json` / `snapshots/evidence.json` / `snapshots/findings.json` / `snapshots/pending.json` / `snapshots/resume-pack.json` / `snapshots/_meta.json` / `spec.md`(post-submit) / `lessons.md` / `~/.loaf/registry/<id>.json` | 派生投影,reducer 从 journal entries 重建;允许 stale，reader 必须验证 freshness。TUI / handoff / read-side CLI 命令消费。Reader 必须走 §10.15 fast check;mismatch → exit 2 `SNAPSHOT_STALE_REBUILD_REQUIRED`(Gate #5,**不静默 fallback**) | ❌ |
 | **Debug-trace** | `.loaf/<feature>/trace.jsonl` / `~/.loaf/crashes/<ts>.json` | 仅 `--debug` 写 trace;crash log 永不自动 upload(§10.11)。文件扩展 Phase 16 SC-2 改为 `.json`(envelope `CrashLogEnvelope` Zod,见 §10.5)。不是 journal entry,不进 reducer | ❌ |
 | **Advisory** | `loaf deliver` 输出 / `loaf status` 人类输出 / `lessons.md` 内容形态 | 自由 markdown / 人类可读建议;格式不强校验(`lessons.md` 文件本身是 Derived projection,但其内容形态 advisory) | ❌ |
 
 **底线规则**(Principle #15 ② + 15a 落地):
 - **Gate / blocking decision 永远只读 Canonical truth**(journal.jsonl + attachments/)。Derived projection / Debug-trace / Advisory 三层失败 / 损坏 / stale 都不影响协议正确性 — 当前 `loaf doctor --rebuild` 从 seq=0 full replay 重建已接线的 snapshot branches；`--rebuild-registry` 仍未实现。`loaf settle` 直接推进到 lessons。
 - **Reader 永不静默 fallback**:`snapshots/_meta.json` fast check fail → CLI exit 2 + 提示 `loaf doctor --rebuild`(ADR-0005 §3.6 + Gate #5)。
-- **Sidecar ↔ journal entry 双向一致**:每个 `AttachmentRef` 在 journal 中必有 entry sidecar 在 disk 上存在;每个 sidecar 文件必有 journal entry 指向(orphan-attachment doctor check,§10.15)。
+- **Sidecar ↔ journal entry 双向一致**:每个 `AttachmentRef` 在 journal 中必有 entry sidecar 在 disk 上存在;每个 sidecar 文件应有 journal entry 指向；crash 可留下 orphan，综合 doctor 清理尚未实现（§10.15）。
 
 ### 13.2 `--debug` 触发
 
@@ -2577,7 +2242,7 @@ fs.rename(tmp, target);
 
 **读(TUI)**:`readdir(~/.loaf/registry/)` + parallel reads,latest-per-file mtime 排序。
 
-**GC**:TUI 启动隐式跑,`mtime > 30 天` 的 unlink。
+**未实现（目标设计）**：registry 按龄 GC。TUI 启动不隐式删除旧 registry；显式清理使用已实现的 `loaf prune`（§10.8）。
 
 **为什么不用单 jsonl + O_APPEND + flock**:
 - 多 feature 写同一文件 = 即使 O_APPEND 原子,compaction 还是要 lock
@@ -2624,7 +2289,7 @@ Resolve 永远 pop head(v1.0 严格 FIFO,无 `--id` 跳序)。队列里的后续
 ```bash
 # Append a new pending to the queue tail. CLI allocates pending_id.
 loaf pending raise --kind ask_user_question --question "..." [--options "a,b,c"] [--task-id T-N]
-# stdout: PEND-0008
+# JSON stdout: {"ok":true,"feature":"sample","id":"PEND-0008","kind":"ask_user_question"}
 ```
 
 用户回应 head:
@@ -2648,10 +2313,10 @@ loaf pending resolve --answer "<answer>"      # pops state.pending[0]
   question: "...",                  // ≥3 chars
   options: ["confirm", "decline"],  // optional
   blocks: "advance",                // advance / gate / deliver / all
-  raised_at: "2026-05-12T10:18:00Z",// caller 构造时间(可能跟 at 不同 — caller 等 lock 时)
+  raised_at: "2026-05-12T10:18:00Z",// Same journal envelope timestamp as at
   raised_by: "skill:loaf-cli/sdd-execute",
   raised_by_task_id: "T-005",       // optional — fan-out worker 来源,不绑 task 时省略
-  at: "2026-05-12T10:18:01Z",       // CLI 写入队列时间
+  at: "2026-05-12T10:18:00Z",       // Journal envelope timestamp
 }
 ```
 
@@ -2682,23 +2347,21 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 
 #### `loaf pending list` 输出
 
+包括已 resolve 的历史 entry；live head 以 `head:true` 标记：
+
 ```json
 {
-  "queue_depth": 3,
-  "head": {
-    "pending_id": "PEND-0007",
-    "kind": "profile_escalation",
-    "question": "...",
-    "blocks": "advance",
-    "at": "2026-05-12T10:18:01Z",
-    "raised_by_task_id": "T-005"
-  },
-  "queued": [
-    { "pending_id": "PEND-0008", "kind": "finding_decision", "at": "...", "raised_by_task_id": "T-012" },
-    { "pending_id": "PEND-0009", "kind": "spec_clarification", "at": "...", "raised_by_task_id": "T-019" }
+  "ok": true,
+  "feature": "sample",
+  "count": 2,
+  "pending": [
+    {"id":"PEND-0001","kind":"ask_user_question","resolved":true,"head":false},
+    {"id":"PEND-0002","kind":"ask_user_question","resolved":false,"head":true}
   ]
 }
 ```
+
+text 模式对应 `PEND-0001 ask_user_question resolved -` 和 `PEND-0002 ask_user_question open head`。
 
 ### 14.4 `loaf tui` 界面
 
@@ -2718,7 +2381,7 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 - `PHASE.SUB` 列的 `[×3]`(如 `EXECUTE.work [×3]`)= worker active set 数量(`registry.active_tasks.length`)。
 - `[Enter]` 打开 lazy detail;`[a]` 切 active/all;`[r]` 只执行显式 reload。
 
-**实现**:**Ink**(React-based,bun 兼容,声明式)。读 `~/.loaf/registry/*.json` 渲染。旧 rev 4.1 的 `[d]`、`[p]` popup、archive hotkey、auto-polling 与 registry/runtime heartbeat stale 算法由 2026-07-27 architecture deepening 决策显式 supersede；snapshot stale/missing 仍由既有 projection loader 在 detail 中报告，不建立第二套 freshness authority。
+**实现**：Ink/React，Node ESM runtime。读 `~/.loaf/registry/*.json` 渲染，显式 reload；snapshot stale/missing 由 projection loader 在 detail 中报告。
 
 ---
 
@@ -2767,47 +2430,21 @@ v1.0 严格 FIFO:resolve 永远 pop `pending[0]`,不接 `--id` flag。理由:5 �
 | spec-graph DOT 导出 | 实际查阅频率低 |
 | project-charter as MUST gate | 项目级配置已在 `loaf.config.json` constitution 部分 |
 | 独立 telemetry 文件(session/dispatch/handoff)| 全 → trace.jsonl,`--debug` 控制 |
-| 79+ 独立 gate-test 脚本 | Zod schema + 集中 transitions.ts |
+| 79+ 独立 gate-test 脚本 | Zod schema + `src/core/reducer/transition.ts` |
 | 自动 risk_tier derivation | LLM 显式声明 task kind + labels |
 | Cucumber / Gherkin runner | Gherkin 只是 LLM lint shape |
-| Bash PreToolUse hook(每命令 latency)| diff-based guard at `loaf advance` 兜底 |
+| Bash PreToolUse hook(每命令 latency)| diff-based guard 尚未实现（§11.1） |
 | 自动 profile 升级无 user confirm | 升级永远要 user `loaf profile escalate --confirm --input <ceremony.json>` |
 | 自动 profile 降级 | 永远不允许 |
 | **vague-word blacklist** | rev 3.1 砍掉;语言风格由 loaf-skill 在 prompt 中处理 |
-| ~~**state.json event sourcing**~~ | ~~codex rev 4 提议;v1 state.json 仍是直接写入的真理源~~ — **rev 5.0 退场**:ADR-0005 落地后 state.json 是派生投影,canonical 是 journal.jsonl(γ truth model)。本条非目标终止 |
-| **work.json compile step** | codex rev 4 提议;tasks.json 是 spec.md 之外手编,不是编译产物 |
+| **work.json compile step** | task graph 经 CLI semantic authoring 写入 journal，tasks.json 是派生投影 |
 | `loaf pending resolve --id PEND-N` 跳序 | rev 4.1 队列严格 FIFO;5 种 PendingPromptKind 全部 yes/no 或 enum 选择,跳序在 v1 无真实 use case;留 v1.x 补 |
 
 ---
 
-## 17. 与 legacy Python 原型的关系
+## 17. 当前 runtime 概览
 
-loaf-cli v1 是 **legacy Python 原型** 的 successor,from scratch —— 实现不复用一行旧代码。原型在 early-draft 内部曾被称为 "v2"(rev 3.2 之前文档残留 "v3 是 v2 的 successor" 说法,与当时 runtime 的 `SCHEMA_VERSION=1` + §15-16 直接矛盾,已在 rev 3.2 修正)。
-
-| 维度 | legacy Python 原型(79+ tests) | loaf-cli v1(Bun + TS,Zod 单源) |
-|---|---|---|
-| **Truth model**(rev 5.0)| N-file mutable artifacts(state/tasks/evidence/findings/pending/spec 各自直写) | **Single typed journal**:`journal.jsonl`(append-only,typed envelope,batch markers)+ `attachments/<entry_id>/` sidecar;`state.json` / `tasks.json` / etc. 全部降为 reducer-derived snapshots(§4 + §13.1 + ADR-0005) |
-| Phase | 6(含 DISCOVER + 模糊 DONE) | 6(含 DONE 一等) |
-| Sub-state first-class | 否(隐于 prompt) | 是(17,phase 字段双校验) |
-| Profile | 5 | 3(+ auto-escalation) |
-| Artifact 类型 | ~20+ schemas | 9 per-feature + 1 config + 1 user-level |
-| Schema | 33 独立 .schema.json | 1 份 Zod,自动 derive |
-| Human gate | 3 | 2 |
-| Iteration | 隐式(amend 分散) | first-class state 字段 |
-| Findings | 无独立机制 | 独立 artifact + 6 category × 6 action |
-| EXECUTE | 顺序 test→impl | task graph + **每 kind 自己的 step**(rev 3.1) |
-| VERIFY | 顺序 run/review/E2E | checklist + applicability **3-tier**(rev 3.1) |
-| Verifiability | 不强制 | **三选一可验证**(measurable / scenarios / acceptance_na) |
-| Evidence ID | 行号 | **EV-000123 稳定 ID**(rev 3.1) |
-| Attachments | 仅路径 | **{ path, sha256, mime } 对象**(rev 3.1) |
-| Manual / Waiver | 混在一起 | **两个独立 kind**(rev 3.1) |
-| Config | 3 个独立文件 | **`loaf.config.json` 合并**(rev 3.1) |
-| Registry | 单 jsonl + 锁 | **一 session 一文件 + atomic rename**(rev 3.1) |
-| i18n | 无 | **en + zh bundle,LOAF_LANG 切换**(rev 3.1) |
-| Observability | 多份 telemetry 强制写 | trace.jsonl 仅 `--debug` |
-| TUI | 无 | `loaf tui` + per-session file + pending signal |
-
-**loaf-cli v1 GA 后,legacy Python 原型进 `archive/`**——不接 feature,严重 bug 半年内仍接 patch。
+Node ESM + TypeScript，以 Zod 定义 closed schemas。当前状态机有 6 phase、19 sub-state；4 个内置 ceremony preset。Canonical truth 是 single typed journal + attachments，展示文件由 replay 派生；2 个 human gate 负责 spec-lock 与 verify-accept。历史演化见 ADR 与 CHANGELOG。
 
 ---
 
@@ -2829,7 +2466,7 @@ JSON 输出(`--format json`)       → 永远是 stable ID,不走 i18n
 ```json
 {
   "evidence_kind": {
-    "test-run": "测试运行",
+    "local-check": "本地检查",
     "manual": "人工验证",
     "waiver": "风险豁免",
     "gate-decision": "Gate 决策",
@@ -2840,7 +2477,7 @@ JSON 输出(`--format json`)       → 永远是 stable ID,不走 i18n
   "step":            { "red": "红测", "implement": "实现", "mockup": "模拟图", ... },
   "verify_check_kind":{ "run": "运行", "review": "评审", ... },
   "finding_category":{ "spec-gap": "规格缺漏", "risk-escalation": "风险升级", ... },
-  "finding_action":  { "amend-spec": "修订规格", "waive": "豁免", ... },
+  "finding_action":  { "amend-spec": "修订规格", "defer": "本轮延迟", ... },
   "gate":            { "spec-lock": "规格锁定", "verify-accept": "验证接收" },
   "applicability":   { "must": "必须", "optional": "可选", "na": "不适用" },
   "diagnostic": {
@@ -2862,19 +2499,18 @@ JSON 输出(`--format json`)       → 永远是 stable ID,不走 i18n
 
 Bundle lookup(运行时 `t(keyPath, vars)` 单 key 查找):
 
-1. `~/.loaf/i18n/<lang>.local.json`(用户覆盖,可选 — 未来实现)
+1. **未实现（目标设计）**：`~/.loaf/i18n/<lang>.local.json` 用户覆盖
 2. `loaf-cli/i18n/<lang>.json`(内置,运行时 source)
 3. `loaf-cli/i18n/en.json`(fallback)
 4. raw key path(末级 fallback;运行时绝不因缺 key abort）
 
 **Lang 解析顺序**(high → low,ADR-0006 §2):
 
-1. `--lang <en|zh>`(未来 flag)
+1. **未实现（目标设计）**：`--lang <en|zh>` flag
 2. `$LOAF_LANG`
 3. `~/.loaf/config.json` 的 `locale.default_lang`（用户偏好；位于 §10.3 的
    user-level loaf estate 中 —— locale 是展示偏好,设一次记住）
-4. project `loaf.config.json` 的 `locale.default_lang`（仅 repo 默认,**低于**用户偏好
-   —— ADR-0006 标注的「项目配置高于用户配置」通用序的例外）
+4. **未实现（目标设计）**：project `loaf.config.json` 的 `locale.default_lang` fallback，当前 CLI 不向 resolver 传 project config
 5. 解析 `$LANG` / `$LC_ALL` / `$LC_MESSAGES`（`zh_CN.UTF-8` → `zh`;`C` / `POSIX` /
    不支持 → `en`)
 6. `"en"`
@@ -2884,9 +2520,9 @@ Bundle lookup(运行时 `t(keyPath, vars)` 单 key 查找):
 不得用于项目配置 path 或用户 locale 解析。
 JSON 输出(payload + failure `message`)**永不本地化**(机器契约)。
 
-### 18.4 与 gate-diagnostic.json 的关系
+### 18.4 Diagnostic 展示
 
-`gate-diagnostic.json` 落 `code` + `vars`,**不**落人类语言。CLI/TUI 渲染时根据当前 lang 查 bundle 的 `diagnostic.<code>`,用 `vars` 填模板。这样 diagnostic 文件可以跨语言团队共享。
+当前失败直接经 catalog 出口输出 stderr；JSON 保留 canonical English `message` 和结构化 `detail`，text 按当前 locale 渲染。**未实现（目标设计）**：将 gate diagnostic 持久化到文件；当前不写 `gate-diagnostic.json`。
 
 ### 18.5 与 ERROR_CATALOG 的关系(rev 4.3,ADR-0004 A9)
 
@@ -2899,9 +2535,9 @@ JSON 输出(payload + failure `message`)**永不本地化**(机器契约)。
 ### 19.1 三层职责
 
 ```text
-loaf-cli       (npx 分发的协议内核)
+loaf-cli       (GitHub git 分发的 Node ESM 协议内核)
                opinionated SDD,schemas 即契约
-               state machine + gate + diff guard + 文件 IO
+               state machine + gate + journal transaction + 文件 IO
                不内置 spec-writer / verifier / implementer agent
                
 loaf-skill     (1st-cc-plugin 里的 plugin)
@@ -2932,8 +2568,8 @@ loaf spec submit --input ./spec.json                    # 文件提交(主路径
 cat spec.json | loaf spec submit --input -              # JSON stdin(机器流水线)
 loaf spec submit --input '{"feature":{"id":"F-001"...}}' # inline JSON(一次性)
 
-# 3. 失败时读 diagnostic 修(rev 5.0:路径在 snapshots/ 下,先走 Gate #5 fast check)
-loaf gate decide spec-lock || cat .loaf/<feature>/snapshots/gate-diagnostic.json
+# 3. Gate rejection: inspect the catalog diagnostic written to stderr
+loaf gate decide spec-lock --approve --reason "reviewed spec and plan" --format json
 ```
 
 ### 19.3 验证职责分配
@@ -2945,7 +2581,7 @@ loaf gate decide spec-lock || cat .loaf/<feature>/snapshots/gate-diagnostic.json
 | 多轮对话 / 反向归纳 spec | loaf-skill 或 3rd-party skill |
 | 软建议(风格、最佳实践) | loaf-skill 的 prompt(不进协议) |
 | gate 实时计算 | loaf-cli |
-| diff-guard | loaf-cli |
+| diff-guard | **未实现（目标设计）**：CLI advance 路径兜底（§11.1） |
 | TUI 展示 | loaf-cli `loaf tui`(读 ~/.loaf/registry) |
 | git / gh 操作 | **不在 loaf-cli;loaf-skill 或用户自己** |
 
