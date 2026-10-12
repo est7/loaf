@@ -51,10 +51,13 @@ They need separate scope before implementation.
 ## Local artifacts are not repository truth
 
 The ignored planning files `backlog.md`, `task_plan.md`, `progress.md`, and
-`findings.md`, the local `.audit/` tree, and root audit-report files are
-operator-owned scratch or dated inputs. They are not a current acceptance
-ledger, implementation registry, or architecture authority. Do not edit,
-delete, stage, or infer live debt from them during repository work.
+`findings.md`, and any local audit output (a `.audit/` tree or root
+audit-report files), are operator-owned scratch or dated inputs. They are not
+a current acceptance ledger, implementation registry, or architecture
+authority. Do not edit, delete, stage, or infer live debt from them during
+repository work. The 2026-07-15 audit inputs were removed by the maintainer on
+2026-10-12 after their findings were dispositioned through the architecture
+program and this ledger.
 
 Use tracked source, current protocol/reference docs, executable tests, the
 architecture deepening program, and git history for present-tense claims.
