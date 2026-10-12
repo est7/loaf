@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] — 2026-10-12
+
+### Fixed
+
+- `loaf spec add-req|add-scenario|add-visual --schema` now exports the
+  complete closed content schema (for example `response`, `given/when/then`,
+  `checks`) instead of a namespace-only open stub. Inputs are validated
+  against that closed schema at the CLI boundary, so an unknown key now fails
+  with `SCHEMA_VALIDATION_FAILED` naming the key, before allocation.
+- `SPEC_NOT_INITIALIZED` now points at `loaf spec init` + `loaf spec edit`
+  (or `loaf spec submit`) and no longer describes `spec init` as future work.
+
 ## [0.13.0] — 2026-10-12
 
 ### Added
@@ -718,6 +730,7 @@ migration.
 - Both fixes RED→GREEN independently reproduced (revert only the predicate with the new tests present → exactly the new negative cases fail; restore → green).
 - `dist/cli.mjs --version` → `0.1.2`.
 
+[0.13.1]: https://github.com/est7/loaf/releases/tag/v0.13.1
 [0.13.0]: https://github.com/est7/loaf/releases/tag/v0.13.0
 [0.12.0]: https://github.com/est7/loaf/releases/tag/v0.12.0
 [0.11.0]: https://github.com/est7/loaf/releases/tag/v0.11.0
