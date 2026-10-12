@@ -2750,9 +2750,8 @@ const Ceremony = z.object({
 		"must",
 		"may",
 		"skip"
-	]),
-	strict_drift_check: z.boolean()
-}).refine((c) => !c.settle_phase || c.verify_phase, { message: "settle_phase=true requires verify_phase=true" }).refine((c) => !c.strict_spec_review || c.spec_phase, { message: "strict_spec_review=true requires spec_phase=true" }).refine((c) => c.lessons_required === "skip" || c.settle_phase, { message: "lessons_required!=skip requires settle_phase=true" }).refine((c) => !c.strict_drift_check || c.settle_phase, { message: "strict_drift_check=true requires settle_phase=true" });
+	])
+}).strict().refine((c) => !c.settle_phase || c.verify_phase, { message: "settle_phase=true requires verify_phase=true" }).refine((c) => !c.strict_spec_review || c.spec_phase, { message: "strict_spec_review=true requires spec_phase=true" }).refine((c) => c.lessons_required === "skip" || c.settle_phase, { message: "lessons_required!=skip requires settle_phase=true" });
 z.string();
 const GateName = z.enum(["spec-lock", "verify-accept"]);
 const EntryKind = z.enum([
@@ -2817,8 +2816,7 @@ const CeremonyPayload = z.object({
 		"must",
 		"may",
 		"skip"
-	]),
-	strict_drift_check: z.boolean()
+	])
 }).strict();
 const SessionStartedPayload = z.object({
 	session_id: z.string().min(1),
@@ -3066,7 +3064,6 @@ const StateProjection = z.object({
 	pending: z.array(PendingQueueEntry),
 	ceremony: Ceremony,
 	ceremony_label: z.string(),
-	complexity_score: z.number().int().min(0).max(100).nullable(),
 	based_on: z.object({
 		spec: z.number().int().nonnegative(),
 		tasks: z.number().int().nonnegative()
@@ -3412,7 +3409,7 @@ function defineMachine(machine) {
 const MACHINE = defineMachine({
 	"TRIAGE.score": {
 		entry: "loaf start <desc> invoked",
-		exit: "complexity_score computed (0-100)",
+		exit: "skill assesses complexity and proposes a ceremony",
 		write_paths: [],
 		edges: [{
 			target: "TRIAGE.confirm",
@@ -3421,7 +3418,7 @@ const MACHINE = defineMachine({
 		prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile."
 	},
 	"TRIAGE.confirm": {
-		entry: "score computed",
+		entry: "skill proposes a ceremony",
 		exit: "user accepts or overrides profile",
 		write_paths: [],
 		edges: [{
@@ -3436,14 +3433,14 @@ const MACHINE = defineMachine({
 		prompt_inject: "Confirm proposed profile (quick/light/standard/deep — see skill PRESETS) or override."
 	},
 	"SPEC.proposal": {
-		entry: "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
+		entry: "ceremony.spec_phase=true && TRIAGE.confirm done",
 		exit: "spec.md body has Proposal section",
-		write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
+		write_paths: [".loaf/<feature>/spec.md"],
 		edges: [{
 			target: "SPEC.spec",
 			owner_kind: "event:phase_advanced"
 		}],
-		prompt_inject: "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md."
+		prompt_inject: "Write Proposal: why / scope / anti-scope."
 	},
 	"SPEC.spec": {
 		entry: "proposal section exists OR amend-spec back-edge",
@@ -6096,8 +6093,7 @@ const DEFAULT_CEREMONY = {
 	verify_phase: true,
 	settle_phase: false,
 	strict_spec_review: false,
-	lessons_required: "skip",
-	strict_drift_check: false
+	lessons_required: "skip"
 };
 function preflight(rawEntry, ctx) {
 	const sub_state = ctx.snapshot.state?.sub_state ?? DEFAULT_SUB_STATE;
@@ -6812,7 +6808,7 @@ function composeLessonsProjection(resolved, header) {
 *
 * Start identity fields are read from the validated `session:started`
 * payload. Only session_label is optional and projects as null when omitted.
-* complexity_score has no journal source and remains null. created_at is the
+* created_at is the
 * start envelope timestamp; updated_at is the last replayed entry timestamp.
 * based_on.tasks counts tasks_planned + tasks_amended entries.
 *
@@ -6849,7 +6845,6 @@ function composeStateProjection(snapshot, entries) {
 		pending: livePending(composePendingJson(entries).pending).map(({ resolved: _resolved, ...queue }) => queue),
 		ceremony: state.ceremony,
 		ceremony_label: ceremonyLabel,
-		complexity_score: null,
 		based_on: {
 			spec: snapshot.tasks_based_on?.spec ?? 0,
 			tasks: tasksVersion
@@ -7128,8 +7123,8 @@ function buildRegistryFile(input) {
 *  see either the old file or the new file, never a torn write.
 *
 *  Best-effort: throws on IO failure; the mutateBatch step 9 caller
-*  catches + silences per §4.12 (registry is stale-tolerant; doctor
-*  --rebuild-registry recovers). */
+*  catches + silences per §4.12 (registry is stale-tolerant;
+*  subsequent mutations and doctor --rebuild refresh it). */
 async function writeRegistryFile(sessionId, file, opts = {}) {
 	const registryDir = opts.registryDir ?? defaultRegistryDir();
 	await promises.mkdir(registryDir, { recursive: true });
@@ -8181,7 +8176,6 @@ var en_default = {
 				"field_ceremony": "ceremony: {value}",
 				"field_phase": "phase: {value}",
 				"field_iteration": "iteration: {value}",
-				"field_complexity": "complexity: {value}",
 				"field_based_on": "based_on: spec {spec} / tasks {tasks}",
 				"field_created": "created: {value}",
 				"field_updated": "updated: {value}",
@@ -8800,7 +8794,6 @@ var zh_default = {
 				"field_ceremony": "仪式: {value}",
 				"field_phase": "阶段: {value}",
 				"field_iteration": "迭代: {value}",
-				"field_complexity": "复杂度: {value}",
 				"field_based_on": "基于: spec {spec} / tasks {tasks}",
 				"field_created": "创建: {value}",
 				"field_updated": "更新: {value}",
@@ -8889,13 +8882,6 @@ function invalidLocale(source, value) {
 		}
 	};
 }
-function parseLangArg(argv) {
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-		if (arg === "--lang") return argv[i + 1];
-		if (arg.startsWith("--lang=")) return arg.slice(7);
-	}
-}
 function parseAmbientLocale(env) {
 	const raw = env.LC_ALL ?? env.LC_MESSAGES ?? env.LANG;
 	if (!raw || raw === "C" || raw === "POSIX") return null;
@@ -8905,15 +8891,6 @@ function parseAmbientLocale(env) {
 	return null;
 }
 function resolveLocale(input) {
-	const argvLocale = parseLangArg(input.argv);
-	if (argvLocale !== void 0) {
-		if (!isLocale(argvLocale)) return invalidLocale("--lang", argvLocale);
-		return {
-			ok: true,
-			locale: argvLocale,
-			source: "argv"
-		};
-	}
 	const envLocale = input.env.LOAF_LANG;
 	if (envLocale !== void 0) {
 		if (!isLocale(envLocale)) return invalidLocale("LOAF_LANG", envLocale);
@@ -8941,11 +8918,6 @@ function resolveLocale(input) {
 			source: "user-config"
 		};
 	}
-	if (input.projectConfig?.locale !== void 0) return {
-		ok: true,
-		locale: input.projectConfig.locale,
-		source: "project-config"
-	};
 	const ambient = parseAmbientLocale(input.env);
 	if (ambient !== null) return {
 		ok: true,
@@ -12714,7 +12686,6 @@ const CHROME_KEYS = {
 	tuiDetailFieldCeremony: "chrome.tui.detail.field_ceremony",
 	tuiDetailFieldPhase: "chrome.tui.detail.field_phase",
 	tuiDetailFieldIteration: "chrome.tui.detail.field_iteration",
-	tuiDetailFieldComplexity: "chrome.tui.detail.field_complexity",
 	tuiDetailFieldBasedOn: "chrome.tui.detail.field_based_on",
 	tuiDetailFieldCreated: "chrome.tui.detail.field_created",
 	tuiDetailFieldUpdated: "chrome.tui.detail.field_updated",
@@ -12984,32 +12955,28 @@ const PRESETS = {
 		verify_phase: false,
 		settle_phase: false,
 		strict_spec_review: false,
-		lessons_required: "skip",
-		strict_drift_check: false
+		lessons_required: "skip"
 	},
 	light: {
 		spec_phase: true,
 		verify_phase: false,
 		settle_phase: false,
 		strict_spec_review: false,
-		lessons_required: "skip",
-		strict_drift_check: false
+		lessons_required: "skip"
 	},
 	standard: {
 		spec_phase: true,
 		verify_phase: true,
 		settle_phase: false,
 		strict_spec_review: false,
-		lessons_required: "skip",
-		strict_drift_check: false
+		lessons_required: "skip"
 	},
 	deep: {
 		spec_phase: true,
 		verify_phase: true,
 		settle_phase: true,
 		strict_spec_review: true,
-		lessons_required: "must",
-		strict_drift_check: true
+		lessons_required: "must"
 	}
 };
 function registerLifecycle(program, ctx, mutator, actor, runtimeDir, runtimeNow, executeClosureHooks) {
@@ -13619,15 +13586,13 @@ const LoafConfigConstitution = z.object({
 	allow_manual_for_requirement: z.boolean().default(true),
 	require_attachment_for_visual: z.boolean().default(true)
 }).prefault({});
-const LoafConfigLocale = z.object({ default_lang: z.enum(["en", "zh"]).default("en") }).prefault({});
 const LoafConfig = z.object({
 	schema_version: z.literal(CONFIG_SCHEMA_VERSION),
 	protected_files: z.array(z.string()).default([]),
 	stable_core: z.array(z.string()).default([]),
 	paths: WriteGuardConfigPaths.prefault({}),
 	commands: LoafConfigCommands,
-	constitution: LoafConfigConstitution,
-	locale: LoafConfigLocale
+	constitution: LoafConfigConstitution
 });
 function defaultLoafConfig() {
 	return LoafConfig.parse({ schema_version: CONFIG_SCHEMA_VERSION });
@@ -13800,7 +13765,7 @@ function registerProfileConfig(program, ctx, mutator, actor, userConfigHomeDir) 
 			actor: humanActor
 		}) }));
 	});
-	declareCommandPolicy(program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object").option("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
+	declareCommandPolicy(program.command("profile").description("Ceremony profile commands (protocol §10.8)").command("escalate").description("Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set").requiredOption("--confirm", "Human acceptance of the escalation (required)").requiredOption("--input <path>", "JSON file with the escalated five-field Ceremony object").option("--feature <name>", "Feature whose session to escalate").option("--feature-dir <path>", "Override default .loaf/<feature> directory"), {
 		selectors: "selected",
 		dryRun: "mutating"
 	}).action(async (opts) => {
@@ -16593,7 +16558,6 @@ const DETAIL_FIELD_KEYS = {
 	ceremony: CHROME_KEYS.tuiDetailFieldCeremony,
 	phase: CHROME_KEYS.tuiDetailFieldPhase,
 	iteration: CHROME_KEYS.tuiDetailFieldIteration,
-	complexity: CHROME_KEYS.tuiDetailFieldComplexity,
 	created: CHROME_KEYS.tuiDetailFieldCreated,
 	updated: CHROME_KEYS.tuiDetailFieldUpdated,
 	spec_locked: CHROME_KEYS.tuiDetailFieldSpecLocked,
@@ -16901,7 +16865,6 @@ function renderReadyDetail(vm, i18n) {
 			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "ceremony", vm.ceremony_label) }),
 			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "phase", vm.sub_state) }),
 			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "iteration", vm.iteration) }),
-			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "complexity", vm.complexity_score) }),
 			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailBasedOn(i18n, vm.based_on.spec, vm.based_on.tasks) }),
 			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "created", vm.created_at_relative) }),
 			/* @__PURE__ */ jsx(Text, { children: formatTuiDetailField(i18n, "updated", vm.updated_at_relative) }),
@@ -17004,7 +16967,6 @@ function shapeDetailViewModel(row, loaded, now, i18n) {
 		phase: i18n.t(phaseKey(state.phase)),
 		sub_state: i18n.t(subStateKey(state.sub_state)),
 		iteration: state.iteration,
-		complexity_score: state.complexity_score === null ? "n/a" : String(state.complexity_score),
 		based_on: state.based_on,
 		created_at_relative: formatAtRelative(state.created_at, now, i18n),
 		updated_at_relative: formatAtRelative(state.updated_at, now, i18n),
@@ -20359,7 +20321,6 @@ async function main(argv = process.argv, deps = {}) {
 	}
 	const userConfigLoad = await readUserConfig(deps.userConfigHomeDir ?? os.homedir());
 	const localeResolution = resolveLocale({
-		argv: [],
 		env: process.env,
 		userConfig: userConfigLoad.status === "ok" ? {
 			status: "ok",

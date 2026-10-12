@@ -174,7 +174,7 @@ export const SubState = z.enum([
 ]);
 export type SubState = z.infer<typeof SubState>;
 
-// Ceremony — six-flag schema from protocol.md §3 (rev 5.x PRESETS quick /
+// Ceremony — five-field schema from protocol.md §3 (rev 5.x PRESETS quick /
 // light / standard / deep). Drives phase activation + strict-mode gates +
 // VERIFY.accept fork (settle_phase decides SETTLE.lessons vs DONE.delivered).
 export const Ceremony = z
@@ -184,8 +184,8 @@ export const Ceremony = z
     settle_phase: z.boolean(),
     strict_spec_review: z.boolean(),
     lessons_required: z.enum(["must", "may", "skip"]),
-    strict_drift_check: z.boolean(),
   })
+  .strict()
   .refine((c) => !c.settle_phase || c.verify_phase, {
     message: "settle_phase=true requires verify_phase=true",
   })
@@ -194,9 +194,6 @@ export const Ceremony = z
   })
   .refine((c) => c.lessons_required === "skip" || c.settle_phase, {
     message: "lessons_required!=skip requires settle_phase=true",
-  })
-  .refine((c) => !c.strict_drift_check || c.settle_phase, {
-    message: "strict_drift_check=true requires settle_phase=true",
   });
 export type Ceremony = z.infer<typeof Ceremony>;
 
@@ -307,14 +304,11 @@ export const CeremonyPayload = z
     settle_phase: z.boolean(),
     strict_spec_review: z.boolean(),
     lessons_required: z.enum(["must", "may", "skip"]),
-    strict_drift_check: z.boolean(),
   })
   .strict();
 
 // Current start writers always provide ceremony_label, workspace, and the
 // version requirement. session_label remains optional for unlabeled starts.
-// complexity_score has no start-time journal source and stays outside this
-// payload; the state projection represents that absence as null.
 export const SessionStartedPayload = z
   .object({
     session_id: z.string().min(1),

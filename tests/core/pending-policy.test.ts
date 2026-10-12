@@ -151,7 +151,6 @@ test("FIFO failure remains reducer-stage after successful admission and leaves s
     settle_phase: false,
     strict_spec_review: false,
     lessons_required: "skip",
-    strict_drift_check: false,
   };
   for (const pending of [[], [prefix, row("ask_user_question")]]) {
     const snapshot: Snapshot = {

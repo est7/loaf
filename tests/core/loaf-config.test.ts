@@ -146,9 +146,6 @@ describe("LoafConfig full runtime schema", () => {
         allow_manual_for_requirement: true,
         require_attachment_for_visual: true,
       },
-      locale: {
-        default_lang: "en",
-      },
     });
   });
 

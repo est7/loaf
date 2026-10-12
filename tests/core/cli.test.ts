@@ -324,7 +324,6 @@ const STANDARD_CEREMONY: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip" as const,
-  strict_drift_check: false,
 };
 
 /**
@@ -1400,7 +1399,6 @@ const DEEP_NO_STRICT_REVIEW_CEREMONY = {
   // here and not exported beyond cli.test.ts.
   strict_spec_review: false,
   lessons_required: "must" as const,
-  strict_drift_check: true,
 };
 
 /**
@@ -4879,7 +4877,6 @@ async function expectRecommendedCommandAccepted(dir: string, action: NextActionO
           settle_phase: true,
           strict_spec_review: false,
           lessons_required: "must",
-          strict_drift_check: false,
         }),
       );
       result = await runCli(
@@ -8155,7 +8152,6 @@ describe("loaf profile escalate — Phase 13", () => {
         settle_phase: true,
         strict_spec_review: true,
         lessons_required: "must",
-        strict_drift_check: true,
       }),
     );
     return p;

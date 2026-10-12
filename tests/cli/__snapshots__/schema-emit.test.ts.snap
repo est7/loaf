@@ -1126,9 +1126,6 @@ exports[`current public schema output baseline > artifact:state 1`] = `
             "may",
             "skip"
           ]
-        },
-        "strict_drift_check": {
-          "type": "boolean"
         }
       },
       "required": [
@@ -1136,25 +1133,12 @@ exports[`current public schema output baseline > artifact:state 1`] = `
         "verify_phase",
         "settle_phase",
         "strict_spec_review",
-        "lessons_required",
-        "strict_drift_check"
+        "lessons_required"
       ],
       "additionalProperties": false
     },
     "ceremony_label": {
       "type": "string"
-    },
-    "complexity_score": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100
-        },
-        {
-          "type": "null"
-        }
-      ]
     },
     "based_on": {
       "type": "object",
@@ -1206,7 +1190,6 @@ exports[`current public schema output baseline > artifact:state 1`] = `
     "pending",
     "ceremony",
     "ceremony_label",
-    "complexity_score",
     "based_on",
     "spec_version",
     "created_at",

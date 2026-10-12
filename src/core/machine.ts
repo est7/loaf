@@ -49,13 +49,13 @@ export function defineMachine<const T extends MachineDefinition>(
 export const MACHINE = defineMachine({
   "TRIAGE.score": {
     entry: "loaf start <desc> invoked",
-    exit: "complexity_score computed (0-100)",
+    exit: "skill assesses complexity and proposes a ceremony",
     write_paths: [],
     edges: [{ target: "TRIAGE.confirm", owner_kind: "event:phase_advanced" }],
     prompt_inject: "Score 0-100 across files/api/schema/concurrency/security. Suggest profile.",
   },
   "TRIAGE.confirm": {
-    entry: "score computed",
+    entry: "skill proposes a ceremony",
     exit: "user accepts or overrides profile",
     write_paths: [],
     edges: [
@@ -75,12 +75,12 @@ export const MACHINE = defineMachine({
   },
   "SPEC.proposal": {
     entry:
-      "ceremony.spec_phase=true && TRIAGE.confirm done; OR Q9 escalation backfill (ceremony.spec_phase 由 false 改 true)",
+      "ceremony.spec_phase=true && TRIAGE.confirm done",
     exit: "spec.md body has Proposal section",
-    write_paths: [".loaf/<feature>/spec.md", ".loaf/<feature>/spec-draft-context.md"],
+    write_paths: [".loaf/<feature>/spec.md"],
     edges: [{ target: "SPEC.spec", owner_kind: "event:phase_advanced" }],
     prompt_inject:
-      "Write Proposal: why / scope / anti-scope. If backfill, read spec-draft-context.md.",
+      "Write Proposal: why / scope / anti-scope.",
   },
   "SPEC.spec": {
     entry: "proposal section exists OR amend-spec back-edge",

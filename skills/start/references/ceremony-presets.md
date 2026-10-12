@@ -1,16 +1,16 @@
 # Ceremony presets
 
 The kernel ships four built-in presets (`loaf start --ceremony <label>`). Each
-expands to the six-flag `Ceremony` object below — the values are ground truth
+expands to the five-field `Ceremony` object below — the values are ground truth
 from `src/cli/commands/lifecycle.tsx` `PRESETS` (do not paraphrase from memory; re-check if the
 kernel changes them).
 
-| preset | spec_phase | verify_phase | settle_phase | strict_spec_review | lessons_required | strict_drift_check |
-|---|---|---|---|---|---|---|
-| `quick` | false | false | false | false | `skip` | false |
-| `light` | true | false | false | false | `skip` | false |
-| `standard` | true | true | false | false | `skip` | false |
-| `deep` | true | true | true | true | `must` | true |
+| preset | spec_phase | verify_phase | settle_phase | strict_spec_review | lessons_required |
+|---|---|---|---|---|---|
+| `quick` | false | false | false | false | `skip` |
+| `light` | true | false | false | false | `skip` |
+| `standard` | true | true | false | false | `skip` |
+| `deep` | true | true | true | true | `must` |
 
 The presets are **monotonic** — each one turns on the next phase:
 
@@ -18,18 +18,17 @@ The presets are **monotonic** — each one turns on the next phase:
 quick     TRIAGE → EXECUTE → DONE
 light     TRIAGE → SPEC → EXECUTE → DONE
 standard  TRIAGE → SPEC → EXECUTE → VERIFY → DONE
-deep      TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE → DONE   (+ strict trio)
+deep      TRIAGE → SPEC → EXECUTE → VERIFY → SETTLE → DONE   (+ independent review and required lessons)
 ```
 
 `quick` has no SPEC phase, so it has no task graph: `tasks submit` / `tasks add`
 are rejected and the session delivers from `EXECUTE.done`.
 
-`deep`'s "strict trio": `strict_spec_review` makes verify-accept check 5 a hard
+`deep`'s "independent review and required lessons": `strict_spec_review` makes verify-accept check 5 a hard
 gate (independent spec-review evidence). `lessons_required: must` blocks delivery
 from SETTLE.lessons until the session contains an admitted lesson entry.
-`strict_drift_check` remains recorded but is not enforced by the kernel.
 
-The preset is a **label only**. The kernel stores the expanded six flags in the
+The preset is a **label only**. The kernel stores the expanded five fields in the
 journal and enforces everything off those flags; the label is for display. You
 pass the label; the kernel expands it. `loaf start` accepts only these four
 labels (anything else is `INVALID_PRESET`).

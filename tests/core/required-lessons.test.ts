@@ -15,7 +15,6 @@ const ceremony: Ceremony = {
   settle_phase: true,
   strict_spec_review: false,
   lessons_required: "must",
-  strict_drift_check: false,
 };
 const roots: string[] = [];
 afterEach(async () => {

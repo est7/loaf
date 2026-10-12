@@ -100,9 +100,7 @@ function indexContractViolations(html: string): string[] {
   return forbidden.flatMap(([name, pattern]) => (pattern.test(html) ? [name] : []));
 }
 
-function concurrencyContractViolations(
-  contract: typeof CONCURRENCY_INVARIANTS,
-): string[] {
+function concurrencyContractViolations(contract: typeof CONCURRENCY_INVARIANTS): string[] {
   const violations: string[] = [];
   if (contract.feature_write_lease.timeout_ms !== DEFAULT_FEATURE_WRITE_LEASE_TIMEOUT_MS) {
     violations.push("feature-lease-timeout");
@@ -134,13 +132,8 @@ function concurrencyContractViolations(
   if (contract.mutation_outcomes.post_append_failure !== "committed") {
     violations.push("post-append-outcome");
   }
-  if (
-    contract.mutation_outcomes.post_append_failure_codes !== POST_APPEND_COMMIT_FAILURE_CODES
-  ) {
+  if (contract.mutation_outcomes.post_append_failure_codes !== POST_APPEND_COMMIT_FAILURE_CODES) {
     violations.push("post-append-code-owner");
-  }
-  if (contract.orphan_attachment_gc.status !== "deferred") {
-    violations.push("orphan-attachment-gc-status");
   }
   return violations;
 }
@@ -224,20 +217,11 @@ describe("executable concurrency contract", () => {
 
   test.each([
     ["feature lease timeout", { feature_write_lease: { timeout_ms: 1 } }, "feature-lease-timeout"],
-    [
-      "feature lease mechanism",
-      { lock_mechanism: "POSIX flock" },
-      "feature-lease-mechanism",
-    ],
+    ["feature lease mechanism", { lock_mechanism: "POSIX flock" }, "feature-lease-mechanism"],
     [
       "feature lease error codes",
       { feature_write_lease: { error_codes: ["LOCK_TIMEOUT"] } },
       "feature-lease-error-codes",
-    ],
-    [
-      "orphan attachment GC status",
-      { orphan_attachment_gc: { status: "implemented" } },
-      "orphan-attachment-gc-status",
     ],
     [
       "pre-append outcome",
@@ -253,7 +237,6 @@ describe("executable concurrency contract", () => {
     const altered = replacement as {
       feature_write_lease?: Partial<typeof CONCURRENCY_INVARIANTS.feature_write_lease>;
       mutation_outcomes?: Partial<typeof CONCURRENCY_INVARIANTS.mutation_outcomes>;
-      orphan_attachment_gc?: Partial<typeof CONCURRENCY_INVARIANTS.orphan_attachment_gc>;
     };
     const changed = {
       ...CONCURRENCY_INVARIANTS,
@@ -265,10 +248,6 @@ describe("executable concurrency contract", () => {
       mutation_outcomes: {
         ...CONCURRENCY_INVARIANTS.mutation_outcomes,
         ...(altered.mutation_outcomes ?? {}),
-      },
-      orphan_attachment_gc: {
-        ...CONCURRENCY_INVARIANTS.orphan_attachment_gc,
-        ...(altered.orphan_attachment_gc ?? {}),
       },
     } as typeof CONCURRENCY_INVARIANTS;
     expect(concurrencyContractViolations(changed)).toContain(expected);

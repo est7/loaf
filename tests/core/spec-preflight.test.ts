@@ -308,7 +308,6 @@ describe("SPEC_LOCKED_NO_DIRECT_EDIT — state.spec_locked === true blocks SPEC 
           settle_phase: false,
           strict_spec_review: false,
           lessons_required: "skip",
-          strict_drift_check: false,
         },
       },
     });

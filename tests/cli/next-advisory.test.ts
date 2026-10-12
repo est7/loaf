@@ -14,7 +14,6 @@ const STANDARD = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 } as const;
 
 function input(overrides: Partial<BuildNextOutputInput> = {}): BuildNextOutputInput {

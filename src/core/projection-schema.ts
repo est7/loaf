@@ -14,8 +14,7 @@
 // Phase 15 SC1 split the old monolithic `StateJson` into `StateProjection`
 // (the journal-derived half, below) and `SessionRuntimeFile`
 // (machine-local `cwd` / `debug` / `heartbeat_at` / `pending_scope`,
-// never replay-derived, never written by `--rebuild`). `complexity_score`
-// has no journal source yet and stays `null` in the projection (F-019).
+// never replay-derived, never written by `--rebuild`).
 //
 // Layering mirrors the other neutral `*-schema.ts` modules: this module
 // imports the per-domain payload shapes (TaskFullPayload / EvidenceFullShape)
@@ -196,7 +195,7 @@ export type PendingJson = z.infer<typeof PendingJson>;
 // never written by `--rebuild` (codex r167 Q3).
 //
 // Current start metadata is required. Only session_label is nullable for
-// unlabeled starts. complexity_score has no journal source and stays null.
+// unlabeled starts.
 const StateProjectionPhase = z.enum(["TRIAGE", "SPEC", "EXECUTE", "VERIFY", "SETTLE", "DONE"]);
 
 // `pending` is the LIVE FIFO queue — only entries with no matching
@@ -225,10 +224,9 @@ export const StateProjection = z
     verify_accepted: z.boolean(),
     // ── pending FIFO queue (live — unresolved only, no `resolved` flag) ──
     pending: z.array(PendingQueueEntry),
-    // ── ceremony & scoring ──
+    // ── ceremony ──
     ceremony: Ceremony,
     ceremony_label: z.string(),
-    complexity_score: z.number().int().min(0).max(100).nullable(),
     // ── version refs ──
     based_on: z
       .object({
@@ -255,8 +253,8 @@ export type StateProjection = z.infer<typeof StateProjection>;
 // Per-session TUI projection (protocol §4.12 + RegistryFile
 // canonical). Atomic temp+rename write at `~/.loaf/registry/<id>.json`,
 // mode 0o600. Best-effort derived projection — NEVER gate authority;
-// readers (TUI / sessions list) tolerate stale, doctor --rebuild-registry
-// reconstructs from canonical artifacts (future SC).
+// readers (TUI / sessions list) tolerate stale. Every mutation and doctor
+// rebuild refresh the selected session registry from canonical truth.
 //
 // Canonical RegistryFile runtime contract. Lives here to keep the
 // runtime dependency boundary clean (no src/ imports from docs/, enforced by

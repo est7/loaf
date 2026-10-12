@@ -18,12 +18,9 @@ import { z } from "zod";
 // (MISSING_VERIFIABILITY / VAGUE_NO_SCENARIO / DRIVES_NOT_BOUND),
 // mutation rights (MUTATION_OUT_OF_RIGHTS), lock contention
 // (LOCK_TIMEOUT / LOCK_INVALID), session dispatch (4 codes), and
-// the pending-head invariant family (3 codes). GateDiagnostic
-// .failures[].code is now z.lazy(() => DiagnosticCode) (was
-// z.string().min(3)).
+// the pending-head invariant family (3 codes).
 //
-// MISSING_MEASURABLE (the older example in the GateDiagnostic
-// comment) is folded into MISSING_VERIFIABILITY: the canonical
+// MISSING_MEASURABLE is folded into MISSING_VERIFIABILITY: the canonical
 // spec-lock check is "missing one of measurable / verified_by_
 // scenarios / acceptance_na+reason", not "missing measurable" in
 // isolation. Adopting MISSING_VERIFIABILITY matches the i18n
@@ -519,7 +516,7 @@ export const ERROR_CATALOG = {
     // ADR-0006 P0 — explicit locale declarations are strict. Ambient
     // LANG/LC_* values that are unsupported fall back to en silently;
     // this diagnostic is only for explicit LOAF_LANG / user config /
-    // future --lang inputs.
+    // user locale preferences.
     exit_code: 2,
     message_template: "invalid locale from {source} (expected {accepted})",
     zh_message_template: "locale 来源 {source} 的值无效(期望:{accepted})",

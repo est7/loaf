@@ -27,7 +27,6 @@ const STANDARD_CEREMONY: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 const DEEP_CEREMONY: Ceremony = {
@@ -36,7 +35,6 @@ const DEEP_CEREMONY: Ceremony = {
   settle_phase: true,
   strict_spec_review: true,
   lessons_required: "must",
-  strict_drift_check: true,
 };
 
 // Slice 1.D: PreflightContext refactored to snapshot single-source. Helper
@@ -371,7 +369,6 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       settle_phase: false,
       strict_spec_review: false,
       lessons_required: "skip",
-      strict_drift_check: false,
     };
     // v0.1.1: verify-min landed. A quick deliver with a done code task that
     // lacks build/test evidence now fails DELIVER_VERIFY_MIN_INCOMPLETE
@@ -469,7 +466,6 @@ describe("preflight — Stage 2 §11.2 step 3", () => {
       settle_phase: false,
       strict_spec_review: false,
       lessons_required: "skip",
-      strict_drift_check: false,
     };
     const spike = {
       id: "T-005",

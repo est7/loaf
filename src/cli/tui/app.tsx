@@ -303,7 +303,6 @@ function renderReadyDetail(vm: DetailViewModel, i18n: I18n): ReactElement {
       <Text>{formatTuiDetailField(i18n, "ceremony", vm.ceremony_label)}</Text>
       <Text>{formatTuiDetailField(i18n, "phase", vm.sub_state)}</Text>
       <Text>{formatTuiDetailField(i18n, "iteration", vm.iteration)}</Text>
-      <Text>{formatTuiDetailField(i18n, "complexity", vm.complexity_score)}</Text>
       <Text>{formatTuiDetailBasedOn(i18n, vm.based_on.spec, vm.based_on.tasks)}</Text>
       <Text>{formatTuiDetailField(i18n, "created", vm.created_at_relative)}</Text>
       <Text>{formatTuiDetailField(i18n, "updated", vm.updated_at_relative)}</Text>

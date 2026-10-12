@@ -63,7 +63,7 @@ import {
  *
  * Start identity fields are read from the validated `session:started`
  * payload. Only session_label is optional and projects as null when omitted.
- * complexity_score has no journal source and remains null. created_at is the
+ * created_at is the
  * start envelope timestamp; updated_at is the last replayed entry timestamp.
  * based_on.tasks counts tasks_planned + tasks_amended entries.
  *
@@ -124,7 +124,6 @@ export function composeStateProjection(
     ),
     ceremony: state.ceremony,
     ceremony_label: ceremonyLabel,
-    complexity_score: null,
     based_on: {
       spec: snapshot.tasks_based_on?.spec ?? 0,
       tasks: tasksVersion,

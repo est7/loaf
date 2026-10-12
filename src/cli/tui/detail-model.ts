@@ -80,7 +80,6 @@ export interface DetailViewModel {
   phase: string;
   sub_state: string;
   iteration: number;
-  complexity_score: string;
   based_on: { spec: number; tasks: number };
   created_at_relative: string;
   updated_at_relative: string;
@@ -154,7 +153,6 @@ export function shapeDetailViewModel(
     phase: i18n.t(phaseKey(state.phase)),
     sub_state: i18n.t(subStateKey(state.sub_state)),
     iteration: state.iteration,
-    complexity_score: state.complexity_score === null ? "n/a" : String(state.complexity_score),
     based_on: state.based_on,
     created_at_relative: formatAtRelative(state.created_at, now, i18n),
     updated_at_relative: formatAtRelative(state.updated_at, now, i18n),

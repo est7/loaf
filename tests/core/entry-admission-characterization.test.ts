@@ -17,7 +17,6 @@ const ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip" as const,
-  strict_drift_check: false,
 };
 function snapshot(started: boolean): Snapshot {
   return {

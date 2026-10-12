@@ -49,7 +49,6 @@ const STANDARD: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 // ── Hand-built JournalEntry fixtures (pure-function tests) ───────────────
@@ -668,11 +667,6 @@ describe("composeStateProjection — Phase 15 SC1", () => {
     expect(state!.loaf_version_required).toBe("^0.8.0");
     expect(state!.workspace).toBe("default");
     expect(state!.ceremony_label).toBe("standard");
-  });
-
-  test("complexity_score is always null — no journal source (F-019)", () => {
-    const state = composeStateProjection(stateSnapshot(), [startedWidened()]);
-    expect(state!.complexity_score).toBeNull();
   });
 
   test("created_at = session:started envelope; updated_at = last replayed entry", () => {

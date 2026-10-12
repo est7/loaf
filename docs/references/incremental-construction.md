@@ -41,8 +41,7 @@ fix unit.
 
 `loaf-cli` owns all shape validation: id allocation, three-way
 verifiability, the 6 × 6 finding grid, and attachment payload shape.
-Automatic attachment hashing/copying is target design (§5), not current
-behavior; the context-pack proposal is retired (§9). `loaf-skill` and 3rd-party
+The CLI owns attachment hashing/copying (§5); the context-pack proposal is retired (§9). `loaf-skill` and 3rd-party
 workflow skills own *content*: which REQ to draft next, which task
 to claim, which finding category fits the observation.
 
@@ -131,29 +130,15 @@ trade.
 
 (ADR-0004 A6.)
 
-**Not implemented (target design)**: path-only attachments and automatic
-copy/hash/MIME inference. Current `loaf evidence add --input` requires full
-`attachments: [{ path, sha256, mime, bytes? }]` objects; `path` is relative to
-the feature directory. The caller supplies the hash and MIME type. Evidence
-is appended to `journal.jsonl` and projected to `snapshots/evidence.json`.
-The target pipeline is:
+Current input is `attachments: [{path, mime?}]`. The CLI captures each regular
+source once, hashes and copies the same binary bytes into indexed slots below
+`attachments/<owning JE-id>/`, and persists destination path, SHA-256 and
+required byte count. Caller hash/bytes are rejected.
 
-```
-1. Validate path exists + is a regular file + is readable
-2. Copy to a feature-local attachment path
-   (suffix -2 / -3 on basename collision)
-3. Compute sha256 hex
-4. Infer mime from extension + magic bytes
-5. stat() bytes
-6. Append evidence with the full { path, sha256, mime, bytes }
-   attachment payload to journal.jsonl
-```
-
-Asking an LLM to call `sha256sum` from inside a shell pipeline and
-then paste the resulting 64-character hex string into JSON is a
-near-certain failure source. Mime inference from extension alone
-is also fragile. Both are pure shape transformation — the kind of
-work `loaf-cli` exists to centralize.
+MIME is an opaque caller label, default `application/octet-stream`; it is
+never inferred or validated against content. Dry-run reads/validates without
+creating attachments. Replay rejects external refs and verifies owned binary
+bytes. See protocol §4.4 for batch and failure semantics.
 
 ## 6. Principle: batch = atomic invocation, not loop of singletons
 
@@ -216,8 +201,7 @@ at this command; CI fixtures use it to verify schema stability;
 loaf-skill prompt templates can embed it for one-shot LLM
 instruction.
 
-**Not implemented (target design)**: 2–3 worked JSON examples in each
-`--input` command's help. Current help describes options; use `--schema --format=json` to inspect the accepted input shape.
+Help describes options; use `--schema --format=json` to inspect the accepted input shape.
 
 ## 9. Retired proposal: phase-aware context packing
 

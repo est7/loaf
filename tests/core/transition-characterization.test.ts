@@ -16,7 +16,6 @@ const QUICK: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 const LIGHT: Ceremony = {
@@ -34,7 +33,6 @@ const DEEP: Ceremony = {
   settle_phase: true,
   strict_spec_review: true,
   lessons_required: "must",
-  strict_drift_check: true,
 };
 
 const ACTOR = "cli:loaf";

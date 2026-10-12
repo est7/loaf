@@ -339,7 +339,6 @@ export const CHROME_KEYS = {
   tuiDetailFieldCeremony: "chrome.tui.detail.field_ceremony",
   tuiDetailFieldPhase: "chrome.tui.detail.field_phase",
   tuiDetailFieldIteration: "chrome.tui.detail.field_iteration",
-  tuiDetailFieldComplexity: "chrome.tui.detail.field_complexity",
   tuiDetailFieldBasedOn: "chrome.tui.detail.field_based_on",
   tuiDetailFieldCreated: "chrome.tui.detail.field_created",
   tuiDetailFieldUpdated: "chrome.tui.detail.field_updated",

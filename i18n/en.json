@@ -875,7 +875,6 @@
         "field_ceremony": "ceremony: {value}",
         "field_phase": "phase: {value}",
         "field_iteration": "iteration: {value}",
-        "field_complexity": "complexity: {value}",
         "field_based_on": "based_on: spec {spec} / tasks {tasks}",
         "field_created": "created: {value}",
         "field_updated": "updated: {value}",

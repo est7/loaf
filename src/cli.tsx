@@ -155,7 +155,8 @@ function detectRenderAsJson(argv: string[]): boolean {
   // Preserve the pre-existing argv.indexOf(a) first-match behavior; changing duplicate --format handling is behavioral.
   const options = optionArgv(argv);
   return options.some(
-    (a) => a === "--format=json" || (a === "--format" && options[options.indexOf(a) + 1] === "json"),
+    (a) =>
+      a === "--format=json" || (a === "--format" && options[options.indexOf(a) + 1] === "json"),
   );
 }
 
@@ -230,19 +231,11 @@ export async function main(argv: string[] = process.argv, deps: MainDeps = {}): 
 
   const userConfigLoad = await readUserConfig(deps.userConfigHomeDir ?? os.homedir());
   const localeResolution = resolveLocale({
-    // ADR-0006 defines --lang as the highest-precedence future flag.
-    // P0 keeps the live CLI surface unchanged, so runtime wiring does
-    // not consume argv --lang yet; pure resolver tests cover the future
-    // precedence slot.
-    argv: [],
     env: process.env,
     userConfig:
       userConfigLoad.status === "ok"
         ? { status: "ok", locale: userConfigLoad.config.locale.default_lang }
         : userConfigLoad,
-    // ADR-0006: project locale fallback is deferred until dispatch/root
-    // is known. P0 wires user/env/ambient only; resolver supports
-    // projectConfig for the future root-aware call site.
   });
   if (!localeResolution.ok) {
     const presentation = parsePresentation(argv);

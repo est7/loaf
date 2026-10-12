@@ -29,7 +29,6 @@ describe("failure outlet extraction baseline", () => {
           settle_phase: false,
           strict_spec_review: false,
           lessons_required: "skip",
-          strict_drift_check: false,
         },
       };
       const stdout: string[] = [];
@@ -101,7 +100,6 @@ describe("failure outlet extraction baseline", () => {
           settle_phase: false,
           strict_spec_review: false,
           lessons_required: "skip",
-          strict_drift_check: false,
         },
       };
       const stderr: string[] = [];

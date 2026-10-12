@@ -81,5 +81,5 @@ Report enough that the user can continue by hand: (1) `next_action.command` +
 
 ## References
 
-- [references/ceremony-presets.md](references/ceremony-presets.md) — six-flag
+- [references/ceremony-presets.md](references/ceremony-presets.md) — five-field
   preset expansion + the score → preset mapping you apply in step 2.

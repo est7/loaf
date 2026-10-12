@@ -2,7 +2,7 @@
 //
 // Canonical config path is `<repoRoot>/.loaf/.config/loaf.config.json`
 // (project-level, NOT per-feature; codex Q2 lock). loaf.config carries more
-// than write-guard needs (commands / constitution / locale) — those are
+// than write-guard needs (commands / constitution) — those are
 // loaf-skill's concern. This module mirrors and STRICTLY validates only the
 // write-guard-relevant slice (protected_files + stable_core + paths); Zod's
 // default object behavior ignores the other top-level sections.
@@ -36,7 +36,7 @@ export const WriteGuardConfigPaths = z.object({
 export type WriteGuardConfigPaths = z.infer<typeof WriteGuardConfigPaths>;
 
 // Write-guard-relevant slice. NOT .strict() at the top level — the real
-// config file also carries commands / constitution / locale, which Zod's
+// config file also carries commands / constitution, which Zod's
 // default object parse silently strips (they are not write-guard's concern).
 export const WriteGuardConfig = z.object({
   schema_version: z.literal(CONFIG_SCHEMA_VERSION),
@@ -74,13 +74,6 @@ export const LoafConfigConstitution = z
   .prefault({});
 export type LoafConfigConstitution = z.infer<typeof LoafConfigConstitution>;
 
-export const LoafConfigLocale = z
-  .object({
-    default_lang: z.enum(["en", "zh"]).default("en"),
-  })
-  .prefault({});
-export type LoafConfigLocale = z.infer<typeof LoafConfigLocale>;
-
 export const LoafConfig = z.object({
   schema_version: z.literal(CONFIG_SCHEMA_VERSION),
   protected_files: z.array(z.string()).default([]),
@@ -88,7 +81,6 @@ export const LoafConfig = z.object({
   paths: WriteGuardConfigPaths.prefault({}),
   commands: LoafConfigCommands,
   constitution: LoafConfigConstitution,
-  locale: LoafConfigLocale,
 });
 export type LoafConfig = z.infer<typeof LoafConfig>;
 

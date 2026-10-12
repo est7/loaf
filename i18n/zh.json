@@ -617,7 +617,6 @@
         "field_ceremony": "仪式: {value}",
         "field_phase": "阶段: {value}",
         "field_iteration": "迭代: {value}",
-        "field_complexity": "复杂度: {value}",
         "field_based_on": "基于: spec {spec} / tasks {tasks}",
         "field_created": "创建: {value}",
         "field_updated": "更新: {value}",

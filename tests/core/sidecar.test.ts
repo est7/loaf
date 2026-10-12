@@ -10,11 +10,7 @@ import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 
-import {
-  cleanupOrphanSidecars,
-  listOrphanSidecars,
-  promoteSidecars,
-} from "../../src/core/sidecar.js";
+import { promoteSidecars } from "../../src/core/sidecar.js";
 import type { JournalEntry } from "../../src/core/journal-entry.js";
 
 async function tmpRoot(): Promise<string> {
@@ -122,53 +118,5 @@ describe("promoteSidecars — Stage 4 §11.2 step 4", () => {
     await expect(promoteSidecars(e, root, { fsync: false })).rejects.toMatchObject({
       code: "ATTACHMENT_UNAUTHORIZED",
     });
-  });
-});
-
-describe("listOrphanSidecars / cleanupOrphanSidecars — orphan GC", () => {
-  test("entry dir not in live set is reported as orphan", async () => {
-    const root = await tmpRoot();
-    await fs.mkdir(path.join(root, "attachments", "JE-000001"), { recursive: true });
-    await fs.writeFile(path.join(root, "attachments", "JE-000001", "summary.txt"), "hi");
-
-    const scan = await listOrphanSidecars(root, new Set([]));
-    expect(scan.orphan_entry_dirs).toHaveLength(1);
-    expect(scan.orphan_entry_dirs[0]).toContain("JE-000001");
-  });
-
-  test("live entry dir with .tmp-* file reports tmp as orphan but keeps dir", async () => {
-    const root = await tmpRoot();
-    const dir = path.join(root, "attachments", "JE-000001");
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, "summary.txt"), "kept");
-    await fs.writeFile(path.join(dir, "summary.txt.tmp-abc123"), "stray");
-
-    const scan = await listOrphanSidecars(root, new Set(["JE-000001"]));
-    expect(scan.orphan_entry_dirs).toHaveLength(0);
-    expect(scan.orphan_tmp_files).toHaveLength(1);
-  });
-
-  test("cleanupOrphanSidecars removes orphan entry dirs + tmp files", async () => {
-    const root = await tmpRoot();
-    await fs.mkdir(path.join(root, "attachments", "JE-000099"), { recursive: true });
-    await fs.writeFile(path.join(root, "attachments", "JE-000099", "x.txt"), "byebye");
-    await fs.mkdir(path.join(root, "attachments", "JE-000001"), { recursive: true });
-    await fs.writeFile(path.join(root, "attachments", "JE-000001", "summary.txt.tmp-xyz"), "stray");
-
-    await cleanupOrphanSidecars(root, new Set(["JE-000001"]));
-
-    await expect(fs.access(path.join(root, "attachments", "JE-000099"))).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-    await expect(
-      fs.access(path.join(root, "attachments", "JE-000001", "summary.txt.tmp-xyz")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  test("empty attachments dir yields empty scan (idempotent)", async () => {
-    const root = await tmpRoot();
-    const scan = await listOrphanSidecars(root, new Set([]));
-    expect(scan.orphan_entry_dirs).toEqual([]);
-    expect(scan.orphan_tmp_files).toEqual([]);
   });
 });

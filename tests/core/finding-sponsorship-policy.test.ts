@@ -172,7 +172,6 @@ describe("finding sponsorship owner", () => {
       settle_phase: false,
       strict_spec_review: false,
       lessons_required: "skip",
-      strict_drift_check: false,
     };
     for (const findings of [[], [{ ...finding, status: "closed" as const }]]) {
       const snapshot: Snapshot = {

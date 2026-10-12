@@ -17,7 +17,6 @@ const QUICK_CEREMONY: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 const STANDARD_CEREMONY: Ceremony = {
@@ -26,7 +25,6 @@ const STANDARD_CEREMONY: Ceremony = {
   settle_phase: false, // rev 5.x: standard 砍 SETTLE
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 const DEEP_CEREMONY: Ceremony = {
@@ -35,7 +33,6 @@ const DEEP_CEREMONY: Ceremony = {
   settle_phase: true,
   strict_spec_review: true,
   lessons_required: "must",
-  strict_drift_check: true,
 };
 
 const ACTOR = "cli:loaf";

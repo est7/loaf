@@ -1,4 +1,4 @@
-// sidecar.ts — §11.2 step 4 (sidecar finalize) + orphan GC.
+// sidecar.ts — §11.2 step 4 (sidecar finalize).
 //
 // LongTextField promotion pipeline:
 //   1. Caller builds an entry whose payload may contain LongTextField inline
@@ -11,26 +11,12 @@
 //   3. Caller hands the promoted entry to `appendEntry` (step 5 final validate
 //      then step 6 append).
 //
-// Orphan GC (§4.13 doctor startup + step 9 post-rebuild):
-//   - `listOrphanSidecars(root, liveEntryIds)` — returns directories under
-//     `attachments/` whose `<entry_id>` is not in liveEntryIds, plus any
-//     `.tmp-*` artifacts. Caller (doctor) may then delete them.
-//
-// Stage 4 scope: pipeline + orphan scan as data; the actual integration with
-// journal-append's 10-step transaction is exercised by tests through
-// `promoteSidecars` → `appendEntry` chain.
-
-import { promises as fsp } from "node:fs";
-import path from "node:path";
-
 import { LongTextField, SIDECAR_THRESHOLD_BYTES, type JournalEntry } from "./journal-entry.js";
 import {
   assertAttachmentOwnership,
   attachmentFieldsFor,
   writeAttachment,
 } from "./attachment-authority.js";
-
-const ATTACHMENTS_SUBDIR = "attachments";
 
 export interface PromoteOptions {
   /** Override threshold for tests; defaults to SIDECAR_THRESHOLD_BYTES (8KB). */
@@ -82,64 +68,4 @@ export async function promoteSidecars(
 
   if (!mutated) return entry;
   return { ...entry, payload: promotedPayload };
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Orphan GC
-// ─────────────────────────────────────────────────────────────────────
-
-export interface OrphanScanResult {
-  orphan_entry_dirs: string[]; // absolute paths
-  orphan_tmp_files: string[]; // absolute paths
-}
-
-export async function listOrphanSidecars(
-  attachmentRoot: string,
-  liveEntryIds: ReadonlySet<string>,
-): Promise<OrphanScanResult> {
-  const attachmentsDir = path.join(attachmentRoot, ATTACHMENTS_SUBDIR);
-  const out: OrphanScanResult = { orphan_entry_dirs: [], orphan_tmp_files: [] };
-
-  let entries: { name: string; isDir: boolean }[];
-  try {
-    const dirents = await fsp.readdir(attachmentsDir, { withFileTypes: true });
-    entries = dirents.map((d) => ({ name: d.name, isDir: d.isDirectory() }));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return out;
-    throw err;
-  }
-
-  for (const entry of entries) {
-    const fullPath = path.join(attachmentsDir, entry.name);
-    if (!entry.isDir) continue;
-
-    if (!liveEntryIds.has(entry.name)) {
-      out.orphan_entry_dirs.push(fullPath);
-      continue;
-    }
-
-    // Live entry dir — scan for stray .tmp-* files.
-    const sub = await fsp.readdir(fullPath, { withFileTypes: true });
-    for (const f of sub) {
-      if (f.isFile() && f.name.includes(".tmp-")) {
-        out.orphan_tmp_files.push(path.join(fullPath, f.name));
-      }
-    }
-  }
-
-  return out;
-}
-
-export async function cleanupOrphanSidecars(
-  attachmentRoot: string,
-  liveEntryIds: ReadonlySet<string>,
-): Promise<OrphanScanResult> {
-  const scan = await listOrphanSidecars(attachmentRoot, liveEntryIds);
-  for (const tmp of scan.orphan_tmp_files) {
-    await fsp.unlink(tmp).catch(() => {});
-  }
-  for (const dir of scan.orphan_entry_dirs) {
-    await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
-  return scan;
 }

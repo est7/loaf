@@ -26,7 +26,6 @@ const PRESETS: Record<string, import("../../core/journal-entry.js").Ceremony> = 
     settle_phase: false,
     strict_spec_review: false,
     lessons_required: "skip",
-    strict_drift_check: false,
   },
   light: {
     spec_phase: true,
@@ -34,7 +33,6 @@ const PRESETS: Record<string, import("../../core/journal-entry.js").Ceremony> = 
     settle_phase: false,
     strict_spec_review: false,
     lessons_required: "skip",
-    strict_drift_check: false,
   },
   standard: {
     spec_phase: true,
@@ -42,7 +40,6 @@ const PRESETS: Record<string, import("../../core/journal-entry.js").Ceremony> = 
     settle_phase: false,
     strict_spec_review: false,
     lessons_required: "skip",
-    strict_drift_check: false,
   },
   deep: {
     spec_phase: true,
@@ -50,7 +47,6 @@ const PRESETS: Record<string, import("../../core/journal-entry.js").Ceremony> = 
     settle_phase: true,
     strict_spec_review: true,
     lessons_required: "must",
-    strict_drift_check: true,
   },
 };
 

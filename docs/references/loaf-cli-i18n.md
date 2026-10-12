@@ -16,10 +16,6 @@ order: `protocol.md` §18.3. Shipped in v0.2.0.
 - Current locale order: `$LOAF_LANG` > `~/.loaf/config.json`
   `locale.default_lang` > ambient `$LC_ALL` / `$LC_MESSAGES` / `$LANG`
   (first defined) > `en`.
-- **Not implemented (target design)**: CLI `--lang` override and project
-  `loaf.config.json` locale fallback. The pure resolver supports these slots,
-  but live CLI wiring supplies neither; `--lang` is rejected as an unknown
-  option.
 
 ## Hard invariants (do not break)
 

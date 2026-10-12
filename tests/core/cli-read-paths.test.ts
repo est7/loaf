@@ -99,7 +99,7 @@ describe("SC3 contract preservation — 4 read commands, happy path", () => {
     expect(out.pending_count).toBe(0);
     // state slim shape — SessionState-compatible 9 fields ONLY. No SC1
     // bucket-C widening (session_label / workspace / loaf_version_required
-    // / ceremony_label / complexity_score / based_on / created_at /
+    // / ceremony_label / based_on / created_at /
     // updated_at / pending / schema_version stay in StateProjection but
     // MUST NOT leak through status.state).
     expect(Object.keys(out.state).sort()).toEqual([

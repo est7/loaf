@@ -40,11 +40,10 @@ optional fields; resolutions produced by profile escalation may omit `answer`.
 | §17 | Finding events and projections | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts), [`src/core/projection-schema.ts`](../src/core/projection-schema.ts) |
 | §18 | Actual-scope derivation | [`src/core/scope-projection.ts`](../src/core/scope-projection.ts) |
 | §18b | `loaf next` action, scoped rendering, and success advisories | [`src/core/reducer/transition.ts`](../src/core/reducer/transition.ts), [`src/core/next-action.ts`](../src/core/next-action.ts), [`src/cli/next-advisory.ts`](../src/cli/next-advisory.ts) |
-| §19 | Gate diagnostics | [`src/core/gates/gate-diagnostic.ts`](../src/core/gates/gate-diagnostic.ts) |
 | §20 | Resume packs | [`src/core/resume-pack-schema.ts`](../src/core/resume-pack-schema.ts) |
 | §21 | Project configuration | [`src/core/loaf-config.ts`](../src/core/loaf-config.ts) |
 | §22 | Debug trace events | [`src/cli/trace-writer.ts`](../src/cli/trace-writer.ts) |
-| §23–§24 | Ceremony shape and escalation detection | [`src/core/journal-entry.ts`](../src/core/journal-entry.ts), [`src/core/escalation-schema.ts`](../src/core/escalation-schema.ts) |
+| §23–§24 | Ceremony shape | [`src/core/journal-entry.ts`](../src/core/journal-entry.ts) |
 | §25 | Finding action effects and target modes | [`src/core/finding-schema.ts`](../src/core/finding-schema.ts) |
 | §26 | Derived sub-state contracts | [`src/core/machine.ts`](../src/core/machine.ts), [`src/core/sub-state-contracts.ts`](../src/core/sub-state-contracts.ts) |
 | §27–§27b | Step write paths and semantic categories | [`src/core/step-write-paths.ts`](../src/core/step-write-paths.ts) |

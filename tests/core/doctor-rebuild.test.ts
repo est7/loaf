@@ -28,7 +28,6 @@ const STANDARD: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 /** Capture stdout/stderr around a `main(argv)` call. Serial — patches the
@@ -564,8 +563,6 @@ describe("loaf doctor --rebuild — Phase 14 SC2", () => {
       expect(state.loaf_version_required).toBe("^0.8.0");
       expect(state.workspace).toBe("default");
       expect(state.ceremony_label).toBe("standard");
-      // complexity_score has no journal source — always null (F-019).
-      expect(state.complexity_score).toBeNull();
       // D-bucket machine-local fields never appear in the projection.
       expect(state).not.toHaveProperty("cwd");
       expect(state).not.toHaveProperty("debug");

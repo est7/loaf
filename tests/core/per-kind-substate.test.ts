@@ -22,7 +22,6 @@ const DEEP_CEREMONY: Ceremony = {
   settle_phase: true,
   strict_spec_review: true,
   lessons_required: "must",
-  strict_drift_check: true,
 };
 
 // Slice 1.D: PreflightContext refactored to snapshot single-source. Helper

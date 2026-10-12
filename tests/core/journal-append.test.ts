@@ -57,7 +57,6 @@ describe("appendEntry — Stage 1", () => {
           settle_phase: false,
           strict_spec_review: false,
           lessons_required: "skip",
-          strict_drift_check: false,
         },
       },
     };
@@ -406,7 +405,6 @@ describe("appendMany — post-append SnapshotMeta (Phase 15 SC2)", () => {
     settle_phase: false,
     strict_spec_review: false,
     lessons_required: "skip" as const,
-    strict_drift_check: false,
   };
   // A reducer-replayable entry sequence: session:started then phase walks.
   function lifecycleEntry(seq: number): JournalEntry {

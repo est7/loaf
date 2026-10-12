@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--dry-run`. Append failures that recommended this command now point at a
   real repair path.
 
+### Removed
+
+- Unconsumed target designs: diff-based fallback, persisted gate diagnostics,
+  Q9 backfill, automatic escalation/scoring, age-based registry GC, comprehensive
+  doctor cleanup/flags, direct-write mtime detection, light coverage warnings,
+  worked help examples, automatic pager and unused locale override paths.
+- **Breaking:** the unused `strict_drift_check` ceremony field and always-null
+  `complexity_score` state/TUI field. Ceremony now has five required fields;
+  canonical payloads reject retired fields.
+- Dead GateDiagnostic/escalation schemas, orphan attachment cleanup helpers,
+  project-locale config and resolver slots. Explicit recovery, pruning,
+  human escalation and implemented locale preferences remain available.
+
 ### Fixed
 
 - **Breaking:** evidence attachments now accept source `{path, mime?}` only.

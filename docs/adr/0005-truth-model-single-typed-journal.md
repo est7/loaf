@@ -1079,3 +1079,20 @@ Codex 建议的 implementation order：
 现有 `migrateV2` / `rehydrateMigration` 的 v0.0.x snapshot import 暂保留，
 后续由独立的历史格式清理包处理。它是整份旧 snapshot 的导入路径，不是
 per-entry replay upcast；本节撤回的承诺不能用于推断该导入路径已被修改。
+
+
+## 2026-10-12 amendment — Retire unconsumed target designs
+
+本 amendment 退役早期 ADR 的未消费提案；前面的正文保留为历史，不是当前能力承诺。当前执行契约由 runtime owners 与 protocol.md 描述。
+
+1. diff-based guard 不再是目标能力；Write/Edit hook 可被 Bash 或外部编辑器绕过，这是已知能力边界。
+2. gate diagnostic 持久文件与 GateDiagnostic schema 退役；失败通过 stderr catalog 出口。
+3. Q9 backfill 与 spec-draft-context artifact 退役；ceremony 升档不回退 cursor。
+4. 自动 escalation 检测与未消费的检测表退役；保留 skill 建议、人工确认的显式升档。
+5. 自动评分与恒 null 的 complexity_score 投影/TUI 字段退役；skill 评估不形成数值 journal 契约。
+6. strict_drift_check ceremony 字段及其无执行消费者的目标检查退役；保留实际 scope audit。Ceremony 为五个必填字段，不兼容带旧字段的 payload。
+7. registry 按龄 GC、单独 rebuild-registry 与综合 doctor cleanup/额外 flag、orphan helper、stale-claim 提案退役。每次 mutation 与选中 session 的 doctor rebuild 刷新 registry；保留显式 prune、tail recovery 与 generation-fenced lease 回收。
+8. 外部直写 mtime 检测提案退役；保留 projection freshness、evidence linkage 与 finding checks。
+9. light REQ coverage advisory 提案退役；quick/light 使用 per-task verify-min，完整 VERIFY gate 承担 coverage。
+10. 每命令 help 的 worked-example 承诺与自动 PAGER 提案退役；保留机器 schema 输出与普通 stdout。
+11. --lang、project locale 与用户本地 i18n bundle 覆盖提案退役，包括未消费的 resolver/config 槽；保留 LOAF_LANG、用户 locale 偏好、ambient locale 和内置 bundle fallback。

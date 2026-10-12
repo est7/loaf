@@ -165,8 +165,8 @@ export interface WriteRegistryFileOptions {
  *  see either the old file or the new file, never a torn write.
  *
  *  Best-effort: throws on IO failure; the mutateBatch step 9 caller
- *  catches + silences per §4.12 (registry is stale-tolerant; doctor
- *  --rebuild-registry recovers). */
+ *  catches + silences per §4.12 (registry is stale-tolerant;
+ *  subsequent mutations and doctor --rebuild refresh it). */
 export async function writeRegistryFile(
   sessionId: string,
   file: RegistryFile,

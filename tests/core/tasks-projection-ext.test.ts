@@ -28,7 +28,6 @@ const STANDARD_CEREMONY: Ceremony = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip",
-  strict_drift_check: false,
 };
 
 function mustOk<T extends { ok: boolean }>(

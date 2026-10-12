@@ -136,7 +136,6 @@ function happySnapshot(frontmatter: SpecFrontmatter): Snapshot {
         settle_phase: false,
         strict_spec_review: false,
         lessons_required: "skip",
-        strict_drift_check: false,
       },
     },
     tasks_based_on: { spec: frontmatter.spec_version },

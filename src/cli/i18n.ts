@@ -41,7 +41,7 @@ export type LocaleResolution =
   | {
       ok: true;
       locale: Locale;
-      source: "argv" | "env" | "user-config" | "project-config" | "ambient" | "default";
+      source: "env" | "user-config" | "ambient" | "default";
     }
   | ({ ok: false } & Diagnostic<"INVALID_LOCALE">);
 
@@ -50,15 +50,9 @@ export type LocaleConfigInput =
   | { status: "absent" }
   | { status: "invalid"; path: string; reason: string };
 
-export type ProjectLocaleInput = {
-  locale?: Locale | undefined;
-};
-
 export type ResolveLocaleInput = {
-  argv: readonly string[];
   env: Record<string, string | undefined>;
   userConfig?: LocaleConfigInput | undefined;
-  projectConfig?: ProjectLocaleInput | undefined;
 };
 
 export const BUILTIN_BUNDLES = {
@@ -80,15 +74,6 @@ function invalidLocale(source: string, value: unknown): LocaleResolution {
   };
 }
 
-function parseLangArg(argv: readonly string[]): string | undefined {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg === "--lang") return argv[i + 1];
-    if (arg.startsWith("--lang=")) return arg.slice("--lang=".length);
-  }
-  return undefined;
-}
-
 function parseAmbientLocale(env: Record<string, string | undefined>): Locale | null {
   const raw = env.LC_ALL ?? env.LC_MESSAGES ?? env.LANG;
   if (!raw || raw === "C" || raw === "POSIX") return null;
@@ -99,12 +84,6 @@ function parseAmbientLocale(env: Record<string, string | undefined>): Locale | n
 }
 
 export function resolveLocale(input: ResolveLocaleInput): LocaleResolution {
-  const argvLocale = parseLangArg(input.argv);
-  if (argvLocale !== undefined) {
-    if (!isLocale(argvLocale)) return invalidLocale("--lang", argvLocale);
-    return { ok: true, locale: argvLocale, source: "argv" };
-  }
-
   const envLocale = input.env.LOAF_LANG;
   if (envLocale !== undefined) {
     if (!isLocale(envLocale)) return invalidLocale("LOAF_LANG", envLocale);
@@ -128,10 +107,6 @@ export function resolveLocale(input: ResolveLocaleInput): LocaleResolution {
       return invalidLocale("user-config", input.userConfig.locale);
     }
     return { ok: true, locale: input.userConfig.locale, source: "user-config" };
-  }
-
-  if (input.projectConfig?.locale !== undefined) {
-    return { ok: true, locale: input.projectConfig.locale, source: "project-config" };
   }
 
   const ambient = parseAmbientLocale(input.env);

@@ -10,7 +10,6 @@ export type TuiDetailField =
   | "ceremony"
   | "phase"
   | "iteration"
-  | "complexity"
   | "created"
   | "updated"
   | "spec_locked"
@@ -29,7 +28,6 @@ const DETAIL_FIELD_KEYS = {
   ceremony: CHROME_KEYS.tuiDetailFieldCeremony,
   phase: CHROME_KEYS.tuiDetailFieldPhase,
   iteration: CHROME_KEYS.tuiDetailFieldIteration,
-  complexity: CHROME_KEYS.tuiDetailFieldComplexity,
   created: CHROME_KEYS.tuiDetailFieldCreated,
   updated: CHROME_KEYS.tuiDetailFieldUpdated,
   spec_locked: CHROME_KEYS.tuiDetailFieldSpecLocked,

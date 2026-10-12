@@ -132,7 +132,7 @@ export function registerProfileConfig(
   // ── loaf profile <subcommand> ───────────────────────────────────────
   // Phase 13 — `profile escalate` applies a ceremony escalation (protocol
   // §10.8 / §1918). Escalation POLICY (which preset to escalate to) is a
-  // skill concern (src/core/escalation-schema.ts): the skill computes the new 6-flag
+  // skill concern: the skill computes the new five-field
   // Ceremony and passes it via --input. This command does the atomic
   // [event:ceremony_set, pending:resolved] batch + the ESCALATION_NOT_PENDING
   // head guard. event:ceremony_set is ordered FIRST so preflight 5c.4 still
@@ -149,7 +149,7 @@ export function registerProfileConfig(
         "Apply a ceremony escalation — resolve the profile_escalation pending + emit event:ceremony_set",
       )
       .requiredOption("--confirm", "Human acceptance of the escalation (required)")
-      .requiredOption("--input <path>", "JSON file with the escalated 6-flag Ceremony object")
+      .requiredOption("--input <path>", "JSON file with the escalated five-field Ceremony object")
       .option("--feature <name>", "Feature whose session to escalate")
       .option("--feature-dir <path>", "Override default .loaf/<feature> directory"),
     { selectors: "selected", dryRun: "mutating" },

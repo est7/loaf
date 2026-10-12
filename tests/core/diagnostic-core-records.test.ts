@@ -13,7 +13,6 @@ describe("core diagnostic records", () => {
           settle_phase: false,
           strict_spec_review: false,
           lessons_required: "may",
-          strict_drift_check: false,
         },
       }),
     ).toEqual({

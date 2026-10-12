@@ -35,7 +35,6 @@ const STANDARD = {
   settle_phase: false,
   strict_spec_review: false,
   lessons_required: "skip" as const,
-  strict_drift_check: false,
 };
 
 describe("mutate — transactional journal write (audit r1 Blocker #3)", () => {

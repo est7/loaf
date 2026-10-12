@@ -28,7 +28,6 @@ const baseSessionStartedPayload = {
     settle_phase: false,
     strict_spec_review: false,
     lessons_required: "skip" as const,
-    strict_drift_check: false,
   },
 };
 
@@ -45,7 +44,6 @@ const baseStateProjection = {
   pending: [],
   ceremony: baseSessionStartedPayload.ceremony,
   ceremony_label: "",
-  complexity_score: null,
   based_on: { spec: 0, tasks: 0 },
   spec_version: 0,
   created_at: "2026-05-15T10:00:00.000Z",

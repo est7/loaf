@@ -5,10 +5,7 @@ import {
   FEATURE_WRITE_LEASE_ERROR_CODES,
   FEATURE_WRITE_LEASE_MECHANISM,
 } from "./feature-write-lease.js";
-import {
-  MUTATION_COMMIT_STATES,
-  POST_APPEND_COMMIT_FAILURE_CODES,
-} from "./journal-mutate.js";
+import { MUTATION_COMMIT_STATES, POST_APPEND_COMMIT_FAILURE_CODES } from "./journal-mutate.js";
 
 export const CONCURRENCY_INVARIANTS = {
   // 1. Single writer rule (rev 5.0 reanchored)
@@ -21,10 +18,9 @@ export const CONCURRENCY_INVARIANTS = {
   //                          loaf.config.json (project-level config;
   //                          non-journal but same single-writer rule)
   //      Derived projection  snapshots/*.json (state / tasks / evidence /
-  //                          findings / pending /
-  //                          gate-diagnostic / resume-pack / _meta) +
+  //                          findings / pending / resume-pack / _meta) +
   //                          spec.md (post-submit) + lessons.md +
-  //                          ~/.loaf/registry/<id>.json + spec-draft-context.md
+  //                          ~/.loaf/registry/<id>.json
   //      Debug-trace         trace.jsonl / ~/.loaf/crashes/*.json
   //      Advisory            `loaf deliver` stdout / `loaf status` stdout
   //    single_writer applies to all four layers; gate authority
@@ -32,7 +28,8 @@ export const CONCURRENCY_INVARIANTS = {
   //    Exception: spec.md MAY be edited by the CLI-owned `spec edit --input`
   //    body replacement, by $EDITOR, or by a human between `loaf spec edit`
   //    and `loaf spec submit` (SPEC.* sub_states
-  //    only); diff-guard catches out-of-window writes. Note that
+  //    only). Bash can bypass Write/Edit hooks; no diff-based fallback exists.
+  //    Note that
   //    rev 4.3 `spec add-*` commands replace this $EDITOR loop for
   //    incremental writes — they go through loaf-cli under lock and
   //    emit `event:spec_*_added` journal entries.
@@ -156,7 +153,7 @@ export const CONCURRENCY_INVARIANTS = {
   //    First Ctrl-C: cleanup hook runs, releases lock, exits 130.
   //    Second Ctrl-C: skip cleanup, exit 130 immediately. Stale
   //    .tmp-* sidecar and possibly .lock left behind. The next writer can
-  //    reclaim a dead lease generation; sidecar cleanup remains separate.
+  //    reclaim a dead lease generation; orphan files can remain.
   sigint_policy: "first-ctrl-c=cleanup; second-ctrl-c=skip; dead lease reclaimed by next writer",
 
   // 7. Atomic multi-entry batches (rev 5.0; reframed from
@@ -269,7 +266,7 @@ export const CONCURRENCY_INVARIANTS = {
   },
 
   // 7d. Batch-aware tail recovery (Gate #4, ADR-0005 §4.13)
-  //     Doctor startup tail recovery MUST operate on batch boundaries.
+  //     Explicit doctor --check-tail recovery operates on batch boundaries.
   //     A single-entry partial truncates that one line. A batch with
   //     `batch_index < batch_count - 1` at the tail (or last batch entry
   //     partial) truncates the ENTIRE batch back to the pre-batch offset.
@@ -282,21 +279,11 @@ export const CONCURRENCY_INVARIANTS = {
     rule: "scan last batch_id backward; if last batch_index < batch_count - 1 OR last entry parse-fails → batch_incomplete branch",
   },
 
-  // 7e. Orphan-attachment GC design target (NOT IMPLEMENTED).
-  //     No `loaf doctor --fix` surface exists in this release. Any future
-  //     deletion command requires a fresh recovery contract and audit trail.
-  orphan_attachment_gc: {
-    status: "deferred",
-    intended_behavior:
-      "scan attachments/ vs journal AttachmentRef set; delete orphans; log via local-check evidence",
-  },
-
   // 7f. Checksum levels (rev 5.0, ADR-0005 §3.1 / §4.15)
   //     Two-tier integrity. Fast check is reader contract (Gate #5);
-  //     full chain is explicit `loaf doctor --verify-checksum` operation.
+  //     replay recomputes canonical rolling metadata without a separate flag.
   checksum_levels: {
     fast: "O(1); reader verifies last_entry_offset + last_entry_line_hash on every snapshot read; mismatch → exit 2 SNAPSHOT_STALE_REBUILD_REQUIRED (no silent fallback)",
-    full: "O(N); `loaf doctor --verify-checksum` recomputes rolling_checksum chain from seq=0 and compares against snapshots/_meta.json — detects mid-stream corruption that fast check cannot catch",
   },
 
   // 7g. Step 5 final-validate contract (Gate #2 reinforced, ADR-0005 §4.21)
